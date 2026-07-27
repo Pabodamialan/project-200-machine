@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "450612378006",
+    "project_id": "project200machine-5559d",
+    "storage_bucket": "project200machine-5559d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:450612378006:android:37c49e05ccb658398f45b7",
+        "android_client_info": {
+          "package_name": "com.project200.machine"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2Urhs-wF-fAJVw61TSeKIjE463SlvRNk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

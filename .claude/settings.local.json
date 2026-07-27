@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(unzip -l build/app/outputs/flutter-apk/app-debug.apk)",
+      "Bash(which adb *)",
+      "Read(//Users/pabodamilan/Library/Android/sdk/platform-tools/**)"
+    ]
+  }
+}
