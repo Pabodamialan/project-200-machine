@@ -9,13 +9,30 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:video_player/video_player.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp();
+
+  if (kIsWeb) {
+    await Firebase.initializeApp(
+      options: const FirebaseOptions(
+        apiKey: "AIzaSyC6E9L9PeC6_iKwYdZQK7QhlsUln1XG7ng",
+        authDomain: "project200machine-5559d.firebaseapp.com",
+        projectId: "project200machine-5559d",
+        storageBucket: "project200machine-5559d.firebasestorage.app",
+        messagingSenderId: "450612378006",
+        appId: "1:450612378006:web:76ba286c338e94da8f45b7",
+      ),
+    );
+  } else {
+    await Firebase.initializeApp();
+  }
+
   runApp(const MyApp());
 }
 
@@ -172,6 +189,38 @@ class _LoginScreenState extends State<LoginScreen> {
   String _errorMessage = '';
   bool _obscurePassword = true;
 
+  VideoPlayerController? _videoController;
+  bool _videoInitialized = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      // Uri.parse on a bare relative path has no scheme/host, which the
+      // video_player web backend can't turn into a network request at all —
+      // resolving against the page's own URL is what actually gives it
+      // something fetchable.
+      final videoUri = Uri.base.resolve('assets/videos/login_bg.mp4');
+      final controller = VideoPlayerController.networkUrl(videoUri);
+      _videoController = controller;
+      controller.initialize().then((_) {
+        if (!mounted) return;
+        controller.setLooping(true);
+        controller.setVolume(0.0);
+        controller.play();
+        setState(() => _videoInitialized = true);
+      }).catchError((Object e, StackTrace st) {
+        debugPrint('Login background video failed to initialize: $e');
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _videoController?.dispose();
+    super.dispose();
+  }
+
   Future<void> _login() async {
     setState(() {
       _isLoading = true;
@@ -284,21 +333,20 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/images/login_background.png'),
-            fit: BoxFit.cover,
-          ),
-        ),
-        child: SafeArea(
+    final screenWidth = MediaQuery.of(context).size.width;
+    final isDesktop = screenWidth > 700;
+
+    final loginContent = SafeArea(
           child: Center(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: isDesktop ? 440 : double.infinity,
+              ),
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24.0),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
                   TweenAnimationBuilder<double>(
                     tween: Tween(begin: 0.0, end: 1.0),
                     duration: const Duration(milliseconds: 600),
@@ -341,7 +389,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.7)),
                   ),
                   const SizedBox(height: 36),
-                  GlassCard(
+                  LoginFormCard(
                     child: Column(
                       children: [
                         TextField(
@@ -408,11 +456,59 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                   ),
                 ],
+                ),
               ),
             ),
           ),
-        ),
-      ),
+        );
+
+    return Scaffold(
+      body: kIsWeb
+          ? Stack(
+              children: [
+                Positioned.fill(
+                  child: Image.asset(
+                    'assets/images/login_background_web.png',
+                    fit: BoxFit.cover,
+                  ),
+                ),
+                if (_videoInitialized && _videoController != null)
+                  Positioned.fill(
+                    child: FittedBox(
+                      fit: BoxFit.cover,
+                      child: SizedBox(
+                        width: _videoController!.value.size.width,
+                        height: _videoController!.value.size.height,
+                        child: VideoPlayer(_videoController!),
+                      ),
+                    ),
+                  ),
+                Positioned.fill(
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          AppTheme.primaryDark.withOpacity(0.45),
+                          AppTheme.primaryMid.withOpacity(0.45),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                loginContent,
+              ],
+            )
+          : Container(
+              decoration: const BoxDecoration(
+                image: DecorationImage(
+                  image: AssetImage('assets/images/login_background.png'),
+                  fit: BoxFit.cover,
+                ),
+              ),
+              child: loginContent,
+            ),
     );
   }
 }
@@ -424,36 +520,29 @@ class AdminDashboard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Admin Dashboard'),
-        backgroundColor: Colors.blue[800],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
-            },
+    Future<void> logout() async {
+      await FirebaseAuth.instance.signOut();
+      if (context.mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
+    }
+
+    final bodyContent = SingleChildScrollView(
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome, $name (Admin)',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-        ],
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Welcome, $name (Admin)',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 24),
-            _buildMenuCard(
+          const SizedBox(height: 24),
+          _WebStaggeredFadeIn(
+            index: 0,
+            child: _buildMenuCard(
               context,
               icon: Icons.person_add,
               title: 'Add Supervisor / Owner',
@@ -466,8 +555,11 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            _buildMenuCard(
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 1,
+            child: _buildMenuCard(
               context,
               icon: Icons.list_alt,
               title: 'Manage Users',
@@ -480,8 +572,11 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            _buildMenuCard(
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 2,
+            child: _buildMenuCard(
               context,
               icon: Icons.precision_manufacturing,
               title: 'Manage Machines',
@@ -494,8 +589,11 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            _buildMenuCard(
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 3,
+            child: _buildMenuCard(
               context,
               icon: Icons.location_on,
               title: 'Manage Sites',
@@ -508,8 +606,11 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            _buildMenuCard(
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 4,
+            child: _buildMenuCard(
               context,
               icon: Icons.history,
               title: 'Site History',
@@ -522,8 +623,11 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-            const SizedBox(height: 12),
-            _buildMenuCard(
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 5,
+            child: _buildMenuCard(
               context,
               icon: Icons.local_shipping,
               title: 'Manage Trucks',
@@ -536,8 +640,69 @@ class AdminDashboard extends StatelessWidget {
                 );
               },
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Admin Dashboard'),
+        backgroundColor: Colors.blue[800],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: logout,
+          ),
+        ],
+      ),
+      body: WebAppShell(
+        appName: 'NODA Admin',
+        onLogout: logout,
+        menuItems: [
+          WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+          WebSidebarItem(
+            icon: Icons.list_alt,
+            label: 'Users',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const ManageUsersScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.precision_manufacturing,
+            label: 'Machines',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const MachineManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.location_on,
+            label: 'Sites',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const SiteManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.local_shipping,
+            label: 'Trucks',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const TruckManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.bar_chart,
+            label: 'Reports',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const AdminSiteListScreen()),
+            ),
+          ),
+        ],
+        child: bodyContent,
       ),
     );
   }
@@ -958,69 +1123,74 @@ class ManageUsersScreen extends StatelessWidget {
               final isSelf = userId == currentUserUid;
               final photoBase64 = data['photoBase64'] as String?;
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: roleColor.withOpacity(0.15),
-                    backgroundImage:
-                        photoBase64 != null ? MemoryImage(base64Decode(photoBase64)) : null,
-                    child: photoBase64 == null ? Icon(Icons.person, color: roleColor) : null,
-                  ),
-                  title: Text(data['name'] ?? 'No name'),
-                  subtitle: Text('${data['email'] ?? ''}\nRole: $role'),
-                  isThreeLine: true,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => UserProfileScreen(
-                          userId: userId,
-                          userName: data['name'] ?? '',
-                          userEmail: data['email'] ?? '',
-                          userRole: role,
-                          photoBase64: photoBase64,
-                        ),
+              return _WebStaggeredFadeIn(
+                index: index,
+                child: _WebHoverCard(
+                  child: Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: roleColor.withOpacity(0.15),
+                        backgroundImage:
+                            photoBase64 != null ? MemoryImage(base64Decode(photoBase64)) : null,
+                        child: photoBase64 == null ? Icon(Icons.person, color: roleColor) : null,
                       ),
-                    );
-                  },
-                  trailing: isSelf
-                      ? null
-                      : IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () {
-                            showDialog(
-                              context: context,
-                              builder: (_) => AlertDialog(
-                                title: const Text('Delete User'),
-                                content: Text(
-                                    'Remove access for ${data['name'] ?? 'this user'}? They will no longer be able to use the app.'),
-                                actions: [
-                                  TextButton(
-                                    onPressed: () => Navigator.pop(context),
-                                    child: const Text('Cancel'),
+                      title: Text(data['name'] ?? 'No name'),
+                      subtitle: Text('${data['email'] ?? ''}\nRole: $role'),
+                      isThreeLine: true,
+                      onTap: () {
+                        pushWebAware(
+                          context,
+                          UserProfileScreen(
+                            userId: userId,
+                            userName: data['name'] ?? '',
+                            userEmail: data['email'] ?? '',
+                            userRole: role,
+                            photoBase64: photoBase64,
+                          ),
+                        );
+                      },
+                      trailing: isSelf
+                          ? null
+                          : IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: const Text('Delete User'),
+                                    content: Text(
+                                        'Remove access for ${data['name'] ?? 'this user'}? They will no longer be able to use the app.'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          await FirebaseFirestore.instance
+                                              .collection('users')
+                                              .doc(userId)
+                                              .delete();
+                                          if (context.mounted) {
+                                            Navigator.pop(context);
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              const SnackBar(content: Text('User access removed.')),
+                                            );
+                                          }
+                                        },
+                                        style:
+                                            ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+                                        child: const Text('DELETE',
+                                            style: TextStyle(color: Colors.white)),
+                                      ),
+                                    ],
                                   ),
-                                  ElevatedButton(
-                                    onPressed: () async {
-                                      await FirebaseFirestore.instance
-                                          .collection('users')
-                                          .doc(userId)
-                                          .delete();
-                                      if (context.mounted) {
-                                        Navigator.pop(context);
-                                        ScaffoldMessenger.of(context).showSnackBar(
-                                          const SnackBar(content: Text('User access removed.')),
-                                        );
-                                      }
-                                    },
-                                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
-                                    child: const Text('DELETE', style: TextStyle(color: Colors.white)),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
+                                );
+                              },
+                            ),
+                    ),
+                  ),
                 ),
               );
             },
@@ -1162,32 +1332,36 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                     final data = machines[index].data() as Map<String, dynamic>;
                     final docId = machines[index].id;
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.orange.withOpacity(0.15),
-                          child: const Icon(Icons.precision_manufacturing, color: Colors.orange),
-                        ),
-                        title: Text(data['name'] ?? ''),
-                        subtitle: Text('${data['type'] ?? ''} • ${data['number'] ?? ''}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteMachine(docId),
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => MachineProfileScreen(
-                                machineId: docId,
-                                machineName: data['name'] ?? '',
-                                machineType: data['type'] ?? '',
-                                machineNumber: data['number'] ?? '',
-                              ),
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.orange.withOpacity(0.15),
+                              child: const Icon(Icons.precision_manufacturing,
+                                  color: Colors.orange),
                             ),
-                          );
-                        },
+                            title: Text(data['name'] ?? ''),
+                            subtitle: Text('${data['type'] ?? ''} • ${data['number'] ?? ''}'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteMachine(docId),
+                            ),
+                            onTap: () {
+                              pushWebAware(
+                                context,
+                                MachineProfileScreen(
+                                  machineId: docId,
+                                  machineName: data['name'] ?? '',
+                                  machineType: data['type'] ?? '',
+                                  machineNumber: data['number'] ?? '',
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -1313,18 +1487,23 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                     final data = sites[index].data() as Map<String, dynamic>;
                     final docId = sites[index].id;
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.teal.withOpacity(0.15),
-                          child: const Icon(Icons.location_on, color: Colors.teal),
-                        ),
-                        title: Text(data['name'] ?? ''),
-                        subtitle: Text(data['location'] ?? ''),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteSite(docId),
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.teal.withOpacity(0.15),
+                              child: const Icon(Icons.location_on, color: Colors.teal),
+                            ),
+                            title: Text(data['name'] ?? ''),
+                            subtitle: Text(data['location'] ?? ''),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteSite(docId),
+                            ),
+                          ),
                         ),
                       ),
                     );
@@ -1352,26 +1531,17 @@ class OwnerDashboard extends StatelessWidget {
   Widget build(BuildContext context) {
     final todayDate = _todayString();
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Owner Dashboard'),
-        backgroundColor: Colors.green[800],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: () async {
-              await FirebaseAuth.instance.signOut();
-              if (context.mounted) {
-                Navigator.pushReplacement(
-                  context,
-                  MaterialPageRoute(builder: (_) => const LoginScreen()),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-      body: RefreshIndicator(
+    Future<void> logout() async {
+      await FirebaseAuth.instance.signOut();
+      if (context.mounted) {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      }
+    }
+
+    final bodyContent = RefreshIndicator(
         onRefresh: () async {},
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -1404,20 +1574,26 @@ class OwnerDashboard extends StatelessWidget {
                   return Row(
                     children: [
                       Expanded(
-                        child: _summaryCard(
-                          'Active Machines',
-                          activeSessions.toString(),
-                          Icons.precision_manufacturing,
-                          Colors.green,
+                        child: _WebStaggeredFadeIn(
+                          index: 0,
+                          child: _summaryCard(
+                            'Active Machines',
+                            activeSessions,
+                            Icons.precision_manufacturing,
+                            Colors.green,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: _summaryCard(
-                          'Total Sessions Today',
-                          sessions.length.toString(),
-                          Icons.today,
-                          Colors.blue,
+                        child: _WebStaggeredFadeIn(
+                          index: 1,
+                          child: _summaryCard(
+                            'Total Sessions Today',
+                            sessions.length,
+                            Icons.today,
+                            Colors.blue,
+                          ),
                         ),
                       ),
                     ],
@@ -1534,30 +1710,36 @@ class OwnerDashboard extends StatelessWidget {
               ),
               const SizedBox(height: 24),
 
-              DashboardMenuCard(
-                icon: Icons.location_on,
-                title: 'Sites',
-                subtitle: 'View all sites and their history',
-                color: Colors.teal,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const AdminSiteListScreen()),
-                  );
-                },
+              _WebStaggeredFadeIn(
+                index: 2,
+                child: DashboardMenuCard(
+                  icon: Icons.location_on,
+                  title: 'Sites',
+                  subtitle: 'View all sites and their history',
+                  color: Colors.teal,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const AdminSiteListScreen()),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 12),
-              DashboardMenuCard(
-                icon: Icons.groups,
-                title: 'Team',
-                subtitle: 'View supervisors and drivers',
-                color: Colors.deepPurple,
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const TeamCategoryScreen()),
-                  );
-                },
+              _WebStaggeredFadeIn(
+                index: 3,
+                child: DashboardMenuCard(
+                  icon: Icons.groups,
+                  title: 'Team',
+                  subtitle: 'View supervisors and drivers',
+                  color: Colors.deepPurple,
+                  onTap: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const TeamCategoryScreen()),
+                    );
+                  },
+                ),
               ),
               const SizedBox(height: 24),
 
@@ -1675,6 +1857,42 @@ class OwnerDashboard extends StatelessWidget {
             ],
           ),
         ),
+      );
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Owner Dashboard'),
+        backgroundColor: Colors.green[800],
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: logout,
+          ),
+        ],
+      ),
+      body: WebAppShell(
+        appName: 'NODA Owner',
+        onLogout: logout,
+        menuItems: [
+          WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+          WebSidebarItem(
+            icon: Icons.location_on,
+            label: 'Sites',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const AdminSiteListScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.groups,
+            label: 'Team',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const TeamCategoryScreen()),
+            ),
+          ),
+        ],
+        child: bodyContent,
       ),
     );
   }
@@ -1699,7 +1917,8 @@ Future<Map<String, int>> _calculateCategoryLoadCounts(List<QueryDocumentSnapshot
 
     return loadCountsByCategory;
   }
-  Widget _summaryCard(String label, String value, IconData icon, Color color) {
+  Widget _summaryCard(String label, int value, IconData icon, Color color) {
+    const valueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold);
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -1710,7 +1929,15 @@ Future<Map<String, int>> _calculateCategoryLoadCounts(List<QueryDocumentSnapshot
           children: [
             Icon(icon, color: color, size: 28),
             const SizedBox(height: 8),
-            Text(value, style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+            kIsWeb
+                ? TweenAnimationBuilder<int>(
+                    tween: IntTween(begin: 0, end: value),
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeOut,
+                    builder: (context, animatedValue, _) =>
+                        Text('$animatedValue', style: valueStyle),
+                  )
+                : Text('$value', style: valueStyle),
             Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
           ],
         ),
@@ -2142,12 +2369,27 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     String? billNumber,
     String? unloadingSiteName,
     double? distanceKm,
-    double? startMeter,
     String? truckDriverName,
     String? cubeCount,
     String? machineOperatorName,
   }) async {
     await _pauseRunningRecord();
+
+    // Only the day's first Loading task inherits the day-level start meter;
+    // meter tracking beyond that point happens at the day level (see
+    // _showEndDayDialog), not per task.
+    double? startMeter;
+    if (isLoadingCategory) {
+      final existingLoadingSnap =
+          await _recordsRef.where('isLoadingCategory', isEqualTo: true).limit(1).get();
+      if (existingLoadingSnap.docs.isEmpty) {
+        final sessionDoc = await FirebaseFirestore.instance
+            .collection('daily_sessions')
+            .doc(widget.sessionId)
+            .get();
+        startMeter = (sessionDoc.data()?['startMeter'] as num?)?.toDouble();
+      }
+    }
 
     await _recordsRef.add({
       'category': category,
@@ -2171,95 +2413,64 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     });
   }
 
-  // Complete a loading record (final close - enters End Meter)
-  Future<void> _completeLoadingRecord(String recordId, double endMeter) async {
-    final doc = await _recordsRef.doc(recordId).get();
-    final data = doc.data() as Map<String, dynamic>;
-    final lastResumedAt = (data['lastResumedAt'] as Timestamp?)?.toDate();
-    final currentTotal = (data['totalDurationSeconds'] ?? 0) as int;
+  // Complete a loading record. Meter readings are no longer taken per task -
+  // endMeter stays null here and only gets filled in for the day's last
+  // Loading task when the supervisor ends the day (see _showEndDayDialog).
+  Future<void> _completeLoadingRecord(String recordId) async {
+    try {
+      final doc = await _recordsRef.doc(recordId).get();
+      final data = doc.data() as Map<String, dynamic>;
+      final lastResumedAt = (data['lastResumedAt'] as Timestamp?)?.toDate();
+      final currentTotal = (data['totalDurationSeconds'] ?? 0) as int;
 
-    int addedSeconds = 0;
-    if (lastResumedAt != null) {
-      addedSeconds = DateTime.now().difference(lastResumedAt).inSeconds;
-    }
+      int addedSeconds = 0;
+      if (lastResumedAt != null) {
+        addedSeconds = DateTime.now().difference(lastResumedAt).inSeconds;
+      }
+      final newTotal = currentTotal + addedSeconds;
 
-    await _recordsRef.doc(recordId).update({
-      'status': 'paused',
-      'totalDurationSeconds': currentTotal + addedSeconds,
-      'lastResumedAt': null,
-      'endMeter': endMeter,
-      'loadCompletedAt': FieldValue.serverTimestamp(),
-      'isCompleted': true,
-    });
+      await _recordsRef.doc(recordId).update({
+        'status': 'paused',
+        'totalDurationSeconds': newTotal,
+        'lastResumedAt': null,
+        'endMeter': null,
+        'loadCompletedAt': FieldValue.serverTimestamp(),
+        'isCompleted': true,
+      });
 
-    // Sync this completed load to Google Sheets
-    final updatedDoc = await _recordsRef.doc(recordId).get();
-    final updatedData = updatedDoc.data() as Map<String, dynamic>;
+      // Sync this completed load to Google Sheets
+      final updatedDoc = await _recordsRef.doc(recordId).get();
+      final updatedData = updatedDoc.data() as Map<String, dynamic>;
 
-    GoogleSheetsService.sendRow(
-      sheetName: 'Supervisor_Loads',
-      row: [
-        GoogleSheetsService.formatDate(DateTime.now()),
-        widget.machineName,
-        widget.siteName,
-        widget.supervisorName,
-        updatedData['category'] ?? '',
-        updatedData['truckNumber'] ?? '',
-        updatedData['billNumber'] ?? '',
-        updatedData['unloadingSiteName'] ?? '',
-        updatedData['distanceKm']?.toString() ?? '',
-        updatedData['startMeter']?.toString() ?? '',
-        endMeter.toString(),
-        (endMeter - ((updatedData['startMeter'] ?? 0) as num)).toStringAsFixed(1),
-        GoogleSheetsService.formatTime(updatedData['loadStartedAt']),
-        GoogleSheetsService.formatTime(updatedData['loadCompletedAt']),
-        updatedData['truckDriverName'] ?? '',
-        updatedData['cubeCount'] ?? '',
-        updatedData['machineOperatorName'] ?? '',
-      ],
-    );
-  }
-
-  void _showCompleteLoadDialog(String recordId, double? startMeter) {
-    final endMeterController = TextEditingController();
-    showDialog(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('Complete Load'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('Start Meter: ${startMeter ?? "-"}'),
-            const SizedBox(height: 12),
-            TextField(
-              controller: endMeterController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                labelText: 'End Meter Reading',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              final endMeter = double.tryParse(endMeterController.text.trim());
-              if (endMeter == null) return;
-              await _completeLoadingRecord(recordId, endMeter);
-              if (context.mounted) Navigator.pop(context);
-            },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-            child: const Text('COMPLETE', style: TextStyle(color: Colors.white)),
-          ),
+      GoogleSheetsService.sendRow(
+        sheetName: 'Supervisor_Loads',
+        row: [
+          GoogleSheetsService.formatDate(DateTime.now()),
+          widget.machineName,
+          widget.siteName,
+          widget.supervisorName,
+          updatedData['category'] ?? '',
+          updatedData['truckNumber'] ?? '',
+          updatedData['billNumber'] ?? '',
+          updatedData['unloadingSiteName'] ?? '',
+          updatedData['distanceKm']?.toString() ?? '',
+          updatedData['startMeter']?.toString() ?? '',
+          updatedData['endMeter']?.toString() ?? '',
+          _formatDuration(newTotal),
+          GoogleSheetsService.formatTime(updatedData['loadStartedAt']),
+          GoogleSheetsService.formatTime(updatedData['loadCompletedAt']),
+          updatedData['truckDriverName'] ?? '',
+          updatedData['cubeCount'] ?? '',
+          updatedData['machineOperatorName'] ?? '',
         ],
-      ),
-    );
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to complete load: $e')),
+        );
+      }
+    }
   }
 
   int _liveElapsedSeconds(Map<String, dynamic> data) {
@@ -2295,7 +2506,6 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
             billNumber: billNumber,
             unloadingSiteName: unloadingSiteName,
             distanceKm: distanceKm,
-            startMeter: startMeter,
             truckDriverName: truckDriverName,
             cubeCount: cubeCount,
             machineOperatorName: machineOperatorName,
@@ -2335,21 +2545,65 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
           ElevatedButton(
             onPressed: () async {
               if (endMeterController.text.trim().isEmpty) return;
-              await _pauseRunningRecord();
-              await FirebaseFirestore.instance
-                  .collection('daily_sessions')
-                  .doc(widget.sessionId)
-                  .update({
-                'endMeter': double.tryParse(endMeterController.text.trim()) ?? 0,
-                'status': 'completed',
-                'completedAt': FieldValue.serverTimestamp(),
-              });
-              if (context.mounted) {
-                // Close dialog and go back to supervisor home in one atomic
-                // call — two sequential pop()s on the same Navigator race
-                // with the first pop's in-flight rebuild and hit the
-                // '!_debugLocked' assertion.
-                Navigator.of(context).popUntil((route) => route.isFirst);
+              try {
+                await _pauseRunningRecord();
+                final endMeterValue = double.tryParse(endMeterController.text.trim()) ?? 0;
+
+                await FirebaseFirestore.instance
+                    .collection('daily_sessions')
+                    .doc(widget.sessionId)
+                    .update({
+                  'endMeter': endMeterValue,
+                  'status': 'completed',
+                  'completedAt': FieldValue.serverTimestamp(),
+                });
+
+                // Stamp the day's last Loading task with the same end meter.
+                // No orderBy here on purpose: pairing it with the equality
+                // filter above would require a composite Firestore index
+                // that isn't provisioned for this project, which made this
+                // query throw FAILED_PRECONDITION and abort the handler
+                // before the dialog could close.
+                final loadingSnap =
+                    await _recordsRef.where('isLoadingCategory', isEqualTo: true).get();
+                if (loadingSnap.docs.isNotEmpty) {
+                  QueryDocumentSnapshot? lastLoadingDoc;
+                  Timestamp? lastLoadingTime;
+                  for (final candidate in loadingSnap.docs) {
+                    final candidateTime =
+                        (candidate.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                    if (lastLoadingDoc == null) {
+                      // First candidate always starts as the current pick.
+                      lastLoadingDoc = candidate;
+                      lastLoadingTime = candidateTime;
+                    } else if (lastLoadingTime == null) {
+                      // Current pick has no createdAt to compare against; any
+                      // later candidate replaces it.
+                      lastLoadingDoc = candidate;
+                      lastLoadingTime = candidateTime;
+                    } else if (candidateTime != null &&
+                        candidateTime.compareTo(lastLoadingTime) > 0) {
+                      // Strictly newer candidate replaces the current pick.
+                      lastLoadingDoc = candidate;
+                      lastLoadingTime = candidateTime;
+                    }
+                  }
+                  await lastLoadingDoc!.reference.update({'endMeter': endMeterValue});
+                }
+
+                if (context.mounted) {
+                  // Close dialog and go back to supervisor home in one atomic
+                  // call — two sequential pop()s on the same Navigator race
+                  // with the first pop's in-flight rebuild and hit the
+                  // '!_debugLocked' assertion.
+                  Navigator.of(context).popUntil((route) => route.isFirst);
+                }
+              } catch (e) {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to end day: $e')),
+                  );
+                }
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
@@ -2513,11 +2767,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                               const SizedBox(height: 4),
                               Text(
                                   'Start Meter: ${data['startMeter'] ?? "-"}'
-                                  '${data['isCompleted'] == true ? "  •  End Meter: ${data['endMeter']}" : ""}',
+                                  '${data['isCompleted'] == true ? "  •  End Meter: ${data['endMeter'] ?? "-"}" : ""}',
                                   style: const TextStyle(fontSize: 13)),
-                              if (data['isCompleted'] == true)
+                              if (data['isCompleted'] == true &&
+                                  data['startMeter'] != null &&
+                                  data['endMeter'] != null)
                                 Text(
-                                    'Meter Run: ${((data['endMeter'] ?? 0) - (data['startMeter'] ?? 0)).toStringAsFixed(1)}',
+                                    'Meter Run: ${((data['endMeter'] as num) - (data['startMeter'] as num)).toStringAsFixed(1)}',
                                     style: const TextStyle(
                                         fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue)),
                               Text(
@@ -2551,8 +2807,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: ElevatedButton.icon(
-                                        onPressed: () => _showCompleteLoadDialog(
-                                            doc.id, (data['startMeter'] as num?)?.toDouble()),
+                                        onPressed: () => _completeLoadingRecord(doc.id),
                                         icon: const Icon(Icons.check, color: Colors.white),
                                         label: const Text('COMPLETE', style: TextStyle(color: Colors.white)),
                                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
@@ -2575,8 +2830,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                                     const SizedBox(width: 8),
                                     Expanded(
                                       child: ElevatedButton.icon(
-                                        onPressed: () => _showCompleteLoadDialog(
-                                            doc.id, (data['startMeter'] as num?)?.toDouble()),
+                                        onPressed: () => _completeLoadingRecord(doc.id),
                                         icon: const Icon(Icons.check, color: Colors.white),
                                         label: const Text('COMPLETE', style: TextStyle(color: Colors.white)),
                                         style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
@@ -2659,7 +2913,6 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
   String? _selectedOperatorName;
   final _billNumberController = TextEditingController();
   final _distanceController = TextEditingController();
-  final _startMeterController = TextEditingController();
   String _errorText = '';
 
   bool get _isLoadingCategory =>
@@ -2688,10 +2941,6 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         setState(() => _errorText = 'Distance (KM) is required.');
         return;
       }
-      if (_startMeterController.text.trim().isEmpty) {
-        setState(() => _errorText = 'Start Meter is required for loading work.');
-        return;
-      }
 
       widget.onSubmit(
         _selectedCategory!,
@@ -2699,7 +2948,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         _billNumberController.text.trim(),
         _selectedUnloadingSiteName,
         double.tryParse(_distanceController.text.trim()),
-        double.tryParse(_startMeterController.text.trim()),
+        null,
         _truckDriverController.text.trim().isEmpty ? null : _truckDriverController.text.trim(),
         _cubeController.text.trim().isEmpty ? null : _cubeController.text.trim(),
         _selectedOperatorName,
@@ -2823,15 +3072,6 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Distance (KM) *',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _startMeterController,
-                keyboardType: TextInputType.number,
-                decoration: InputDecoration(
-                  labelText: 'Start Meter Reading *',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
                 ),
               ),
@@ -4161,6 +4401,267 @@ class AppTheme {
   );
 }
 
+// ---------------- WEB APP SHELL (desktop sidebar layout, web only) ----------------
+class WebSidebarItem {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const WebSidebarItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+}
+
+// Reusable shell that adds a fixed desktop sidebar around a screen's body
+// content on wide web viewports. On mobile (or a narrow web window) it's a
+// pure pass-through — returns child as-is, no wrapper — so it can never
+// affect the mobile app layout.
+class WebAppShell extends StatelessWidget {
+  static const double sidebarWidth = 250;
+  static const double desktopBreakpoint = 900;
+
+  final String appName;
+  final List<WebSidebarItem> menuItems;
+  final VoidCallback onLogout;
+  final Widget child;
+
+  const WebAppShell({
+    super.key,
+    required this.appName,
+    required this.menuItems,
+    required this.onLogout,
+    required this.child,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktopWeb =
+        kIsWeb && MediaQuery.of(context).size.width > desktopBreakpoint;
+    if (!isDesktopWeb) {
+      return child;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Container(
+          width: sidebarWidth,
+          decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+          child: SafeArea(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 28, 20, 24),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppTheme.accent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        alignment: Alignment.center,
+                        child: const Text(
+                          'N',
+                          style: TextStyle(
+                            color: AppTheme.primaryDark,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 18,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          appName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: ListView(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    children: menuItems
+                        .map((item) => _WebSidebarTile(
+                              icon: item.icon,
+                              label: item.label,
+                              onTap: item.onTap,
+                            ))
+                        .toList(),
+                  ),
+                ),
+                const Divider(color: Colors.white24, height: 1),
+                _WebSidebarTile(icon: Icons.logout, label: 'Logout', onTap: onLogout),
+                const SizedBox(height: 12),
+              ],
+            ),
+          ),
+        ),
+        Expanded(child: child),
+      ],
+    );
+  }
+}
+
+class _WebSidebarTile extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _WebSidebarTile({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  State<_WebSidebarTile> createState() => _WebSidebarTileState();
+}
+
+class _WebSidebarTileState extends State<_WebSidebarTile> {
+  bool _hovering = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovering = true),
+      onExit: (_) => setState(() => _hovering = false),
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          decoration: BoxDecoration(
+            color: _hovering ? Colors.white.withOpacity(0.14) : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Row(
+            children: [
+              Icon(widget.icon, color: Colors.white, size: 20),
+              const SizedBox(width: 12),
+              Text(
+                widget.label,
+                style: const TextStyle(color: Colors.white, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// Staggered fade-in + slide-up entrance for dashboard cards, web only. On
+// mobile it's a pure pass-through (no timer, no extra animation) so it can
+// never affect the mobile app.
+class _WebStaggeredFadeIn extends StatefulWidget {
+  final int index;
+  final Widget child;
+
+  const _WebStaggeredFadeIn({required this.index, required this.child});
+
+  @override
+  State<_WebStaggeredFadeIn> createState() => _WebStaggeredFadeInState();
+}
+
+class _WebStaggeredFadeInState extends State<_WebStaggeredFadeIn> {
+  bool _start = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      Future.delayed(Duration(milliseconds: 70 * widget.index), () {
+        if (mounted) setState(() => _start = true);
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) return widget.child;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0.0, end: _start ? 1.0 : 0.0),
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * 16),
+          child: child,
+        ),
+      ),
+      child: widget.child,
+    );
+  }
+}
+
+// Generic hover scale + shadow wrapper for list-item cards, web only.
+// Wraps any existing card widget without needing to touch its own
+// decoration/elevation — mobile gets _hovering permanently false via the
+// kIsWeb guard, so AnimatedScale/AnimatedContainer settle on unchanged
+// static values and there is no visible or behavioral difference.
+class _WebHoverCard extends StatefulWidget {
+  final Widget child;
+
+  const _WebHoverCard({required this.child});
+
+  @override
+  State<_WebHoverCard> createState() => _WebHoverCardState();
+}
+
+class _WebHoverCardState extends State<_WebHoverCard> {
+  bool _hovering = false;
+
+  void _setHover(bool value) {
+    if (!kIsWeb) return;
+    setState(() => _hovering = value);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      onEnter: (_) => _setHover(true),
+      onExit: (_) => _setHover(false),
+      cursor: kIsWeb ? SystemMouseCursors.click : MouseCursor.defer,
+      child: AnimatedScale(
+        scale: _hovering ? 1.03 : 1.0,
+        duration: const Duration(milliseconds: 150),
+        curve: Curves.easeOut,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: _hovering
+                ? [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.20),
+                      blurRadius: 20,
+                      offset: const Offset(0, 8),
+                    ),
+                  ]
+                : const [],
+          ),
+          child: widget.child,
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------- GRADIENT BUTTON (with press animation) ----------------
 class GradientButton extends StatefulWidget {
   final String label;
@@ -4243,16 +4744,9 @@ class GlassCard extends StatelessWidget {
     return Container(
       padding: padding,
       decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.92),
+        color: Colors.white.withOpacity(0.12),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withOpacity(0.5), width: 1),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.2),
-            blurRadius: 16,
-            offset: const Offset(0, 4),
-          ),
-        ],
+        border: Border.all(color: Colors.white.withOpacity(0.2), width: 1),
       ),
       child: child,
     );
@@ -4282,56 +4776,81 @@ class DashboardMenuCard extends StatefulWidget {
 
 class _DashboardMenuCardState extends State<DashboardMenuCard> {
   double _scale = 1.0;
+  bool _hovering = false;
+
+  // Web-only hover scale/shadow — mobile has no cursor, so this never fires
+  // there, but the kIsWeb guard keeps it explicit and inert on mobile too.
+  void _setHover(bool value) {
+    if (!kIsWeb) return;
+    setState(() {
+      _hovering = value;
+      _scale = value ? 1.03 : 1.0;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _scale = 0.97),
-      onTapUp: (_) {
-        setState(() => _scale = 1.0);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _scale = 1.0),
-      child: AnimatedScale(
-        scale: _scale,
-        duration: const Duration(milliseconds: 100),
-        child: Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [AppTheme.softShadow],
-          ),
-          child: Row(
-            children: [
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [widget.color.withOpacity(0.8), widget.color],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+    return MouseRegion(
+      onEnter: (_) => _setHover(true),
+      onExit: (_) => _setHover(false),
+      cursor: kIsWeb ? SystemMouseCursors.click : MouseCursor.defer,
+      child: GestureDetector(
+        onTapDown: (_) => setState(() => _scale = 0.97),
+        onTapUp: (_) {
+          setState(() => _scale = _hovering ? 1.03 : 1.0);
+          widget.onTap();
+        },
+        onTapCancel: () => setState(() => _scale = _hovering ? 1.03 : 1.0),
+        child: AnimatedScale(
+          scale: _scale,
+          duration: const Duration(milliseconds: 100),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(18),
+              boxShadow: [
+                _hovering
+                    ? BoxShadow(
+                        color: Colors.black.withOpacity(0.20),
+                        blurRadius: 24,
+                        offset: const Offset(0, 10),
+                      )
+                    : AppTheme.softShadow,
+              ],
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 52,
+                  height: 52,
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [widget.color.withOpacity(0.8), widget.color],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
                   ),
-                  borderRadius: BorderRadius.circular(14),
+                  child: Icon(widget.icon, color: Colors.white, size: 26),
                 ),
-                child: Icon(widget.icon, color: Colors.white, size: 26),
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.title,
-                        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                    const SizedBox(height: 2),
-                    Text(widget.subtitle,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600])),
-                  ],
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(widget.title,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      const SizedBox(height: 2),
+                      Text(widget.subtitle,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                    ],
+                  ),
                 ),
-              ),
-              Icon(Icons.chevron_right, color: Colors.grey[400]),
-            ],
+                Icon(Icons.chevron_right, color: Colors.grey[400]),
+              ],
+            ),
           ),
         ),
       ),
@@ -4472,6 +4991,16 @@ class FadeSlideRoute extends PageRouteBuilder {
           },
         );
 }
+
+// Web gets the fade+slide transition; mobile keeps its native platform
+// page transition (MaterialPageRoute) untouched.
+void pushWebAware(BuildContext context, Widget page) {
+  Navigator.push(
+    context,
+    kIsWeb ? FadeSlideRoute(page: page) : MaterialPageRoute(builder: (_) => page),
+  );
+}
+
 // ---------------- SUPERVISOR HISTORY SCREEN ----------------
 class SupervisorHistoryScreen extends StatelessWidget {
   final String sessionId;
@@ -4680,7 +5209,7 @@ class SupervisorHistoryScreen extends StatelessWidget {
                                             ),
                                             if (data['isCompleted'] == true)
                                               Text(
-                                                'Meter: ${data['startMeter']} → ${data['endMeter']}  •  ${_formatTime(data['loadStartedAt'])} - ${_formatTime(data['loadCompletedAt'])}',
+                                                'Meter: ${data['startMeter'] ?? "-"} → ${data['endMeter'] ?? "-"}  •  ${_formatTime(data['loadStartedAt'])} - ${_formatTime(data['loadCompletedAt'])}',
                                                 style: TextStyle(
                                                     color: Colors.white.withOpacity(0.6), fontSize: 11),
                                               ),
@@ -5141,22 +5670,23 @@ class AdminSiteListScreen extends StatelessWidget {
                         final data = sites[index].data() as Map<String, dynamic>;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: DashboardMenuCard(
-                            icon: Icons.location_on,
-                            title: data['name'] ?? '',
-                            subtitle: data['location'] ?? '',
-                            color: Colors.teal,
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (_) => SiteHistoryScreen(
+                          child: _WebStaggeredFadeIn(
+                            index: index,
+                            child: DashboardMenuCard(
+                              icon: Icons.location_on,
+                              title: data['name'] ?? '',
+                              subtitle: data['location'] ?? '',
+                              color: Colors.teal,
+                              onTap: () {
+                                pushWebAware(
+                                  context,
+                                  SiteHistoryScreen(
                                     siteId: sites[index].id,
                                     siteName: data['name'] ?? '',
                                   ),
-                                ),
-                              );
-                            },
+                                );
+                              },
+                            ),
                           ),
                         );
                       },
@@ -5181,9 +5711,15 @@ class GoogleSheetsService {
     required List<dynamic> row,
   }) async {
     try {
+      // Content-Type must stay outside the CORS-safelisted set (text/plain,
+      // not application/json) — Apps Script web apps don't answer the
+      // OPTIONS preflight a JSON content-type forces, so on Flutter Web the
+      // browser blocks the request before it ever reaches the script. The
+      // Apps Script side reads the raw body text and JSON-decodes it itself,
+      // so it doesn't care what the header says.
       await http.post(
         Uri.parse(_webAppUrl),
-        headers: {'Content-Type': 'application/json'},
+        headers: {'Content-Type': 'text/plain'},
         body: jsonEncode({
           'sheetName': sheetName,
           'row': row,
@@ -5191,8 +5727,7 @@ class GoogleSheetsService {
       );
     } catch (e) {
       // Silently fail - Sheets sync is a nice-to-have, shouldn't break the app
-      // ignore: avoid_print
-      print('Google Sheets sync error: $e');
+      debugPrint('Google Sheets sync error: $e');
     }
   }
 
@@ -5718,40 +6253,42 @@ class TeamCategoryScreen extends StatelessWidget {
                   padding: const EdgeInsets.all(16.0),
                   child: Column(
                     children: [
-                      DashboardMenuCard(
-                        icon: Icons.engineering,
-                        title: 'Supervisors',
-                        subtitle: 'View supervisor profiles and history',
-                        color: Colors.orange,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const RoleUserListScreen(
+                      _WebStaggeredFadeIn(
+                        index: 0,
+                        child: DashboardMenuCard(
+                          icon: Icons.engineering,
+                          title: 'Supervisors',
+                          subtitle: 'View supervisor profiles and history',
+                          color: Colors.orange,
+                          onTap: () {
+                            pushWebAware(
+                              context,
+                              const RoleUserListScreen(
                                 role: 'supervisor',
                                 title: 'Supervisors',
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                       const SizedBox(height: 12),
-                      DashboardMenuCard(
-                        icon: Icons.local_shipping,
-                        title: 'Drivers',
-                        subtitle: 'View driver profiles and history',
-                        color: Colors.purple,
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const RoleUserListScreen(
+                      _WebStaggeredFadeIn(
+                        index: 1,
+                        child: DashboardMenuCard(
+                          icon: Icons.local_shipping,
+                          title: 'Drivers',
+                          subtitle: 'View driver profiles and history',
+                          color: Colors.purple,
+                          onTap: () {
+                            pushWebAware(
+                              context,
+                              const RoleUserListScreen(
                                 role: 'driver',
                                 title: 'Drivers',
                               ),
-                            ),
-                          );
-                        },
+                            );
+                          },
+                        ),
                       ),
                     ],
                   ),
@@ -5822,37 +6359,41 @@ class RoleUserListScreen extends StatelessWidget {
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
-                          child: Card(
-                            elevation: 1,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                            child: ListTile(
-                              leading: CircleAvatar(
-                                backgroundColor: roleColor.withOpacity(0.15),
-                                backgroundImage: photoBase64 != null
-                                    ? MemoryImage(base64Decode(photoBase64))
-                                    : null,
-                                child: photoBase64 == null
-                                    ? Icon(Icons.person, color: roleColor)
-                                    : null,
-                              ),
-                              title: Text(data['name'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text(data['email'] ?? ''),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (_) => UserProfileScreen(
-                                      userId: doc.id,
-                                      userName: data['name'] ?? '',
-                                      userEmail: data['email'] ?? '',
-                                      userRole: role,
-                                      photoBase64: photoBase64,
-                                    ),
+                          child: _WebStaggeredFadeIn(
+                            index: index,
+                            child: _WebHoverCard(
+                              child: Card(
+                                elevation: 1,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                                child: ListTile(
+                                  leading: CircleAvatar(
+                                    backgroundColor: roleColor.withOpacity(0.15),
+                                    backgroundImage: photoBase64 != null
+                                        ? MemoryImage(base64Decode(photoBase64))
+                                        : null,
+                                    child: photoBase64 == null
+                                        ? Icon(Icons.person, color: roleColor)
+                                        : null,
                                   ),
-                                );
-                              },
+                                  title: Text(data['name'] ?? '',
+                                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  subtitle: Text(data['email'] ?? ''),
+                                  trailing: const Icon(Icons.chevron_right),
+                                  onTap: () {
+                                    pushWebAware(
+                                      context,
+                                      UserProfileScreen(
+                                        userId: doc.id,
+                                        userName: data['name'] ?? '',
+                                        userEmail: data['email'] ?? '',
+                                        userRole: role,
+                                        photoBase64: photoBase64,
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ),
                             ),
                           ),
                         );
@@ -6829,32 +7370,35 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                     final data = trucks[index].data() as Map<String, dynamic>;
                     final docId = trucks[index].id;
 
-                    return Card(
-                      margin: const EdgeInsets.only(bottom: 10),
-                      child: ListTile(
-                        leading: CircleAvatar(
-                          backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                          child: const Icon(Icons.local_shipping, color: Colors.deepOrange),
-                        ),
-                        title: Text(data['truckNumber'] ?? ''),
-                        subtitle: Text(data['assignedDriverName'] != null
-                            ? 'Driver: ${data['assignedDriverName']}'
-                            : 'No driver assigned'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          onPressed: () => _deleteTruck(docId),
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => TruckProfileScreen(
-                                truckId: docId,
-                                truckNumber: data['truckNumber'] ?? '',
-                              ),
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.deepOrange.withOpacity(0.15),
+                              child: const Icon(Icons.local_shipping, color: Colors.deepOrange),
                             ),
-                          );
-                        },
+                            title: Text(data['truckNumber'] ?? ''),
+                            subtitle: Text(data['assignedDriverName'] != null
+                                ? 'Driver: ${data['assignedDriverName']}'
+                                : 'No driver assigned'),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => _deleteTruck(docId),
+                            ),
+                            onTap: () {
+                              pushWebAware(
+                                context,
+                                TruckProfileScreen(
+                                  truckId: docId,
+                                  truckNumber: data['truckNumber'] ?? '',
+                                ),
+                              );
+                            },
+                          ),
+                        ),
                       ),
                     );
                   },
@@ -7668,5 +8212,32 @@ class TruckLocationService {
     _cumulativeDistanceKm = 0.0;
 
     return totalKm;
+  }
+}
+// ---------------- LOGIN FORM CARD (opaque white, for readable form fields) ----------------
+class LoginFormCard extends StatelessWidget {
+  final Widget child;
+  final EdgeInsets padding;
+
+  const LoginFormCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: padding,
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.92),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: Colors.white.withOpacity(0.5), width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.2),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: child,
+    );
   }
 }
