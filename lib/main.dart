@@ -1386,24 +1386,55 @@ class SiteManagementScreen extends StatefulWidget {
 class _SiteManagementScreenState extends State<SiteManagementScreen> {
   final _siteNameController = TextEditingController();
   final _siteLocationController = TextEditingController();
+  bool _isPlantSite = false;
+  bool _canBeLoadingSite = true;
+  bool _canBeUnloadingSite = true;
 
   Future<void> _addSite() async {
-    if (_siteNameController.text.trim().isEmpty ||
-        _siteLocationController.text.trim().isEmpty) {
+    final enteredName = _siteNameController.text.trim();
+    if (enteredName.isEmpty || _siteLocationController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please fill all fields.')),
       );
       return;
     }
 
+    final existingSites = await FirebaseFirestore.instance.collection('sites').get();
+    final normalizedEntry = enteredName.toUpperCase();
+    final isDuplicate = existingSites.docs.any((doc) {
+      final data = doc.data();
+      final existingName = (data['name'] as String?)?.trim().toUpperCase() ?? '';
+      return existingName == normalizedEntry;
+    });
+
+    if (isDuplicate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This site is already registered.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
     await FirebaseFirestore.instance.collection('sites').add({
-      'name': _siteNameController.text.trim(),
+      'name': enteredName,
       'location': _siteLocationController.text.trim(),
+      'isPlantSite': _isPlantSite,
+      'canBeLoadingSite': _canBeLoadingSite,
+      'canBeUnloadingSite': _canBeUnloadingSite,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
     _siteNameController.clear();
     _siteLocationController.clear();
+    setState(() {
+      _isPlantSite = false;
+      _canBeLoadingSite = true;
+      _canBeUnloadingSite = true;
+    });
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1431,11 +1462,52 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
               children: [
                 TextField(
                   controller: _siteNameController,
+                  onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     labelText: 'Site Name',
                     prefixIcon: const Icon(Icons.location_city),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                ),
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                  builder: (context, snapshot) {
+                    final query = _siteNameController.text.trim().toLowerCase();
+                    if (query.isEmpty || !snapshot.hasData) return const SizedBox.shrink();
+                    final matches = snapshot.data!.docs
+                        .map((doc) => (doc.data() as Map<String, dynamic>)['name'] as String?)
+                        .whereType<String>()
+                        .where((name) => name.toLowerCase().contains(query))
+                        .take(5)
+                        .toList();
+                    if (matches.isEmpty) return const SizedBox.shrink();
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('Similar sites already registered:',
+                              style: TextStyle(
+                                  fontSize: 12,
+                                  color: Colors.orange,
+                                  fontWeight: FontWeight.w600)),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 6,
+                            runSpacing: 6,
+                            children: matches
+                                .map((name) => Chip(
+                                      label: Text(name, style: const TextStyle(fontSize: 12)),
+                                      backgroundColor: Colors.orange[50],
+                                      visualDensity: VisualDensity.compact,
+                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                    ))
+                                .toList(),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -1445,6 +1517,27 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                     prefixIcon: const Icon(Icons.map),
                     border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   ),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Is this a Plant Site?'),
+                  value: _isPlantSite,
+                  onChanged: (val) => setState(() => _isPlantSite = val ?? false),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Can be selected as a Working Site?'),
+                  value: _canBeLoadingSite,
+                  onChanged: (val) => setState(() => _canBeLoadingSite = val ?? true),
+                ),
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  title: const Text('Can be selected as an Unloading Site?'),
+                  value: _canBeUnloadingSite,
+                  onChanged: (val) => setState(() => _canBeUnloadingSite = val ?? true),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -1498,10 +1591,18 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                               child: const Icon(Icons.location_on, color: Colors.teal),
                             ),
                             title: Text(data['name'] ?? ''),
-                            subtitle: Text(data['location'] ?? ''),
+                            subtitle: Text([
+                              data['location'] ?? '',
+                              if (data['isPlantSite'] == true) '🏭 Plant Site',
+                              if (data['canBeLoadingSite'] == false) '🚫 Not a Working Site',
+                            ].where((s) => s.isNotEmpty).join('  •  ')),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
                               onPressed: () => _deleteSite(docId),
+                            ),
+                            onTap: () => pushWebAware(
+                              context,
+                              SiteHistoryScreen(siteId: docId, siteName: data['name'] ?? ''),
                             ),
                           ),
                         ),
@@ -1993,6 +2094,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
               sessionId: existing.docs.first.id,
               machineName: data['machineName'] ?? '',
               siteName: data['siteName'] ?? '',
+              siteId: data['siteId'] ?? '',
               supervisorName: widget.name,
               verificationCode: data['verificationCode'],
             ),
@@ -2099,6 +2201,7 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
               sessionId: sessionId,
               machineName: _selectedMachineName ?? '',
               siteName: _selectedSiteName ?? '',
+              siteId: _selectedSiteId ?? '',
               supervisorName: widget.name,
               verificationCode: code,
             ),
@@ -2111,6 +2214,103 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       );
     } finally {
       if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // Searchable site picker — only lets the supervisor pick an existing
+  // registered site (unlike the Unloading Site Autocomplete elsewhere,
+  // which allows free text). Sites missing the canBeLoadingSite field
+  // entirely are treated as eligible, so pre-existing sites registered
+  // before this field existed don't silently disappear from the list.
+  Future<void> _showSiteSearchPicker() async {
+    final selected = await showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onChanged: (val) => setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeLoadingSite'] == false) return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(searchText.toLowerCase());
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(child: Text('No matching sites.'));
+                          }
+                          return ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final doc = filtered[index];
+                              final data = doc.data() as Map<String, dynamic>;
+                              return ListTile(
+                                leading: const Icon(Icons.location_on, color: Colors.teal),
+                                title: Text(data['name'] ?? ''),
+                                subtitle: Text(data['location'] ?? ''),
+                                onTap: () => Navigator.pop(sheetContext, {
+                                  'id': doc.id,
+                                  'name': (data['name'] ?? '').toString(),
+                                }),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected != null) {
+      setState(() {
+        _selectedSiteId = selected['id'];
+        _selectedSiteName = selected['name'];
+      });
     }
   }
 
@@ -2157,113 +2357,142 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
               Expanded(
                 child: SingleChildScrollView(
                   padding: const EdgeInsets.all(16.0),
-                  child: GlassCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-
-            const Text('Select Machine',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('machines').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const CircularProgressIndicator();
-                }
-                final machines = snapshot.data!.docs;
-                return DropdownButtonFormField<String>(
-                  initialValue: _selectedMachineId,
-                  decoration: InputDecoration(
-                    hintText: 'Choose a machine',
-                    prefixIcon: const Icon(Icons.precision_manufacturing),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  items: machines.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return DropdownMenuItem<String>(
-                      value: doc.id,
-                      child: Text('${data['name']} (${data['type']})'),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    final selected = machines.firstWhere((d) => d.id == val);
-                    final data = selected.data() as Map<String, dynamic>;
-                    setState(() {
-                      _selectedMachineId = val;
-                      _selectedMachineName = data['name'];
-                    });
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-
-            const Text('Select Site',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 8),
-            StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('sites').snapshots(),
-              builder: (context, snapshot) {
-                if (!snapshot.hasData) {
-                  return const CircularProgressIndicator();
-                }
-                final sites = snapshot.data!.docs;
-                return DropdownButtonFormField<String>(
-                  initialValue: _selectedSiteId,
-                  decoration: InputDecoration(
-                    hintText: 'Choose a site',
-                    prefixIcon: const Icon(Icons.location_on),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
-                    fillColor: Colors.white,
-                  ),
-                  items: sites.map((doc) {
-                    final data = doc.data() as Map<String, dynamic>;
-                    return DropdownMenuItem<String>(
-                      value: doc.id,
-                      child: Text(data['name'] ?? ''),
-                    );
-                  }).toList(),
-                  onChanged: (val) {
-                    final selected = sites.firstWhere((d) => d.id == val);
-                    final data = selected.data() as Map<String, dynamic>;
-                    setState(() {
-                      _selectedSiteId = val;
-                      _selectedSiteName = data['name'];
-                    });
-                  },
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-
-            const Text('Start Meter Reading',
-                style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
-            const SizedBox(height: 8),
-            TextField(
-              controller: _startMeterController,
-              keyboardType: TextInputType.number,
-              decoration: InputDecoration(
-                hintText: 'e.g. 1234.5',
-                prefixIcon: const Icon(Icons.speed),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                filled: true,
-                fillColor: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 32),
-
-            _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : GradientButton(
-                                label: 'START DAY / CONTINUE',
-                                icon: Icons.play_arrow,
-                                onTap: _startDay,
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: (kIsWeb && MediaQuery.of(context).size.width > 700)
+                            ? 500
+                            : double.infinity,
+                      ),
+                      child: GlassCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _WebStaggeredFadeIn(
+                              index: 0,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Select Machine',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const SizedBox(height: 8),
+                                  StreamBuilder<QuerySnapshot>(
+                                    stream: FirebaseFirestore.instance
+                                        .collection('machines')
+                                        .snapshots(),
+                                    builder: (context, snapshot) {
+                                      if (!snapshot.hasData) {
+                                        return const CircularProgressIndicator();
+                                      }
+                                      final machines = snapshot.data!.docs;
+                                      return DropdownButtonFormField<String>(
+                                        initialValue: _selectedMachineId,
+                                        decoration: InputDecoration(
+                                          hintText: 'Choose a machine',
+                                          prefixIcon:
+                                              const Icon(Icons.precision_manufacturing),
+                                          border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(12)),
+                                          filled: true,
+                                          fillColor: Colors.white,
+                                        ),
+                                        items: machines.map((doc) {
+                                          final data = doc.data() as Map<String, dynamic>;
+                                          return DropdownMenuItem<String>(
+                                            value: doc.id,
+                                            child: Text('${data['name']} (${data['type']})'),
+                                          );
+                                        }).toList(),
+                                        onChanged: (val) {
+                                          final selected =
+                                              machines.firstWhere((d) => d.id == val);
+                                          final data =
+                                              selected.data() as Map<String, dynamic>;
+                                          setState(() {
+                                            _selectedMachineId = val;
+                                            _selectedMachineName = data['name'];
+                                          });
+                                        },
+                                      );
+                                    },
+                                  ),
+                                ],
                               ),
-                      ],
+                            ),
+                            const SizedBox(height: 20),
+                            _WebStaggeredFadeIn(
+                              index: 1,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Select Site',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const SizedBox(height: 8),
+                                  InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: _showSiteSearchPicker,
+                                    child: InputDecorator(
+                                      decoration: InputDecoration(
+                                        prefixIcon: const Icon(Icons.location_on),
+                                        border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(12)),
+                                        filled: true,
+                                        fillColor: Colors.white,
+                                      ),
+                                      child: Text(
+                                        _selectedSiteName ?? 'Choose a site',
+                                        style: TextStyle(
+                                          color: _selectedSiteName == null
+                                              ? Colors.grey[600]
+                                              : Colors.black87,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 20),
+                            _WebStaggeredFadeIn(
+                              index: 2,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text('Start Meter Reading',
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const SizedBox(height: 8),
+                                  TextField(
+                                    controller: _startMeterController,
+                                    keyboardType: TextInputType.number,
+                                    decoration: InputDecoration(
+                                      hintText: 'e.g. 1234.5',
+                                      prefixIcon: const Icon(Icons.speed),
+                                      border: OutlineInputBorder(
+                                          borderRadius: BorderRadius.circular(12)),
+                                      filled: true,
+                                      fillColor: Colors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 32),
+                            _WebStaggeredFadeIn(
+                              index: 3,
+                              child: _isLoading
+                                  ? const CircularProgressIndicator(color: Colors.white)
+                                  : GradientButton(
+                                      label: 'START DAY / CONTINUE',
+                                      icon: Icons.play_arrow,
+                                      onTap: _startDay,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -2281,6 +2510,7 @@ class WorkSessionScreen extends StatefulWidget {
   final String sessionId;
   final String machineName;
   final String siteName;
+  final String siteId;
   final String supervisorName;
   final String? verificationCode;
 
@@ -2289,6 +2519,7 @@ class WorkSessionScreen extends StatefulWidget {
     required this.sessionId,
     required this.machineName,
     required this.siteName,
+    required this.siteId,
     required this.supervisorName,
     this.verificationCode,
   });
@@ -2442,28 +2673,35 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       final updatedDoc = await _recordsRef.doc(recordId).get();
       final updatedData = updatedDoc.data() as Map<String, dynamic>;
 
-      GoogleSheetsService.sendRow(
-        sheetName: 'Supervisor_Loads',
-        row: [
-          GoogleSheetsService.formatDate(DateTime.now()),
-          widget.machineName,
-          widget.siteName,
-          widget.supervisorName,
-          updatedData['category'] ?? '',
-          updatedData['truckNumber'] ?? '',
-          updatedData['billNumber'] ?? '',
-          updatedData['unloadingSiteName'] ?? '',
-          updatedData['distanceKm']?.toString() ?? '',
-          updatedData['startMeter']?.toString() ?? '',
-          updatedData['endMeter']?.toString() ?? '',
-          _formatDuration(newTotal),
-          GoogleSheetsService.formatTime(updatedData['loadStartedAt']),
-          GoogleSheetsService.formatTime(updatedData['loadCompletedAt']),
-          updatedData['truckDriverName'] ?? '',
-          updatedData['cubeCount'] ?? '',
-          updatedData['machineOperatorName'] ?? '',
-        ],
-      );
+      final row = [
+        GoogleSheetsService.formatDate(DateTime.now()),
+        widget.machineName,
+        widget.siteName,
+        widget.supervisorName,
+        updatedData['category'] ?? '',
+        updatedData['truckNumber'] ?? '',
+        updatedData['billNumber'] ?? '',
+        updatedData['unloadingSiteName'] ?? '',
+        updatedData['distanceKm']?.toString() ?? '',
+        updatedData['startMeter']?.toString() ?? '',
+        updatedData['endMeter']?.toString() ?? '',
+        _formatDuration(newTotal),
+        GoogleSheetsService.formatTime(updatedData['loadStartedAt']),
+        GoogleSheetsService.formatTime(updatedData['loadCompletedAt']),
+        updatedData['truckDriverName'] ?? '',
+        updatedData['cubeCount'] ?? '',
+        updatedData['machineOperatorName'] ?? '',
+      ];
+
+      GoogleSheetsService.sendRow(sheetName: 'Supervisor_Loads', row: row);
+
+      // Plant sites also get a copy of every completed load in a dedicated
+      // sheet, in addition to the regular Supervisor_Loads log.
+      final siteDoc =
+          await FirebaseFirestore.instance.collection('sites').doc(widget.siteId).get();
+      if (siteDoc.data()?['isPlantSite'] == true) {
+        GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2496,6 +2734,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       builder: (_) => NewWorkDialog(
         loadingCategories: _loadingCategories,
         otherCategories: _otherCategories,
+        currentSiteId: widget.siteId,
         onSubmit: (category, truckNumber, billNumber, unloadingSiteName, distanceKm, startMeter,
             truckDriverName, cubeCount, machineOperatorName) {
           Navigator.pop(context);
@@ -2591,6 +2830,42 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                   await lastLoadingDoc!.reference.update({'endMeter': endMeterValue});
                 }
 
+                // Day-end summary row — just the meter reading and when it
+                // was taken, not a rebuild of any single task's full detail
+                // row (those already went out when each task was
+                // paused/completed). Column order matches the existing
+                // 17-column Supervisor_Loads/Plant_Loads header; every slot
+                // other than these six stays blank.
+                final row = [
+                  GoogleSheetsService.formatDate(DateTime.now()),
+                  widget.machineName,
+                  widget.siteName,
+                  widget.supervisorName,
+                  '',
+                  '',
+                  '',
+                  '',
+                  '',
+                  '',
+                  endMeterValue.toString(),
+                  '',
+                  '',
+                  GoogleSheetsService.formatTime(Timestamp.now()),
+                  '',
+                  '',
+                  '',
+                ];
+
+                GoogleSheetsService.sendRow(sheetName: 'Supervisor_Loads', row: row);
+
+                final siteDoc = await FirebaseFirestore.instance
+                    .collection('sites')
+                    .doc(widget.siteId)
+                    .get();
+                if (siteDoc.data()?['isPlantSite'] == true) {
+                  GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
+                }
+
                 if (context.mounted) {
                   // Close dialog and go back to supervisor home in one atomic
                   // call — two sequential pop()s on the same Navigator race
@@ -2616,6 +2891,8 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isWideWeb = kIsWeb && MediaQuery.of(context).size.width > 700;
+
     return Scaffold(
       appBar: AppBar(
         leading: IconButton(
@@ -2691,6 +2968,24 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               ],
             ),
           ),
+          if (isWideWeb)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 800),
+                  child: Align(
+                    alignment: Alignment.centerRight,
+                    child: ElevatedButton.icon(
+                      onPressed: _showNewWorkDialog,
+                      icon: const Icon(Icons.add, color: Colors.white),
+                      label: const Text('NEW WORK', style: TextStyle(color: Colors.white)),
+                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800]),
+                    ),
+                  ),
+                ),
+              ),
+            ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: _recordsRef.orderBy('createdAt', descending: true).snapshots(),
@@ -2707,7 +3002,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 
                 final records = snapshot.data!.docs;
 
-                return ListView.builder(
+                final list = ListView.builder(
                   padding: const EdgeInsets.all(12),
                   itemCount: records.length,
                   itemBuilder: (context, index) {
@@ -2716,7 +3011,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                     final isRunning = data['status'] == 'running';
                     final elapsed = _liveElapsedSeconds(data);
 
-                    return Card(
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
                       color: isRunning ? Colors.green[50] : Colors.white,
                       margin: const EdgeInsets.only(bottom: 10),
                       shape: RoundedRectangleBorder(
@@ -2842,20 +3140,32 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                           ],
                         ),
                       ),
+                        ),
+                      ),
                     );
                   },
+                );
+
+                if (!isWideWeb) return list;
+                return Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 800),
+                    child: list,
+                  ),
                 );
               },
             ),
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _showNewWorkDialog,
-        backgroundColor: Colors.orange[800],
-        icon: const Icon(Icons.add, color: Colors.white),
-        label: const Text('NEW WORK', style: TextStyle(color: Colors.white)),
-      ),
+      floatingActionButton: isWideWeb
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _showNewWorkDialog,
+              backgroundColor: Colors.orange[800],
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text('NEW WORK', style: TextStyle(color: Colors.white)),
+            ),
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12.0),
@@ -2879,6 +3189,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 class NewWorkDialog extends StatefulWidget {
   final List<String> loadingCategories;
   final List<String> otherCategories;
+  final String currentSiteId;
   final Function(
       String category,
       String? truckNumber,
@@ -2894,6 +3205,7 @@ class NewWorkDialog extends StatefulWidget {
     super.key,
     required this.loadingCategories,
     required this.otherCategories,
+    required this.currentSiteId,
     required this.onSubmit,
   });
 
@@ -2905,7 +3217,6 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
   String? _selectedCategory;
   String? _selectedUnloadingSiteId;
   String? _selectedUnloadingSiteName;
-  String? _selectedTruckId;
   String? _selectedTruckNumber;
   final _truckDriverController = TextEditingController();
   final _cubeController = TextEditingController();
@@ -2913,7 +3224,150 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
   String? _selectedOperatorName;
   final _billNumberController = TextEditingController();
   final _distanceController = TextEditingController();
+  bool _isCurrentSitePlantSite = false;
   String _errorText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadCurrentSitePlantFlag();
+  }
+
+  Future<void> _loadCurrentSitePlantFlag() async {
+    if (widget.currentSiteId.isEmpty) return;
+    final doc =
+        await FirebaseFirestore.instance.collection('sites').doc(widget.currentSiteId).get();
+    if (!mounted) return;
+    setState(() => _isCurrentSitePlantSite = doc.data()?['isPlantSite'] == true);
+  }
+
+  // Same search-bottom-sheet pattern as the Working Site picker, but with
+  // one addition: since a Plant Site's loads can go to unregistered
+  // destinations, typing a name with no exact match surfaces a "use as new
+  // site" option instead of restricting selection to the registered list.
+  Future<void> _showUnloadingSitePicker() async {
+    final selected = await showModalBottomSheet<Map<String, String?>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search or type a new site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onChanged: (val) {
+                          debugPrint('[UNLOADPICKER] onChanged val="$val"');
+                          setSheetState(() => searchText = val);
+                        },
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(child: CircularProgressIndicator());
+                          }
+                          final trimmedSearch = searchText.trim();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeUnloadingSite'] == false) return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(trimmedSearch.toLowerCase());
+                          }).toList();
+                          final hasExactMatch = filtered.any((doc) =>
+                              ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                                  .toString()
+                                  .toLowerCase() ==
+                              trimmedSearch.toLowerCase());
+                          debugPrint('[UNLOADPICKER] build: searchText="$searchText" '
+                              'trimmedSearch="$trimmedSearch" filtered=${filtered.length} '
+                              'hasExactMatch=$hasExactMatch '
+                              'showAddNew=${trimmedSearch.isNotEmpty && !hasExactMatch}');
+
+                          return ListView(
+                            children: [
+                              if (trimmedSearch.isNotEmpty && !hasExactMatch)
+                                ListTile(
+                                  leading: const Icon(Icons.add_circle, color: AppTheme.accent),
+                                  title: Text("Use '$trimmedSearch' as new site"),
+                                  onTap: () {
+                                    debugPrint(
+                                        '[UNLOADPICKER] add-new tapped, name="$trimmedSearch"');
+                                    Navigator.pop(sheetContext, {
+                                      'id': null,
+                                      'name': trimmedSearch,
+                                    });
+                                  },
+                                ),
+                              for (final doc in filtered)
+                                Builder(builder: (context) {
+                                  final data = doc.data() as Map<String, dynamic>;
+                                  return ListTile(
+                                    leading: const Icon(Icons.location_on, color: Colors.teal),
+                                    title: Text(data['name'] ?? ''),
+                                    subtitle: Text(data['location'] ?? ''),
+                                    onTap: () => Navigator.pop(sheetContext, {
+                                      'id': doc.id,
+                                      'name': (data['name'] ?? '').toString(),
+                                    }),
+                                  );
+                                }),
+                              if (filtered.isEmpty && trimmedSearch.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text('No sites yet — start typing to add one.'),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    debugPrint('[UNLOADPICKER] sheet closed, selected=$selected');
+    if (selected != null) {
+      setState(() {
+        _selectedUnloadingSiteId = selected['id'];
+        _selectedUnloadingSiteName = selected['name'];
+      });
+      debugPrint('[UNLOADPICKER] set _selectedUnloadingSiteName=$_selectedUnloadingSiteName');
+    }
+  }
 
   bool get _isLoadingCategory =>
       _selectedCategory != null && widget.loadingCategories.contains(_selectedCategory);
@@ -2925,7 +3379,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
     }
 
     if (_isLoadingCategory) {
-      if (_selectedTruckNumber == null) {
+      if (_selectedTruckNumber == null || _selectedTruckNumber!.trim().isEmpty) {
         setState(() => _errorText = 'Please select a truck.');
         return;
       }
@@ -2933,7 +3387,8 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         setState(() => _errorText = 'Bill Number is required for loading work.');
         return;
       }
-      if (_selectedUnloadingSiteId == null) {
+      final unloadingSiteName = _selectedUnloadingSiteName?.trim();
+      if (unloadingSiteName == null || unloadingSiteName.isEmpty) {
         setState(() => _errorText = 'Please select Unloading Site.');
         return;
       }
@@ -2944,9 +3399,9 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
 
       widget.onSubmit(
         _selectedCategory!,
-        _selectedTruckNumber,
+        _selectedTruckNumber!.trim(),
         _billNumberController.text.trim(),
-        _selectedUnloadingSiteName,
+        unloadingSiteName,
         double.tryParse(_distanceController.text.trim()),
         null,
         _truckDriverController.text.trim().isEmpty ? null : _truckDriverController.text.trim(),
@@ -2994,32 +3449,37 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const CircularProgressIndicator();
-                  final trucks = snapshot.data!.docs;
-                  if (trucks.isEmpty) {
-                    return const Text('No trucks registered. Contact Admin.',
-                        style: TextStyle(color: Colors.red, fontSize: 12));
-                  }
-                  return DropdownButtonFormField<String>(
-                    initialValue: _selectedTruckId,
-                    decoration: InputDecoration(
-                      hintText: 'Choose truck',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                    ),
-                    items: trucks.map((doc) {
+                  final Set<String> truckNumbers = {};
+                  if (snapshot.hasData) {
+                    for (final doc in snapshot.data!.docs) {
                       final data = doc.data() as Map<String, dynamic>;
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text(data['truckNumber'] ?? ''),
+                      final number = data['truckNumber'];
+                      if (number != null && number.toString().isNotEmpty) {
+                        truckNumbers.add(number.toString());
+                      }
+                    }
+                  }
+                  return Autocomplete<String>(
+                    optionsBuilder: (textEditingValue) {
+                      if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
+                      return truckNumbers.where((number) => number
+                          .toLowerCase()
+                          .contains(textEditingValue.text.toLowerCase()));
+                    },
+                    onSelected: (selection) {
+                      _selectedTruckNumber = selection;
+                    },
+                    fieldViewBuilder: (context, controller, focusNode, onSubmit) {
+                      controller.text = _selectedTruckNumber ?? '';
+                      return TextField(
+                        controller: controller,
+                        focusNode: focusNode,
+                        onChanged: (val) => _selectedTruckNumber = val,
+                        decoration: InputDecoration(
+                          hintText: 'Enter or choose truck number',
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
                       );
-                    }).toList(),
-                    onChanged: (val) {
-                      final selected = trucks.firstWhere((d) => d.id == val);
-                      final data = selected.data() as Map<String, dynamic>;
-                      setState(() {
-                        _selectedTruckId = val;
-                        _selectedTruckNumber = data['truckNumber'];
-                      });
                     },
                   );
                 },
@@ -3042,6 +3502,31 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                 builder: (context, snapshot) {
                   if (!snapshot.hasData) return const CircularProgressIndicator();
                   final sites = snapshot.data!.docs;
+
+                  // The current working site is a Plant Site — loads from a
+                  // plant can go to many different unloading destinations,
+                  // so the picker allows typing a brand-new site name
+                  // instead of restricting to the registered list.
+                  if (_isCurrentSitePlantSite) {
+                    return InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: _showUnloadingSitePicker,
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: Text(
+                          _selectedUnloadingSiteName ?? 'Search or type unloading site name',
+                          style: TextStyle(
+                            color: _selectedUnloadingSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
                   return DropdownButtonFormField<String>(
                     initialValue: _selectedUnloadingSiteId,
                     decoration: InputDecoration(
@@ -3916,16 +4401,28 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
           _formatDuration(newTotal),
           GoogleSheetsService.formatTime(Timestamp.now()),
           _startMeter?.toString() ?? '',
+          data['truckNumber'] ?? '',
         ],
       );
     }
   }
+
+  bool _isLoadingCategory(String category) => category.toLowerCase().contains('loading');
 
   Future<void> _startTask(String taskName) async {
     if (_startMeter == null) {
       final meter = await _askStartMeter();
       if (meter == null) return;
       setState(() => _startMeter = meter);
+    }
+
+    final isLoading = _isLoadingCategory(taskName);
+    String? truckNumber;
+    if (isLoading) {
+      // Always a fresh prompt — the previously selected truck is never
+      // reused, since the driver may load a different truck each time.
+      truckNumber = await _askTruckNumber();
+      if (truckNumber == null) return;
     }
 
     await _pauseRunningRecord();
@@ -3937,6 +4434,7 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
       await existingTaskSnap.docs.first.reference.update({
         'status': 'running',
         'lastResumedAt': FieldValue.serverTimestamp(),
+        if (isLoading) 'truckNumber': truckNumber,
       });
     } else {
       await _recordsRef.add({
@@ -3945,8 +4443,89 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
         'totalDurationSeconds': 0,
         'lastResumedAt': FieldValue.serverTimestamp(),
         'createdAt': FieldValue.serverTimestamp(),
+        if (isLoading) 'truckNumber': truckNumber,
       });
     }
+  }
+
+  Future<String?> _askTruckNumber() async {
+    String? selectedTruckId;
+    String? selectedTruckNumber;
+    String? errorText;
+
+    return showDialog<String>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Select Truck'),
+          content: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const SizedBox(
+                  height: 60,
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final trucks = snapshot.data!.docs;
+              if (trucks.isEmpty) {
+                return const Text('No trucks registered. Contact Admin.',
+                    style: TextStyle(color: Colors.red, fontSize: 13));
+              }
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  DropdownButtonFormField<String>(
+                    initialValue: selectedTruckId,
+                    decoration: InputDecoration(
+                      hintText: 'Choose truck',
+                      prefixIcon: const Icon(Icons.local_shipping),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                    items: trucks.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      return DropdownMenuItem<String>(
+                        value: doc.id,
+                        child: Text(data['truckNumber'] ?? ''),
+                      );
+                    }).toList(),
+                    onChanged: (val) {
+                      final selected = trucks.firstWhere((d) => d.id == val);
+                      final data = selected.data() as Map<String, dynamic>;
+                      setDialogState(() {
+                        selectedTruckId = val;
+                        selectedTruckNumber = data['truckNumber'];
+                        errorText = null;
+                      });
+                    },
+                  ),
+                  if (errorText != null) ...[
+                    const SizedBox(height: 8),
+                    Text(errorText!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                  ],
+                ],
+              );
+            },
+          ),
+          actions: [
+            ElevatedButton(
+              onPressed: () {
+                if (selectedTruckNumber == null) {
+                  setDialogState(() => errorText = 'Please select a truck.');
+                  return;
+                }
+                Navigator.pop(dialogContext, selectedTruckNumber);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
+              child: const Text('CONFIRM', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Future<double?> _askStartMeter() async {
@@ -4117,9 +4696,21 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                           if (isRunning) const PulsingDot(),
                           if (isRunning) const SizedBox(width: 10),
                           Expanded(
-                            child: Text(
-                              data['task'] ?? '',
-                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  data['task'] ?? '',
+                                  style:
+                                      const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                ),
+                                if (data['truckNumber'] != null)
+                                  Text(
+                                    'Truck: ${data['truckNumber']}',
+                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                  ),
+                              ],
                             ),
                           ),
                           LiveTimerText(
@@ -5398,6 +5989,55 @@ class SiteHistoryScreen extends StatelessWidget {
     );
   }
 
+  void _showChangeSiteCapabilityDialog(
+      BuildContext context, bool currentCanLoad, bool currentCanUnload) {
+    bool canLoad = currentCanLoad;
+    bool canUnload = currentCanUnload;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: const Text('Change Site Capability'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CheckboxListTile(
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Can be Loading Site'),
+                value: canLoad,
+                onChanged: (val) => setDialogState(() => canLoad = val ?? false),
+              ),
+              CheckboxListTile(
+                controlAffinity: ListTileControlAffinity.leading,
+                title: const Text('Can be Unloading Site'),
+                value: canUnload,
+                onChanged: (val) => setDialogState(() => canUnload = val ?? false),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                await FirebaseFirestore.instance.collection('sites').doc(siteId).update({
+                  'canBeLoadingSite': canLoad,
+                  'canBeUnloadingSite': canUnload,
+                });
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryMid),
+              child: const Text('Save', style: TextStyle(color: Colors.white)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -5420,6 +6060,59 @@ class SiteHistoryScreen extends StatelessWidget {
                               fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
                     ),
                   ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance.collection('sites').doc(siteId).snapshots(),
+                  builder: (context, siteSnap) {
+                    final siteData = siteSnap.data?.data() as Map<String, dynamic>?;
+                    final canLoad = siteData?['canBeLoadingSite'] != false;
+                    final canUnload = siteData?['canBeUnloadingSite'] != false;
+                    return GlassCard(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Icon(canLoad ? Icons.check_circle : Icons.cancel,
+                                        color: canLoad ? Colors.greenAccent : Colors.redAccent,
+                                        size: 16),
+                                    const SizedBox(width: 6),
+                                    const Text('Loading Capability',
+                                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                                  ],
+                                ),
+                                const SizedBox(height: 6),
+                                Row(
+                                  children: [
+                                    Icon(canUnload ? Icons.check_circle : Icons.cancel,
+                                        color: canUnload ? Colors.greenAccent : Colors.redAccent,
+                                        size: 16),
+                                    const SizedBox(width: 6),
+                                    const Text('Unloading Capability',
+                                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                          TextButton.icon(
+                            onPressed: () =>
+                                _showChangeSiteCapabilityDialog(context, canLoad, canUnload),
+                            icon: const Icon(Icons.edit, size: 16, color: AppTheme.accent),
+                            label:
+                                const Text('Change', style: TextStyle(color: AppTheme.accent)),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
                 ),
               ),
               Expanded(
@@ -7243,15 +7936,36 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
   String? _selectedDriverName;
 
   Future<void> _addTruck() async {
-    if (_truckNumberController.text.trim().isEmpty) {
+    final enteredTruckNumber = _truckNumberController.text.trim();
+    if (enteredTruckNumber.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter a truck number.')),
       );
       return;
     }
 
+    final existingTrucks = await FirebaseFirestore.instance.collection('trucks').get();
+    final normalizedEntry = enteredTruckNumber.trim().toUpperCase();
+    final isDuplicate = existingTrucks.docs.any((doc) {
+      final data = doc.data();
+      final existingNumber = (data['truckNumber'] as String?)?.trim().toUpperCase() ?? '';
+      return existingNumber == normalizedEntry;
+    });
+
+    if (isDuplicate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This truck number is already registered.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
     await FirebaseFirestore.instance.collection('trucks').add({
-      'truckNumber': _truckNumberController.text.trim(),
+      'truckNumber': enteredTruckNumber,
       'assignedDriverUid': _selectedDriverUid,
       'assignedDriverName': _selectedDriverName,
       'createdAt': FieldValue.serverTimestamp(),
@@ -7289,6 +8003,7 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
               children: [
                 TextField(
                   controller: _truckNumberController,
+                  textCapitalization: TextCapitalization.characters,
                   decoration: InputDecoration(
                     labelText: 'Truck Number / Plate',
                     prefixIcon: const Icon(Icons.local_shipping),
