@@ -2693,16 +2693,26 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
         updatedData['machineOperatorName'] ?? '',
       ];
 
+      debugPrint('[PLANT_DEBUG] _completeLoadingRecord: sending Supervisor_Loads row=$row');
       GoogleSheetsService.sendRow(sheetName: 'Supervisor_Loads', row: row);
 
       // Plant sites also get a copy of every completed load in a dedicated
       // sheet, in addition to the regular Supervisor_Loads log.
+      debugPrint('[PLANT_DEBUG] Checking site: widget.siteId=${widget.siteId}');
       final siteDoc =
           await FirebaseFirestore.instance.collection('sites').doc(widget.siteId).get();
+      debugPrint('[PLANT_DEBUG] siteDoc.exists=${siteDoc.exists} siteDoc.id=${siteDoc.id}');
+      debugPrint('[PLANT_DEBUG] Site data: ${siteDoc.data()}');
+      final rawIsPlantSite = siteDoc.data()?['isPlantSite'];
+      debugPrint('[PLANT_DEBUG] isPlantSite value: $rawIsPlantSite, type: ${rawIsPlantSite.runtimeType}');
       if (siteDoc.data()?['isPlantSite'] == true) {
+        debugPrint('[PLANT_DEBUG] isPlantSite==true -> sending to Plant_Loads: $row');
         GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
+      } else {
+        debugPrint('[PLANT_DEBUG] isPlantSite check FAILED, not sending to Plant_Loads');
       }
     } catch (e) {
+      debugPrint('[PLANT_DEBUG] _completeLoadingRecord EXCEPTION: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Failed to complete load: $e')),
@@ -2734,7 +2744,6 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       builder: (_) => NewWorkDialog(
         loadingCategories: _loadingCategories,
         otherCategories: _otherCategories,
-        currentSiteId: widget.siteId,
         onSubmit: (category, truckNumber, billNumber, unloadingSiteName, distanceKm, startMeter,
             truckDriverName, cubeCount, machineOperatorName) {
           Navigator.pop(context);
@@ -3189,7 +3198,6 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 class NewWorkDialog extends StatefulWidget {
   final List<String> loadingCategories;
   final List<String> otherCategories;
-  final String currentSiteId;
   final Function(
       String category,
       String? truckNumber,
@@ -3205,7 +3213,6 @@ class NewWorkDialog extends StatefulWidget {
     super.key,
     required this.loadingCategories,
     required this.otherCategories,
-    required this.currentSiteId,
     required this.onSubmit,
   });
 
@@ -3224,27 +3231,12 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
   String? _selectedOperatorName;
   final _billNumberController = TextEditingController();
   final _distanceController = TextEditingController();
-  bool _isCurrentSitePlantSite = false;
   String _errorText = '';
 
-  @override
-  void initState() {
-    super.initState();
-    _loadCurrentSitePlantFlag();
-  }
-
-  Future<void> _loadCurrentSitePlantFlag() async {
-    if (widget.currentSiteId.isEmpty) return;
-    final doc =
-        await FirebaseFirestore.instance.collection('sites').doc(widget.currentSiteId).get();
-    if (!mounted) return;
-    setState(() => _isCurrentSitePlantSite = doc.data()?['isPlantSite'] == true);
-  }
-
-  // Same search-bottom-sheet pattern as the Working Site picker, but with
-  // one addition: since a Plant Site's loads can go to unregistered
-  // destinations, typing a name with no exact match surfaces a "use as new
-  // site" option instead of restricting selection to the registered list.
+  // Search-bottom-sheet pattern: typing a name with no exact match surfaces
+  // a "use as new unloading site" option instead of restricting selection
+  // to the registered list, so any supervisor can log a delivery to a site
+  // that hasn't been registered yet.
   Future<void> _showUnloadingSitePicker() async {
     final selected = await showModalBottomSheet<Map<String, String?>>(
       context: context,
@@ -3317,7 +3309,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                               if (trimmedSearch.isNotEmpty && !hasExactMatch)
                                 ListTile(
                                   leading: const Icon(Icons.add_circle, color: AppTheme.accent),
-                                  title: Text("Use '$trimmedSearch' as new site"),
+                                  title: Text("Use '$trimmedSearch' as new unloading site"),
                                   onTap: () {
                                     debugPrint(
                                         '[UNLOADPICKER] add-new tapped, name="$trimmedSearch"');
@@ -3497,59 +3489,22 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
               const SizedBox(height: 12),
               const Text('Unloading Site *', style: TextStyle(fontWeight: FontWeight.bold)),
               const SizedBox(height: 8),
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('sites').snapshots(),
-                builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const CircularProgressIndicator();
-                  final sites = snapshot.data!.docs;
-
-                  // The current working site is a Plant Site — loads from a
-                  // plant can go to many different unloading destinations,
-                  // so the picker allows typing a brand-new site name
-                  // instead of restricting to the registered list.
-                  if (_isCurrentSitePlantSite) {
-                    return InkWell(
-                      borderRadius: BorderRadius.circular(10),
-                      onTap: _showUnloadingSitePicker,
-                      child: InputDecorator(
-                        decoration: InputDecoration(
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                        child: Text(
-                          _selectedUnloadingSiteName ?? 'Search or type unloading site name',
-                          style: TextStyle(
-                            color: _selectedUnloadingSiteName == null
-                                ? Colors.grey[600]
-                                : Colors.black87,
-                          ),
-                        ),
-                      ),
-                    );
-                  }
-
-                  return DropdownButtonFormField<String>(
-                    initialValue: _selectedUnloadingSiteId,
-                    decoration: InputDecoration(
-                      hintText: 'Choose unloading site',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: _showUnloadingSitePicker,
+                child: InputDecorator(
+                  decoration: InputDecoration(
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: Text(
+                    _selectedUnloadingSiteName ?? 'Search or type unloading site name',
+                    style: TextStyle(
+                      color: _selectedUnloadingSiteName == null
+                          ? Colors.grey[600]
+                          : Colors.black87,
                     ),
-                    items: sites.map((doc) {
-                      final data = doc.data() as Map<String, dynamic>;
-                      return DropdownMenuItem<String>(
-                        value: doc.id,
-                        child: Text(data['name'] ?? ''),
-                      );
-                    }).toList(),
-                    onChanged: (val) {
-                      final selected = sites.firstWhere((d) => d.id == val);
-                      final data = selected.data() as Map<String, dynamic>;
-                      setState(() {
-                        _selectedUnloadingSiteId = val;
-                        _selectedUnloadingSiteName = data['name'];
-                      });
-                    },
-                  );
-                },
+                  ),
+                ),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -6410,7 +6365,8 @@ class GoogleSheetsService {
       // browser blocks the request before it ever reaches the script. The
       // Apps Script side reads the raw body text and JSON-decodes it itself,
       // so it doesn't care what the header says.
-      await http.post(
+      debugPrint('[PLANT_DEBUG] sendRow POST sheetName=$sheetName');
+      final response = await http.post(
         Uri.parse(_webAppUrl),
         headers: {'Content-Type': 'text/plain'},
         body: jsonEncode({
@@ -6418,9 +6374,10 @@ class GoogleSheetsService {
           'row': row,
         }),
       );
+      debugPrint('[PLANT_DEBUG] sendRow response sheetName=$sheetName status=${response.statusCode} headers=${response.headers} body=${response.body.replaceAll('\n', ' | ')}');
     } catch (e) {
       // Silently fail - Sheets sync is a nice-to-have, shouldn't break the app
-      debugPrint('Google Sheets sync error: $e');
+      debugPrint('[PLANT_DEBUG] Google Sheets sync error for sheetName=$sheetName: $e');
     }
   }
 
