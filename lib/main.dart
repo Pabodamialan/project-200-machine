@@ -14,6 +14,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:video_player/video_player.dart';
+import 'package:url_launcher/url_launcher.dart';
+import 'package:excel/excel.dart' as xls;
+import 'download_stub.dart' if (dart.library.html) 'download_web.dart' as downloader;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -96,7 +99,7 @@ class _AuthGateState extends State<AuthGate> {
         if (user == null) {
           _cachedUid = null;
           _userFuture = null;
-          return const LoginScreen();
+          return kIsWeb ? const PublicWebsiteScreen() : const LoginScreen();
         }
 
         return FutureBuilder<DocumentSnapshot>(
@@ -148,9 +151,17 @@ class _AuthGateState extends State<AuthGate> {
               case 'owner':
                 return OwnerDashboard(name: name);
               case 'supervisor':
-                return SupervisorScreen(name: name);
+                return data['canAccessFuel'] == true
+                    ? SupervisorChoiceScreen(name: name)
+                    : SupervisorScreen(name: name);
               case 'driver':
                 return DriverTypeScreen(name: name);
+              case 'management':
+                if (kIsWeb) {
+                  return ManagementDashboard(name: name);
+                }
+                FirebaseAuth.instance.signOut();
+                return const LoginScreen();
               case 'field_worker':
                 final canDrive = data['canDriveTruck'] == true;
                 final canOperate = data['canOperateMachine'] == true;
@@ -174,6 +185,405 @@ class _AuthGateState extends State<AuthGate> {
     );
   }
 }
+// ---------------- PUBLIC MARKETING WEBSITE (web-only landing page) ----------------
+// Shown instead of LoginScreen when a signed-out user opens the app on web
+// (see AuthGate's kIsWeb branch). Mobile always goes straight to
+// LoginScreen, untouched. This is a plain content page with its own "Login"
+// entry point into the real app.
+class _WebsiteService {
+  final IconData icon;
+  final String title;
+  final String description;
+  const _WebsiteService(this.icon, this.title, this.description);
+}
+
+class PublicWebsiteScreen extends StatelessWidget {
+  const PublicWebsiteScreen({super.key});
+
+  static const List<_WebsiteService> _services = [
+    _WebsiteService(Icons.terrain, 'Excavation Works',
+        'Site clearing, earthmoving, and excavation for projects of any scale.'),
+    _WebsiteService(Icons.local_shipping, 'Fleet Management',
+        'GPS-tracked truck and machine fleet, coordinated in real time.'),
+    _WebsiteService(Icons.supervisor_account, 'Site Supervision',
+        'On-ground supervisors managing daily operations and reporting.'),
+    _WebsiteService(Icons.precision_manufacturing, 'Construction Machinery Rental',
+        'Excavators and heavy machinery available for hire, with operators.'),
+  ];
+
+  // Placeholder slots for work photos — swap each entry for an
+  // Image.network/Image.asset source once real photos are available.
+  static const List<String> _galleryPlaceholders = [
+    '', '', '', '', '', '',
+  ];
+
+  void _scrollToSection(GlobalKey key) {
+    final ctx = key.currentContext;
+    if (ctx == null) return;
+    Scrollable.ensureVisible(
+      ctx,
+      duration: const Duration(milliseconds: 500),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  void _openLogin(BuildContext context) {
+    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+  }
+
+  Future<void> _openWhatsApp(BuildContext context) async {
+    // TODO: Replace with actual company WhatsApp number.
+    final uri = Uri.parse('https://wa.me/94XXXXXXXXX');
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open WhatsApp.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final heroKey = GlobalKey();
+    final workKey = GlobalKey();
+    final servicesKey = GlobalKey();
+    final contactKey = GlobalKey();
+
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: Column(
+        children: [
+          _WebsiteNavBar(
+            onHome: () => _scrollToSection(heroKey),
+            onServices: () => _scrollToSection(servicesKey),
+            onContact: () => _scrollToSection(contactKey),
+            onLogin: () => _openLogin(context),
+          ),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _HeroSection(key: heroKey, onGetInTouch: () => _scrollToSection(contactKey)),
+                  _WorkGallerySection(key: workKey, placeholders: _galleryPlaceholders),
+                  _ServicesSection(key: servicesKey, services: _services),
+                  _ContactFooterSection(
+                    key: contactKey,
+                    onWhatsApp: () => _openWhatsApp(context),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WebsiteNavBar extends StatelessWidget {
+  final VoidCallback onHome;
+  final VoidCallback onServices;
+  final VoidCallback onContact;
+  final VoidCallback onLogin;
+
+  const _WebsiteNavBar({
+    required this.onHome,
+    required this.onServices,
+    required this.onContact,
+    required this.onLogin,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isNarrow = MediaQuery.of(context).size.width < 640;
+
+    return Container(
+      height: 72,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [AppTheme.softShadow],
+      ),
+      child: Row(
+        children: [
+          Image.asset('assets/images/logo_final_gradient.png', height: 36),
+          const SizedBox(width: 12),
+          const Text(
+            'NODA',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryDark,
+            ),
+          ),
+          const Spacer(),
+          if (!isNarrow) ...[
+            TextButton(
+              onPressed: onHome,
+              child: const Text('Home', style: TextStyle(color: AppTheme.primaryDark)),
+            ),
+            TextButton(
+              onPressed: onServices,
+              child: const Text('Services', style: TextStyle(color: AppTheme.primaryDark)),
+            ),
+            TextButton(
+              onPressed: onContact,
+              child: const Text('Contact', style: TextStyle(color: AppTheme.primaryDark)),
+            ),
+            const SizedBox(width: 12),
+          ],
+          SizedBox(
+            width: 110,
+            height: 42,
+            child: GradientButton(label: 'Login', onTap: onLogin, height: 42),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeroSection extends StatelessWidget {
+  final VoidCallback onGetInTouch;
+  const _HeroSection({super.key, required this.onGetInTouch});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 700;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.symmetric(horizontal: 24, vertical: isDesktop ? 120 : 72),
+      decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'NODA Civimech Engineering',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: isDesktop ? 48 : 32,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
+          ),
+          const SizedBox(height: 20),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 640),
+            child: Text(
+              "Building Sri Lanka's Infrastructure — Excavation, Construction & "
+              "Fleet Management Solutions",
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: isDesktop ? 18 : 15,
+                color: Colors.white.withOpacity(0.85),
+              ),
+            ),
+          ),
+          const SizedBox(height: 36),
+          SizedBox(
+            width: 220,
+            child: GradientButton(
+              label: 'Get in Touch',
+              icon: Icons.arrow_downward,
+              onTap: onGetInTouch,
+              gradient: const LinearGradient(colors: [AppTheme.accent, AppTheme.accent]),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkGallerySection extends StatelessWidget {
+  final List<String> placeholders;
+  const _WorkGallerySection({super.key, required this.placeholders});
+
+  int _columnsFor(double width) {
+    if (width > 1000) return 4;
+    if (width > 700) return 3;
+    if (width > 480) return 2;
+    return 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final columns = _columnsFor(width);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const Text(
+            'Our Work',
+            style: TextStyle(
+                fontSize: 30, fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+          ),
+          const SizedBox(height: 32),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: placeholders.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 1.3,
+            ),
+            itemBuilder: (context, index) {
+              // placeholders[index] is empty for now — swap in an
+              // Image.network/Image.asset here once real photos exist.
+              return _WebHoverCard(
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: Colors.grey[200],
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.construction, size: 40, color: Colors.grey),
+                        SizedBox(height: 8),
+                        Text('Add photo here', style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ServicesSection extends StatelessWidget {
+  final List<_WebsiteService> services;
+  const _ServicesSection({super.key, required this.services});
+
+  int _columnsFor(double width) {
+    if (width > 1000) return 4;
+    if (width > 700) return 2;
+    return 1;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final width = MediaQuery.of(context).size.width;
+    final columns = _columnsFor(width);
+
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFF5F5FA),
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
+      child: Column(
+        children: [
+          const Text(
+            'Our Services',
+            style: TextStyle(
+                fontSize: 30, fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+          ),
+          const SizedBox(height: 32),
+          GridView.builder(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: services.length,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+              childAspectRatio: 1.1,
+            ),
+            itemBuilder: (context, index) {
+              final service = services[index];
+              return _WebHoverCard(
+                child: Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(16),
+                    boxShadow: [AppTheme.softShadow],
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Icon(service.icon, size: 32, color: AppTheme.primaryMid),
+                      const SizedBox(height: 12),
+                      Text(service.title,
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 8),
+                      Text(service.description,
+                          style: TextStyle(color: Colors.grey[700], fontSize: 13)),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ContactFooterSection extends StatelessWidget {
+  final VoidCallback onWhatsApp;
+  const _ContactFooterSection({super.key, required this.onWhatsApp});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 56),
+      decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+      child: Column(
+        children: [
+          const Text(
+            'NODA Civimech Engineering',
+            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Address: 123 Placeholder Road, Colombo, Sri Lanka',
+            style: TextStyle(color: Colors.white.withOpacity(0.8)),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Email: info@placeholder.com',
+            style: TextStyle(color: Colors.white.withOpacity(0.8)),
+          ),
+          const SizedBox(height: 28),
+          SizedBox(
+            width: 260,
+            child: ElevatedButton.icon(
+              onPressed: onWhatsApp,
+              icon: const Icon(Icons.chat, color: Colors.white),
+              label: const Text('Chat with us on WhatsApp',
+                  style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF25D366),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+          Text(
+            '© ${DateTime.now().year} NODA Civimech Engineering. All rights reserved.',
+            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------- LOGIN SCREEN ----------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -260,9 +670,18 @@ class _LoginScreenState extends State<LoginScreen> {
           role != 'owner' &&
           role != 'supervisor' &&
           role != 'driver' &&
-          role != 'field_worker') {
+          role != 'field_worker' &&
+          role != 'management') {
         setState(() {
           _errorMessage = 'Unknown role. Contact Admin.';
+        });
+        await FirebaseAuth.instance.signOut();
+        return;
+      }
+
+      if (role == 'management' && !kIsWeb) {
+        setState(() {
+          _errorMessage = 'This account can only be used on the website, not the mobile app.';
         });
         await FirebaseAuth.instance.signOut();
         return;
@@ -288,10 +707,17 @@ class _LoginScreenState extends State<LoginScreen> {
           target = OwnerDashboard(name: name);
           break;
         case 'supervisor':
-          target = SupervisorScreen(name: name);
+          target = userDoc.data()?['canAccessFuel'] == true
+              ? SupervisorChoiceScreen(name: name)
+              : SupervisorScreen(name: name);
           break;
         case 'driver':
           target = DriverTypeScreen(name: name);
+          break;
+        case 'management':
+          // The !kIsWeb case already returned above, so reaching here means
+          // this is the web build.
+          target = ManagementDashboard(name: name);
           break;
         case 'field_worker':
           final canDrive = userDoc.data()?['canDriveTruck'] == true;
@@ -641,6 +1067,23 @@ class AdminDashboard extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 6,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.local_gas_station,
+              title: 'Manage Fuel Stations',
+              subtitle: 'Add or view fuel stations',
+              color: Colors.deepOrange,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const FuelStationManagementScreen()),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -691,6 +1134,14 @@ class AdminDashboard extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               FadeSlideRoute(page: const TruckManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.local_gas_station,
+            label: 'Fuel Stations',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const FuelStationManagementScreen()),
             ),
           ),
           WebSidebarItem(
@@ -752,6 +1203,8 @@ class _AddUserScreenState extends State<AddUserScreen> {
   String _message = '';
   bool _isError = false;
   String? _photoBase64;
+  bool _obscurePassword = true;
+  bool _canAccessFuel = false;
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -879,6 +1332,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
         'role': _selectedRole,
         'canDriveTruck': _selectedRole == 'field_worker' ? _canDriveTruck : false,
         'canOperateMachine': _selectedRole == 'field_worker' ? _canOperateMachine : false,
+        'canAccessFuel': _selectedRole == 'supervisor' ? _canAccessFuel : false,
         'photoBase64': _photoBase64,
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -988,6 +1442,12 @@ class _AddUserScreenState extends State<AddUserScreen> {
                   groupValue: _selectedRole,
                   onChanged: (val) => setState(() => _selectedRole = val!),
                 ),
+                RadioListTile<String>(
+                  title: const Text('Management (website only)'),
+                  value: 'management',
+                  groupValue: _selectedRole,
+                  onChanged: (val) => setState(() => _selectedRole = val!),
+                ),
                 if (_selectedRole == 'field_worker')
                   Padding(
                     padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
@@ -1045,13 +1505,25 @@ class _AddUserScreenState extends State<AddUserScreen> {
             const SizedBox(height: 16),
             TextField(
               controller: _passwordController,
-              obscureText: true,
+              obscureText: _obscurePassword,
               decoration: InputDecoration(
                 labelText: 'Password (min 6 characters)',
                 prefixIcon: const Icon(Icons.lock),
+                suffixIcon: IconButton(
+                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
+                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                ),
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
               ),
             ),
+            if (_selectedRole == 'supervisor')
+              CheckboxListTile(
+                title: const Text('Grant Fuel Entry Access'),
+                value: _canAccessFuel,
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
+                onChanged: (val) => setState(() => _canAccessFuel = val ?? false),
+              ),
             const SizedBox(height: 8),
             if (_message.isNotEmpty)
               Padding(
@@ -1150,9 +1622,60 @@ class ManageUsersScreen extends StatelessWidget {
                           ),
                         );
                       },
-                      trailing: isSelf
-                          ? null
-                          : IconButton(
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (role == 'supervisor')
+                            IconButton(
+                              icon: Icon(
+                                Icons.local_gas_station,
+                                color:
+                                    data['canAccessFuel'] == true ? Colors.green : Colors.grey,
+                              ),
+                              onPressed: () {
+                                final currentlyHasAccess = data['canAccessFuel'] == true;
+                                final newValue = !currentlyHasAccess;
+                                final userName = data['name'] ?? 'this user';
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: Text(currentlyHasAccess
+                                        ? 'Revoke Fuel Access?'
+                                        : 'Grant Fuel Access?'),
+                                    content: Text(currentlyHasAccess
+                                        ? 'Remove fuel entry access from $userName?'
+                                        : 'Allow $userName to submit fuel entries?'),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          await FirebaseFirestore.instance
+                                              .collection('users')
+                                              .doc(userId)
+                                              .update({'canAccessFuel': newValue});
+                                          if (context.mounted) {
+                                            Navigator.pop(context);
+                                            ScaffoldMessenger.of(context).showSnackBar(
+                                              SnackBar(
+                                                content: Text(newValue
+                                                    ? 'Fuel access granted'
+                                                    : 'Fuel access revoked'),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: const Text('CONFIRM'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          if (!isSelf)
+                            IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
                               onPressed: () {
                                 showDialog(
@@ -1189,6 +1712,8 @@ class ManageUsersScreen extends StatelessWidget {
                                 );
                               },
                             ),
+                        ],
+                      ),
                     ),
                   ),
                 ),
@@ -1347,7 +1872,13 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                             subtitle: Text('${data['type'] ?? ''} • ${data['number'] ?? ''}'),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteMachine(docId),
+                              onPressed: () => confirmDelete(
+                                context: context,
+                                title: 'Delete Machine?',
+                                message:
+                                    'Are you sure you want to delete this machine? This cannot be undone.',
+                                onConfirm: () => _deleteMachine(docId),
+                              ),
                             ),
                             onTap: () {
                               pushWebAware(
@@ -1571,44 +2102,39 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   return const Center(child: Text('No sites added yet.'));
                 }
 
-                final sites = snapshot.data!.docs;
+                final allSites = snapshot.data!.docs;
+                final loadingSites = allSites
+                    .where((doc) =>
+                        (doc.data() as Map<String, dynamic>)['canBeLoadingSite'] != false)
+                    .toList();
+                final unloadingSites = allSites
+                    .where((doc) =>
+                        (doc.data() as Map<String, dynamic>)['canBeUnloadingSite'] != false)
+                    .toList();
 
-                return ListView.builder(
-                  padding: const EdgeInsets.all(12),
-                  itemCount: sites.length,
-                  itemBuilder: (context, index) {
-                    final data = sites[index].data() as Map<String, dynamic>;
-                    final docId = sites[index].id;
-
-                    return _WebStaggeredFadeIn(
-                      index: index,
-                      child: _WebHoverCard(
-                        child: Card(
-                          margin: const EdgeInsets.only(bottom: 10),
-                          child: ListTile(
-                            leading: CircleAvatar(
-                              backgroundColor: Colors.teal.withOpacity(0.15),
-                              child: const Icon(Icons.location_on, color: Colors.teal),
-                            ),
-                            title: Text(data['name'] ?? ''),
-                            subtitle: Text([
-                              data['location'] ?? '',
-                              if (data['isPlantSite'] == true) '🏭 Plant Site',
-                              if (data['canBeLoadingSite'] == false) '🚫 Not a Working Site',
-                            ].where((s) => s.isNotEmpty).join('  •  ')),
-                            trailing: IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteSite(docId),
-                            ),
-                            onTap: () => pushWebAware(
-                              context,
-                              SiteHistoryScreen(siteId: docId, siteName: data['name'] ?? ''),
-                            ),
-                          ),
+                return DefaultTabController(
+                  length: 2,
+                  child: Column(
+                    children: [
+                      const TabBar(
+                        labelColor: Colors.teal,
+                        unselectedLabelColor: Colors.black54,
+                        indicatorColor: Colors.teal,
+                        tabs: [
+                          Tab(text: 'Loading Sites'),
+                          Tab(text: 'Unloading Sites'),
+                        ],
+                      ),
+                      Expanded(
+                        child: TabBarView(
+                          children: [
+                            _buildSiteList(loadingSites),
+                            _buildSiteList(unloadingSites),
+                          ],
                         ),
                       ),
-                    );
-                  },
+                    ],
+                  ),
                 );
               },
             ),
@@ -1617,32 +2143,610 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
       ),
     );
   }
+
+  Widget _buildSiteList(List<QueryDocumentSnapshot> sites) {
+    if (sites.isEmpty) {
+      return const Center(child: Text('No sites in this category.'));
+    }
+
+    return ListView.builder(
+      padding: const EdgeInsets.all(12),
+      itemCount: sites.length,
+      itemBuilder: (context, index) {
+        final data = sites[index].data() as Map<String, dynamic>;
+        final docId = sites[index].id;
+
+        return _WebStaggeredFadeIn(
+          index: index,
+          child: _WebHoverCard(
+            child: Card(
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: CircleAvatar(
+                  backgroundColor: Colors.teal.withOpacity(0.15),
+                  child: const Icon(Icons.location_on, color: Colors.teal),
+                ),
+                title: Text(data['name'] ?? ''),
+                subtitle: Text([
+                  data['location'] ?? '',
+                  if (data['isPlantSite'] == true) '🏭 Plant Site',
+                  if (data['canBeLoadingSite'] == false) '🚫 Not a Working Site',
+                ].where((s) => s.isNotEmpty).join('  •  ')),
+                trailing: IconButton(
+                  icon: const Icon(Icons.delete, color: Colors.red),
+                  onPressed: () => confirmDelete(
+                    context: context,
+                    title: 'Delete Site?',
+                    message:
+                        'Are you sure you want to delete this site? This cannot be undone.',
+                    onConfirm: () => _deleteSite(docId),
+                  ),
+                ),
+                onTap: () => pushWebAware(
+                  context,
+                  SiteHistoryScreen(siteId: docId, siteName: data['name'] ?? ''),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
 }
 // ---------------- OWNER DASHBOARD ----------------
-class OwnerDashboard extends StatelessWidget {
+class OwnerDashboard extends StatefulWidget {
   final String name;
   const OwnerDashboard({super.key, required this.name});
+
+  @override
+  State<OwnerDashboard> createState() => _OwnerDashboardState();
+}
+
+class _OwnerDashboardState extends State<OwnerDashboard> {
+  final _searchController = TextEditingController();
+  String _searchText = '';
 
   String _todayString() {
     final today = DateTime.now();
     return "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final todayDate = _todayString();
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
 
-    Future<void> logout() async {
-      await FirebaseAuth.instance.signOut();
-      if (context.mounted) {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
-        );
+  Future<Map<String, int>> _calculateCategoryLoadCounts(List<QueryDocumentSnapshot> sessions) async {
+    final Map<String, int> loadCountsByCategory = {};
+
+    for (final session in sessions) {
+      final recordsSnap = await FirebaseFirestore.instance
+          .collection('daily_sessions')
+          .doc(session.id)
+          .collection('work_records')
+          .get();
+
+      for (final rec in recordsSnap.docs) {
+        final data = rec.data();
+        if (data['isCompleted'] != true) continue;
+
+        final category = data['category'] ?? 'Unknown';
+        loadCountsByCategory[category] = (loadCountsByCategory[category] ?? 0) + 1;
       }
     }
 
-    final bodyContent = RefreshIndicator(
+    return loadCountsByCategory;
+  }
+
+  Widget _summaryCard(String label, int value, IconData icon, Color color) {
+    const valueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold);
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, color: color, size: 28),
+            const SizedBox(height: 8),
+            kIsWeb
+                ? TweenAnimationBuilder<int>(
+                    tween: IntTween(begin: 0, end: value),
+                    duration: const Duration(milliseconds: 800),
+                    curve: Curves.easeOut,
+                    builder: (context, animatedValue, _) =>
+                        Text('$animatedValue', style: valueStyle),
+                  )
+                : Text('$value', style: valueStyle),
+            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ---- Extracted so both the (unchanged) mobile body and the new web body
+  // can render the exact same chart/quick-links/status list without
+  // duplicating the widget trees. ----
+
+  Widget _buildCategoryChart(String todayDate) {
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance
+          .collection('daily_sessions')
+          .where('date', isEqualTo: todayDate)
+          .snapshots(),
+      builder: (context, sessionSnap) {
+        if (!sessionSnap.hasData || sessionSnap.data!.docs.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 20),
+            child: Text('No data yet for today.'),
+          );
+        }
+
+        return FutureBuilder<Map<String, int>>(
+          future: _calculateCategoryLoadCounts(sessionSnap.data!.docs),
+          builder: (context, snapshot) {
+            if (!snapshot.hasData) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 30),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+
+            final totals = snapshot.data!;
+            if (totals.isEmpty || totals.values.every((v) => v == 0)) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No loads completed yet today.'),
+              );
+            }
+
+            final colors = [
+              Colors.orange,
+              Colors.blue,
+              Colors.green,
+              Colors.purple,
+              Colors.red,
+              Colors.teal,
+              Colors.brown,
+              Colors.indigo,
+            ];
+
+            final entries = totals.entries.toList();
+
+            return Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      height: 180,
+                      child: PieChart(
+                        PieChartData(
+                          sectionsSpace: 2,
+                          centerSpaceRadius: 40,
+                          sections: List.generate(entries.length, (i) {
+                            final count = entries[i].value;
+                            return PieChartSectionData(
+                              value: count.toDouble(),
+                              title: '$count',
+                              color: colors[i % colors.length],
+                              radius: 55,
+                              titleStyle: const TextStyle(
+                                  fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                            );
+                          }),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Wrap(
+                      spacing: 12,
+                      runSpacing: 8,
+                      children: List.generate(entries.length, (i) {
+                        return Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 10,
+                              height: 10,
+                              decoration: BoxDecoration(
+                                color: colors[i % colors.length],
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Text(entries[i].key, style: const TextStyle(fontSize: 12)),
+                          ],
+                        );
+                      }),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildQuickLinks(BuildContext context) {
+    return Column(
+      children: [
+        _WebStaggeredFadeIn(
+          index: 2,
+          child: DashboardMenuCard(
+            icon: Icons.location_on,
+            title: 'Sites',
+            subtitle: 'View all sites and their history',
+            color: Colors.teal,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AdminSiteListScreen()),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        _WebStaggeredFadeIn(
+          index: 3,
+          child: DashboardMenuCard(
+            icon: Icons.groups,
+            title: 'Team',
+            subtitle: 'View supervisors and drivers',
+            color: Colors.deepPurple,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const TeamCategoryScreen()),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildLiveMachineStatus(String todayDate) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Live Machine Status',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const SizedBox(height: 12),
+        StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance
+              .collection('daily_sessions')
+              .where('date', isEqualTo: todayDate)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.symmetric(vertical: 20),
+                child: Text('No machines working today.'),
+              );
+            }
+
+            // Sort client-side by createdAt (avoids needing a
+            // composite Firestore index for date + createdAt).
+            final sessions = snapshot.data!.docs.toList()
+              ..sort((a, b) {
+                final aTs = (a.data() as Map)['createdAt'] as Timestamp?;
+                final bTs = (b.data() as Map)['createdAt'] as Timestamp?;
+                if (aTs == null || bTs == null) return 0;
+                return bTs.compareTo(aTs);
+              });
+
+            return ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: sessions.length,
+              itemBuilder: (context, index) {
+                final session = sessions[index];
+                final sData = session.data() as Map<String, dynamic>;
+                final isActive = sData['status'] == 'active';
+
+                return Card(
+                  margin: const EdgeInsets.only(bottom: 10),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                sData['machineName'] ?? '',
+                                style:
+                                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isActive ? Colors.green : Colors.grey,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                isActive ? 'ACTIVE' : 'COMPLETED',
+                                style: const TextStyle(color: Colors.white, fontSize: 11),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        Text('Site: ${sData['siteName']} • Supervisor: ${sData['supervisorName']}',
+                            style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                        const Divider(height: 16),
+
+                        // Current work record (running one)
+                        StreamBuilder<QuerySnapshot>(
+                          stream: FirebaseFirestore.instance
+                              .collection('daily_sessions')
+                              .doc(session.id)
+                              .collection('work_records')
+                              .where('status', isEqualTo: 'running')
+                              .limit(1)
+                              .snapshots(),
+                          builder: (context, workSnap) {
+                            if (!workSnap.hasData || workSnap.data!.docs.isEmpty) {
+                              return const Text('No active work right now',
+                                  style: TextStyle(fontSize: 13, color: Colors.grey));
+                            }
+                            final workData =
+                                workSnap.data!.docs.first.data() as Map<String, dynamic>;
+                            return Row(
+                              children: [
+                                const Icon(Icons.play_circle_fill, color: Colors.green, size: 18),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Working: ${workData['category']}',
+                                  style:
+                                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                ),
+                              ],
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ---- New web-only pieces: search bar + results, and the 4-card grid. ----
+
+  Widget _buildSearchBar() {
+    return TextField(
+      controller: _searchController,
+      onChanged: (val) => setState(() => _searchText = val),
+      decoration: InputDecoration(
+        hintText: 'Search sites, machines, trucks...',
+        prefixIcon: const Icon(Icons.search),
+        filled: true,
+        fillColor: Colors.white,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(30),
+          borderSide: BorderSide.none,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchResults() {
+    final query = _searchText.trim().toLowerCase();
+    if (query.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      constraints: const BoxConstraints(maxHeight: 320),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: [AppTheme.softShadow],
+      ),
+      child: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+        builder: (context, siteSnap) {
+          return StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('machines').snapshots(),
+            builder: (context, machineSnap) {
+              return StreamBuilder<QuerySnapshot>(
+                stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+                builder: (context, truckSnap) {
+                  final results = <_OwnerSearchResult>[];
+
+                  for (final doc in siteSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final name = (data['name'] ?? '').toString();
+                    if (name.toLowerCase().contains(query)) {
+                      results.add(_OwnerSearchResult(
+                        type: 'Site',
+                        icon: Icons.location_on,
+                        id: doc.id,
+                        name: name,
+                        data: data,
+                      ));
+                    }
+                  }
+                  for (final doc in machineSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final name = (data['name'] ?? '').toString();
+                    if (name.toLowerCase().contains(query)) {
+                      results.add(_OwnerSearchResult(
+                        type: 'Machine',
+                        icon: Icons.precision_manufacturing,
+                        id: doc.id,
+                        name: name,
+                        data: data,
+                      ));
+                    }
+                  }
+                  for (final doc in truckSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                    final data = doc.data() as Map<String, dynamic>;
+                    final name = (data['truckNumber'] ?? '').toString();
+                    if (name.toLowerCase().contains(query)) {
+                      results.add(_OwnerSearchResult(
+                        type: 'Truck',
+                        icon: Icons.local_shipping,
+                        id: doc.id,
+                        name: name,
+                        data: data,
+                      ));
+                    }
+                  }
+
+                  if (results.isEmpty) {
+                    return const Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text('No matches found.', style: TextStyle(color: Colors.grey)),
+                    );
+                  }
+
+                  return ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    itemCount: results.length,
+                    itemBuilder: (context, index) {
+                      final r = results[index];
+                      return ListTile(
+                        leading: Icon(r.icon, color: AppTheme.primaryMid),
+                        title: Text(r.name),
+                        subtitle: Text(r.type),
+                        onTap: () {
+                          setState(() {
+                            _searchController.clear();
+                            _searchText = '';
+                          });
+                          switch (r.type) {
+                            case 'Site':
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      SiteHistoryScreen(siteId: r.id, siteName: r.name),
+                                ),
+                              );
+                              break;
+                            case 'Machine':
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) => MachineProfileScreen(
+                                    machineId: r.id,
+                                    machineName: r.name,
+                                    machineType: r.data['type'] ?? '',
+                                    machineNumber: r.data['number'] ?? '',
+                                  ),
+                                ),
+                              );
+                              break;
+                            case 'Truck':
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      TruckProfileScreen(truckId: r.id, truckNumber: r.name),
+                                ),
+                              );
+                              break;
+                          }
+                        },
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildSummaryCardsGrid(BuildContext context) {
+    final columns = MediaQuery.of(context).size.width > 1000 ? 4 : 2;
+
+    return StreamBuilder<QuerySnapshot>(
+      stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+      builder: (context, siteSnap) {
+        return StreamBuilder<QuerySnapshot>(
+          stream: FirebaseFirestore.instance.collection('machines').snapshots(),
+          builder: (context, machineSnap) {
+            return StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+              builder: (context, truckSnap) {
+                return StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .where('role', whereIn: ['supervisor', 'driver', 'field_worker'])
+                      .snapshots(),
+                  builder: (context, teamSnap) {
+                    final cards = [
+                      _summaryCard('Total Sites', siteSnap.data?.docs.length ?? 0,
+                          Icons.location_on, Colors.teal),
+                      _summaryCard('Total Machines', machineSnap.data?.docs.length ?? 0,
+                          Icons.precision_manufacturing, Colors.orange),
+                      _summaryCard('Total Trucks', truckSnap.data?.docs.length ?? 0,
+                          Icons.local_shipping, Colors.deepOrange),
+                      _summaryCard('Total Team Members', teamSnap.data?.docs.length ?? 0,
+                          Icons.groups, Colors.deepPurple),
+                    ];
+
+                    return GridView.count(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      crossAxisCount: columns,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 12,
+                      childAspectRatio: 1.6,
+                      children: [
+                        for (int i = 0; i < cards.length; i++)
+                          _WebStaggeredFadeIn(index: i, child: cards[i]),
+                      ],
+                    );
+                  },
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final todayDate = _todayString();
+    final isDesktopWeb =
+        kIsWeb && MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
+
+    if (!isDesktopWeb) {
+      // ---- Mobile (and narrow-web) layout: untouched. ----
+      final bodyContent = RefreshIndicator(
         onRefresh: () async {},
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -1651,7 +2755,7 @@ class OwnerDashboard extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Welcome, $name',
+                'Welcome, ${widget.name}',
                 style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
@@ -1706,341 +2810,1371 @@ class OwnerDashboard extends StatelessWidget {
               const Text('Today — Work Category Breakdown',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
               const SizedBox(height: 12),
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('daily_sessions')
-                    .where('date', isEqualTo: todayDate)
-                    .snapshots(),
-                builder: (context, sessionSnap) {
-                  if (!sessionSnap.hasData || sessionSnap.data!.docs.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Text('No data yet for today.'),
-                    );
-                  }
-
-                  return FutureBuilder<Map<String, int>>(
-                    future: _calculateCategoryLoadCounts(sessionSnap.data!.docs),
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 30),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-
-                      final totals = snapshot.data!;
-                      if (totals.isEmpty || totals.values.every((v) => v == 0)) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: Text('No loads completed yet today.'),
-                        );
-                      }
-
-                      final colors = [
-                        Colors.orange,
-                        Colors.blue,
-                        Colors.green,
-                        Colors.purple,
-                        Colors.red,
-                        Colors.teal,
-                        Colors.brown,
-                        Colors.indigo,
-                      ];
-
-                      final entries = totals.entries.toList();
-
-                      return Card(
-                        elevation: 2,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            children: [
-                              SizedBox(
-                                height: 180,
-                                child: PieChart(
-                                  PieChartData(
-                                    sectionsSpace: 2,
-                                    centerSpaceRadius: 40,
-                                    sections: List.generate(entries.length, (i) {
-                                      final count = entries[i].value;
-                                      return PieChartSectionData(
-                                        value: count.toDouble(),
-                                        title: '$count',
-                                        color: colors[i % colors.length],
-                                        radius: 55,
-                                        titleStyle: const TextStyle(
-                                            fontSize: 12,
-                                            fontWeight: FontWeight.bold,
-                                            color: Colors.white),
-                                      );
-                                    }),
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 16),
-                              Wrap(
-                                spacing: 12,
-                                runSpacing: 8,
-                                children: List.generate(entries.length, (i) {
-                                  return Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      Container(
-                                        width: 10,
-                                        height: 10,
-                                        decoration: BoxDecoration(
-                                          color: colors[i % colors.length],
-                                          shape: BoxShape.circle,
-                                        ),
-                                      ),
-                                      const SizedBox(width: 4),
-                                      Text(entries[i].key, style: const TextStyle(fontSize: 12)),
-                                    ],
-                                  );
-                                }),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+              _buildCategoryChart(todayDate),
               const SizedBox(height: 24),
 
-              _WebStaggeredFadeIn(
-                index: 2,
-                child: DashboardMenuCard(
-                  icon: Icons.location_on,
-                  title: 'Sites',
-                  subtitle: 'View all sites and their history',
-                  color: Colors.teal,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const AdminSiteListScreen()),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-              _WebStaggeredFadeIn(
-                index: 3,
-                child: DashboardMenuCard(
-                  icon: Icons.groups,
-                  title: 'Team',
-                  subtitle: 'View supervisors and drivers',
-                  color: Colors.deepPurple,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(builder: (_) => const TeamCategoryScreen()),
-                    );
-                  },
-                ),
-              ),
+              _buildQuickLinks(context),
               const SizedBox(height: 24),
 
-              const Text('Live Machine Status',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 12),
-
-              StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance
-                    .collection('daily_sessions')
-                    .where('date', isEqualTo: todayDate)
-                    .snapshots(),
-                builder: (context, snapshot) {
-                  if (snapshot.connectionState == ConnectionState.waiting) {
-                    return const Center(child: CircularProgressIndicator());
-                  }
-                  if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                    return const Padding(
-                      padding: EdgeInsets.symmetric(vertical: 20),
-                      child: Text('No machines working today.'),
-                    );
-                  }
-
-                  // Sort client-side by createdAt (avoids needing a
-                  // composite Firestore index for date + createdAt).
-                  final sessions = snapshot.data!.docs.toList()
-                    ..sort((a, b) {
-                      final aTs = (a.data() as Map)['createdAt'] as Timestamp?;
-                      final bTs = (b.data() as Map)['createdAt'] as Timestamp?;
-                      if (aTs == null || bTs == null) return 0;
-                      return bTs.compareTo(aTs);
-                    });
-
-                  return ListView.builder(
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    itemCount: sessions.length,
-                    itemBuilder: (context, index) {
-                      final session = sessions[index];
-                      final sData = session.data() as Map<String, dynamic>;
-                      final isActive = sData['status'] == 'active';
-
-                      return Card(
-                        margin: const EdgeInsets.only(bottom: 10),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      sData['machineName'] ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                    ),
-                                  ),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(
-                                      color: isActive ? Colors.green : Colors.grey,
-                                      borderRadius: BorderRadius.circular(20),
-                                    ),
-                                    child: Text(
-                                      isActive ? 'ACTIVE' : 'COMPLETED',
-                                      style: const TextStyle(color: Colors.white, fontSize: 11),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                              const SizedBox(height: 4),
-                              Text('Site: ${sData['siteName']} • Supervisor: ${sData['supervisorName']}',
-                                  style: const TextStyle(fontSize: 13, color: Colors.black87)),
-                              const Divider(height: 16),
-
-                              // Current work record (running one)
-                              StreamBuilder<QuerySnapshot>(
-                                stream: FirebaseFirestore.instance
-                                    .collection('daily_sessions')
-                                    .doc(session.id)
-                                    .collection('work_records')
-                                    .where('status', isEqualTo: 'running')
-                                    .limit(1)
-                                    .snapshots(),
-                                builder: (context, workSnap) {
-                                  if (!workSnap.hasData || workSnap.data!.docs.isEmpty) {
-                                    return const Text('No active work right now',
-                                        style: TextStyle(fontSize: 13, color: Colors.grey));
-                                  }
-                                  final workData =
-                                      workSnap.data!.docs.first.data() as Map<String, dynamic>;
-                                  return Row(
-                                    children: [
-                                      const Icon(Icons.play_circle_fill, color: Colors.green, size: 18),
-                                      const SizedBox(width: 6),
-                                      Text(
-                                        'Working: ${workData['category']}',
-                                        style: const TextStyle(
-                                            fontSize: 13, fontWeight: FontWeight.w600),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-                },
-              ),
+              _buildLiveMachineStatus(todayDate),
             ],
           ),
         ),
       );
 
-    return Scaffold(
-      appBar: AppBar(
-        title: const Text('Owner Dashboard'),
-        backgroundColor: Colors.green[800],
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: logout,
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Owner Dashboard'),
+          backgroundColor: Colors.green[800],
+          actions: [
+            IconButton(
+              icon: const Icon(Icons.logout),
+              onPressed: _logout,
+            ),
+          ],
+        ),
+        body: WebAppShell(
+          appName: 'NODA Owner',
+          onLogout: _logout,
+          menuItems: [
+            WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+            WebSidebarItem(
+              icon: Icons.location_on,
+              label: 'Sites',
+              onTap: () => Navigator.push(
+                context,
+                FadeSlideRoute(page: const AdminSiteListScreen()),
+              ),
+            ),
+            WebSidebarItem(
+              icon: Icons.groups,
+              label: 'Team',
+              onTap: () => Navigator.push(
+                context,
+                FadeSlideRoute(page: const TeamCategoryScreen()),
+              ),
+            ),
+            WebSidebarItem(
+              icon: Icons.local_gas_station,
+              label: 'Fuel Stations',
+              onTap: () => Navigator.push(
+                context,
+                FadeSlideRoute(page: const FuelStationManagementScreen()),
+              ),
+            ),
+          ],
+          child: bodyContent,
+        ),
+      );
+    }
+
+    // ---- Professional desktop-web layout. ----
+    final webBody = SingleChildScrollView(
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome, ${widget.name}',
+            style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Live overview — ${DateTime.now().toString().substring(0, 10)}',
+            style: const TextStyle(color: Colors.grey, fontSize: 13),
+          ),
+          const SizedBox(height: 20),
+          _buildSearchBar(),
+          _buildSearchResults(),
+          const SizedBox(height: 24),
+          _buildSummaryCardsGrid(context),
+          const SizedBox(height: 24),
+          const Text('Today — Work Category Breakdown',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 12),
+          _buildCategoryChart(todayDate),
+          const SizedBox(height: 24),
+          _buildQuickLinks(context),
+          const SizedBox(height: 24),
+          _buildLiveMachineStatus(todayDate),
         ],
       ),
-      body: WebAppShell(
-        appName: 'NODA Owner',
-        onLogout: logout,
-        menuItems: [
-          WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
-          WebSidebarItem(
-            icon: Icons.location_on,
-            label: 'Sites',
-            onTap: () => Navigator.push(
-              context,
-              FadeSlideRoute(page: const AdminSiteListScreen()),
-            ),
-          ),
-          WebSidebarItem(
-            icon: Icons.groups,
-            label: 'Team',
-            onTap: () => Navigator.push(
-              context,
-              FadeSlideRoute(page: const TeamCategoryScreen()),
+    );
+
+    return Scaffold(
+      body: Column(
+        children: [
+          _DashboardTopBar(name: widget.name, roleLabel: 'Owner', onLogout: _logout),
+          Expanded(
+            child: WebAppShell(
+              appName: 'NODA Owner',
+              onLogout: _logout,
+              menuItems: [
+                WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+                WebSidebarItem(
+                  icon: Icons.location_on,
+                  label: 'Sites',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const AdminSiteListScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.groups,
+                  label: 'Team',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const TeamCategoryScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.local_gas_station,
+                  label: 'Fuel Stations',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const FuelStationManagementScreen()),
+                  ),
+                ),
+              ],
+              child: webBody,
             ),
           ),
         ],
-        child: bodyContent,
       ),
     );
   }
-Future<Map<String, int>> _calculateCategoryLoadCounts(List<QueryDocumentSnapshot> sessions) async {
-    final Map<String, int> loadCountsByCategory = {};
+}
 
-    for (final session in sessions) {
-      final recordsSnap = await FirebaseFirestore.instance
-          .collection('daily_sessions')
-          .doc(session.id)
-          .collection('work_records')
-          .get();
+class _OwnerSearchResult {
+  final String type;
+  final IconData icon;
+  final String id;
+  final String name;
+  final Map<String, dynamic> data;
 
-      for (final rec in recordsSnap.docs) {
-        final data = rec.data();
-        if (data['isCompleted'] != true) continue;
+  _OwnerSearchResult({
+    required this.type,
+    required this.icon,
+    required this.id,
+    required this.name,
+    required this.data,
+  });
+}
 
-        final category = data['category'] ?? 'Unknown';
-        loadCountsByCategory[category] = (loadCountsByCategory[category] ?? 0) + 1;
-      }
+// ---------------- MANAGEMENT DASHBOARD (web-only) ----------------
+// Management accounts can only sign in on the web build (see AuthGate and
+// LoginScreen._login, which force-signOut and block this role on mobile).
+class ManagementDashboard extends StatefulWidget {
+  final String name;
+  const ManagementDashboard({super.key, required this.name});
+
+  @override
+  State<ManagementDashboard> createState() => _ManagementDashboardState();
+}
+
+class _ManagementDashboardState extends State<ManagementDashboard> {
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bodyContent = Padding(
+      padding: const EdgeInsets.all(24.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Welcome, ${widget.name}',
+            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Use the sidebar to view fuel and site reports.',
+            style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+          ),
+        ],
+      ),
+    );
+
+    return Scaffold(
+      body: Column(
+        children: [
+          _DashboardTopBar(name: widget.name, roleLabel: 'Management', onLogout: _logout),
+          Expanded(
+            child: WebAppShell(
+              appName: 'NODA Management',
+              onLogout: _logout,
+              menuItems: [
+                WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+                WebSidebarItem(
+                  icon: Icons.local_gas_station,
+                  label: 'Fuel Reports',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const ManagementFuelReportsScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.location_on,
+                  label: 'Site Reports',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const ManagementSiteReportsScreen()),
+                  ),
+                ),
+              ],
+              child: bodyContent,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------- MANAGEMENT FUEL REPORTS SCREEN (web-only) ----------------
+class ManagementFuelReportsScreen extends StatelessWidget {
+  const ManagementFuelReportsScreen({super.key});
+
+  void _showBillPhoto(BuildContext context, String? billPhotoBase64) {
+    if (billPhotoBase64 == null) return;
+    showDialog(
+      context: context,
+      builder: (_) => Dialog(
+        child: InteractiveViewer(
+          child: Image.memory(base64Decode(billPhotoBase64)),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Fuel Reports'),
+        backgroundColor: Colors.deepOrange[800],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('fuel_entries')
+            .orderBy('createdAt', descending: true)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+            return const Center(child: Text('No fuel entries yet.'));
+          }
+
+          final entries = snapshot.data!.docs;
+
+          return ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: entries.length,
+            itemBuilder: (context, index) {
+              final data = entries[index].data() as Map<String, dynamic>;
+              final billNumber = data['billNumber'] as String?;
+
+              return Card(
+                margin: const EdgeInsets.only(bottom: 10),
+                child: ListTile(
+                  leading: CircleAvatar(
+                    backgroundColor: Colors.deepOrange.withOpacity(0.15),
+                    child: const Icon(Icons.local_gas_station, color: Colors.deepOrange),
+                  ),
+                  title: Text('${data['supervisorName'] ?? ''} • ${data['fuelStationName'] ?? ''}'),
+                  subtitle: Text(
+                    '${data['date'] ?? ''}\n'
+                    'Truck: ${data['truckNumber'] ?? ''} • '
+                    '${data['liters'] ?? ''} L • Rs. ${data['amount'] ?? ''}'
+                    '${billNumber != null && billNumber.isNotEmpty ? ' • Bill: $billNumber' : ''}',
+                  ),
+                  isThreeLine: true,
+                  trailing: const Icon(Icons.receipt_long),
+                  onTap: () => _showBillPhoto(context, data['billPhotoBase64'] as String?),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------- MANAGEMENT SITE REPORTS SCREEN (web-only) ----------------
+class ManagementSiteReportsScreen extends StatefulWidget {
+  const ManagementSiteReportsScreen({super.key});
+
+  @override
+  State<ManagementSiteReportsScreen> createState() => _ManagementSiteReportsScreenState();
+}
+
+class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScreen> {
+  static const List<String> _columns = [
+    'Date',
+    'Machine',
+    'Site',
+    'Supervisor',
+    'Category',
+    'Truck Number',
+    'Bill Number',
+    'Unloading Site',
+    'Distance KM',
+    'Start Meter',
+    'End Meter',
+    'Meter Run',
+    'Started At',
+    'Completed At',
+    'Truck Driver',
+    'Cube',
+    'Machine Operator',
+  ];
+
+  DateTimeRange? _dateRange;
+  String? _selectedSiteName;
+  String? _selectedMachineName;
+  final _truckNumberController = TextEditingController();
+  String _truckNumberFilter = '';
+  Timer? _debounce;
+  String? _selectedOperatorName;
+
+  // Created once, not inline in build(): Query.snapshots() returns a new
+  // Stream object every time it's called, and StreamBuilder resubscribes
+  // (resetting to ConnectionState.waiting, blanking the whole body) whenever
+  // it's handed a different stream instance. Building this inline in
+  // StreamBuilder's `stream:` argument meant every rebuild — including the
+  // debounced filter-change ones — created a fresh Stream and caused a
+  // full unsubscribe/resubscribe, which is what the white flash actually
+  // was.
+  late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore.instance
+      .collectionGroup('work_records')
+      .where('isLoadingCategory', isEqualTo: true)
+      .where('isCompleted', isEqualTo: true)
+      .snapshots();
+
+  // Same reasoning as _workRecordsStream — the filter dropdowns' own
+  // StreamBuilders must not be handed a fresh stream on every keystroke
+  // rebuild either.
+  late final Stream<QuerySnapshot> _sitesStream =
+      FirebaseFirestore.instance.collection('sites').snapshots();
+  late final Stream<QuerySnapshot> _machinesStream =
+      FirebaseFirestore.instance.collection('machines').snapshots();
+  late final Stream<QuerySnapshot> _operatorsStream = FirebaseFirestore.instance
+      .collection('users')
+      .where('canOperateMachine', isEqualTo: true)
+      .snapshots();
+
+  // Per-session daily_sessions doc fetches, cached across rebuilds so
+  // records missing the denormalized fields (see _enrichRecords) don't
+  // re-fetch their parent session on every stream update.
+  final Map<String, Future<DocumentSnapshot>> _sessionDocCache = {};
+
+  // Memoizes the enrichment Future against the QuerySnapshot it was built
+  // from. Without this, a rebuild triggered by anything other than a new
+  // Firestore snapshot (e.g. the debounced filter setState) would hand
+  // FutureBuilder a brand-new Future every time, resetting it to its
+  // loading state and unmounting/remounting the whole filters row —
+  // including the Truck Number TextField, which is what was stealing focus
+  // on every keystroke.
+  QuerySnapshot? _lastSnapshot;
+  Future<List<Map<String, dynamic>>>? _enrichedFuture;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _truckNumberController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+    }
+  }
+
+  void _clearFilters() {
+    _debounce?.cancel();
+    setState(() {
+      _dateRange = null;
+      _selectedSiteName = null;
+      _selectedMachineName = null;
+      _truckNumberController.clear();
+      _truckNumberFilter = '';
+      _selectedOperatorName = null;
+    });
+  }
+
+  bool _matchesFilters(Map<String, dynamic> data) {
+    if (_dateRange != null) {
+      final dateStr = data['date'] as String?;
+      if (dateStr == null) return false;
+      final parts = dateStr.split('-');
+      if (parts.length != 3) return false;
+      final recordDate =
+          DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+      final startDate =
+          DateTime(_dateRange!.start.year, _dateRange!.start.month, _dateRange!.start.day);
+      final endDate = DateTime(_dateRange!.end.year, _dateRange!.end.month, _dateRange!.end.day);
+      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate)) return false;
+    }
+    if (_selectedSiteName != null && data['siteName'] != _selectedSiteName) return false;
+    if (_selectedMachineName != null && data['machineName'] != _selectedMachineName) return false;
+    final truckQuery = _truckNumberFilter.trim().toLowerCase();
+    if (truckQuery.isNotEmpty) {
+      final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
+      if (!truckNumber.contains(truckQuery)) return false;
+    }
+    if (_selectedOperatorName != null && data['machineOperatorName'] != _selectedOperatorName) {
+      return false;
+    }
+    return true;
+  }
+
+  List<String> _rowValues(Map<String, dynamic> data) {
+    final startMeter = (data['startMeter'] as num?)?.toDouble();
+    final endMeter = (data['endMeter'] as num?)?.toDouble();
+    final meterRun =
+        (startMeter != null && endMeter != null) ? (endMeter - startMeter).toStringAsFixed(1) : '';
+    return [
+      (data['date'] ?? '').toString(),
+      (data['machineName'] ?? '').toString(),
+      (data['siteName'] ?? '').toString(),
+      (data['supervisorName'] ?? '').toString(),
+      (data['category'] ?? '').toString(),
+      (data['truckNumber'] ?? '').toString(),
+      (data['billNumber'] ?? '').toString(),
+      (data['unloadingSiteName'] ?? '').toString(),
+      data['distanceKm']?.toString() ?? '',
+      startMeter?.toString() ?? '',
+      endMeter?.toString() ?? '',
+      meterRun,
+      GoogleSheetsService.formatTime(data['loadStartedAt']),
+      GoogleSheetsService.formatTime(data['loadCompletedAt']),
+      (data['truckDriverName'] ?? '').toString(),
+      (data['cubeCount'] ?? '').toString(),
+      (data['machineOperatorName'] ?? '').toString(),
+    ];
+  }
+
+  Future<void> _exportToExcel(List<Map<String, dynamic>> records) async {
+    final excelFile = xls.Excel.createExcel();
+    final defaultSheetName = excelFile.getDefaultSheet() ?? 'Sheet1';
+    excelFile.rename(defaultSheetName, 'Site Report');
+    final sheet = excelFile['Site Report'];
+
+    sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
+    for (final data in records) {
+      sheet.appendRow(_rowValues(data).map((v) => xls.TextCellValue(v)).toList());
     }
 
-    return loadCountsByCategory;
+    final bytes = excelFile.save();
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to generate Excel file.')),
+        );
+      }
+      return;
+    }
+
+    final filename = 'Site_Report_${DateTime.now().toIso8601String()}.xlsx';
+    downloader.downloadBytes(bytes, filename);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Report exported.')),
+      );
+    }
   }
-  Widget _summaryCard(String label, int value, IconData icon, Color color) {
-    const valueStyle = TextStyle(fontSize: 22, fontWeight: FontWeight.bold);
+
+  Widget _buildFiltersRow() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 230,
+          child: OutlinedButton.icon(
+            onPressed: _pickDateRange,
+            icon: const Icon(Icons.date_range),
+            label: Text(
+              _dateRange == null
+                  ? 'All Time'
+                  : '${GoogleSheetsService.formatDate(_dateRange!.start)} - '
+                      '${GoogleSheetsService.formatDate(_dateRange!.end)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _sitesStream,
+            builder: (context, snapshot) {
+              final sites = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedSiteName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Site',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(value: null, child: Text('All Sites')),
+                  ...sites.map((doc) {
+                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
+                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedSiteName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _machinesStream,
+            builder: (context, snapshot) {
+              final machines = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedMachineName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(value: null, child: Text('All Machines')),
+                  ...machines.map((doc) {
+                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
+                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedMachineName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _truckNumberController,
+            onChanged: (value) {
+              _debounce?.cancel();
+              _debounce = Timer(const Duration(milliseconds: 400), () {
+                setState(() => _truckNumberFilter = value);
+              });
+            },
+            decoration: InputDecoration(
+              labelText: 'Truck Number',
+              isDense: true,
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _operatorsStream,
+            builder: (context, snapshot) {
+              final operators = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedOperatorName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine Operator',
+                  isDense: true,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(value: null, child: Text('All Operators')),
+                  ...operators.map((doc) {
+                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
+                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedOperatorName = val),
+              );
+            },
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: _clearFilters,
+          icon: const Icon(Icons.clear),
+          label: const Text('Clear Filters'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChart(List<Map<String, dynamic>> records) {
+    final Map<String, int> countsByDate = {};
+    for (final r in records) {
+      final date = (r['date'] ?? 'Unknown').toString();
+      countsByDate[date] = (countsByDate[date] ?? 0) + 1;
+    }
+    final sortedDates = countsByDate.keys.toList()..sort();
+
+    if (sortedDates.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Text('No records match these filters.'),
+      );
+    }
+
     return Card(
       elevation: 2,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Padding(
         padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(icon, color: color, size: 28),
-            const SizedBox(height: 8),
-            kIsWeb
-                ? TweenAnimationBuilder<int>(
-                    tween: IntTween(begin: 0, end: value),
-                    duration: const Duration(milliseconds: 800),
-                    curve: Curves.easeOut,
-                    builder: (context, animatedValue, _) =>
-                        Text('$animatedValue', style: valueStyle),
-                  )
-                : Text('$value', style: valueStyle),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          ],
+        child: SizedBox(
+          height: 220,
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              barGroups: [
+                for (int i = 0; i < sortedDates.length; i++)
+                  BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: countsByDate[sortedDates[i]]!.toDouble(),
+                        color: AppTheme.primaryMid,
+                        width: 16,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  ),
+              ],
+              titlesData: FlTitlesData(
+                leftTitles:
+                    AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 40,
+                    getTitlesWidget: (value, meta) {
+                      final i = value.toInt();
+                      if (i < 0 || i >= sortedDates.length) return const SizedBox.shrink();
+                      final label =
+                          sortedDates[i].length >= 10 ? sortedDates[i].substring(5) : sortedDates[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(label, style: const TextStyle(fontSize: 10)),
+                      );
+                    },
+                  ),
+                ),
+                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+              ),
+              borderData: FlBorderData(show: false),
+              gridData: const FlGridData(show: true, drawVerticalLine: false),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTable(List<Map<String, dynamic>> records) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: _columns
+            .map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.bold))))
+            .toList(),
+        rows: records.map((data) {
+          final values = _rowValues(data);
+          return DataRow(cells: values.map((v) => DataCell(Text(v))).toList());
+        }).toList(),
+      ),
+    );
+  }
+
+  // Records created before the 'date'/'machineName'/'siteName'/
+  // 'supervisorName' denormalization only have these fields on their parent
+  // daily_sessions doc. Backfill just those, and only for records that are
+  // actually missing them — already-denormalized records skip the fetch
+  // entirely, and each parent session is only ever fetched once (cached in
+  // _sessionDocCache) even though several of its records may be missing
+  // fields.
+  Future<List<Map<String, dynamic>>> _enrichRecords(List<QueryDocumentSnapshot> docs) async {
+    final results = <Map<String, dynamic>>[];
+
+    for (final doc in docs) {
+      final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>);
+      final missingDenormalized = data['date'] == null ||
+          data['machineName'] == null ||
+          data['siteName'] == null ||
+          data['supervisorName'] == null;
+
+      if (missingDenormalized) {
+        final sessionRef = doc.reference.parent.parent;
+        if (sessionRef != null) {
+          try {
+            final sessionDoc = await _sessionDocCache.putIfAbsent(
+                sessionRef.id, () => sessionRef.get());
+            final sessionData = sessionDoc.data() as Map<String, dynamic>?;
+            if (sessionData != null) {
+              data['date'] ??= sessionData['date'];
+              data['machineName'] ??= sessionData['machineName'];
+              data['siteName'] ??= sessionData['siteName'];
+              data['supervisorName'] ??= sessionData['supervisorName'];
+            }
+          } catch (_) {
+            // Leave fields missing if the parent session can't be read.
+          }
+        }
+      }
+
+      results.add(data);
+    }
+
+    return results;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Site Reports'),
+        backgroundColor: Colors.teal[800],
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: _workRecordsStream,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(child: Text('Error loading records: ${snapshot.error}'));
+          }
+
+          if (!identical(snapshot.data, _lastSnapshot)) {
+            _lastSnapshot = snapshot.data;
+            _enrichedFuture = _enrichRecords(snapshot.data?.docs ?? []);
+          }
+
+          return FutureBuilder<List<Map<String, dynamic>>>(
+            future: _enrichedFuture,
+            builder: (context, enrichSnap) {
+              if (!enrichSnap.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+
+              final allRecords = enrichSnap.data!;
+              // Chronological order: date ascending, then same-day records
+              // by when the load actually started (falling back to
+              // createdAt if that's missing) — oldest first, matching the
+              // Supervisor_Loads sheet's row order. Both the table and the
+              // chart, plus Excel export, all read from this same sorted
+              // `filtered` list, so the order applies everywhere
+              // automatically.
+              final filtered = allRecords.where(_matchesFilters).toList()
+                ..sort((a, b) {
+                  final dateCompare =
+                      (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString());
+                  if (dateCompare != 0) return dateCompare;
+
+                  final aTime =
+                      (a['loadStartedAt'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
+                  final bTime =
+                      (b['loadStartedAt'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return -1;
+                  if (bTime == null) return 1;
+                  return aTime.compareTo(bTime);
+                });
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFiltersRow(),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('${filtered.length} records',
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                        SizedBox(
+                          width: 200,
+                          child: GradientButton(
+                            label: 'Export to Excel',
+                            icon: Icons.download,
+                            height: 44,
+                            onTap: filtered.isEmpty ? () {} : () => _exportToExcel(filtered),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    _buildChart(filtered),
+                    const SizedBox(height: 20),
+                    _buildTable(filtered),
+                  ],
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------- SHARED WEB DASHBOARD TOP BAR ----------------
+// Used by the professional web layouts (ManagementDashboard, OwnerDashboard's
+// desktop-web view). Fetches the current user's own doc once (for the
+// profile photo) rather than on every rebuild.
+class _DashboardTopBar extends StatefulWidget {
+  final String name;
+  final String roleLabel;
+  final VoidCallback onLogout;
+
+  const _DashboardTopBar({
+    required this.name,
+    required this.roleLabel,
+    required this.onLogout,
+  });
+
+  @override
+  State<_DashboardTopBar> createState() => _DashboardTopBarState();
+}
+
+class _DashboardTopBarState extends State<_DashboardTopBar> {
+  late final Future<DocumentSnapshot> _userFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _userFuture = FirebaseFirestore.instance
+        .collection('users')
+        .doc(FirebaseAuth.instance.currentUser!.uid)
+        .get();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 64,
+      padding: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        boxShadow: [AppTheme.softShadow],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: AppTheme.primaryMid,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            alignment: Alignment.center,
+            child: const Text(
+              'N',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+          ),
+          const SizedBox(width: 10),
+          const Text(
+            'NODA Civimech Engineering',
+            style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+          ),
+          const Spacer(),
+          FutureBuilder<DocumentSnapshot>(
+            future: _userFuture,
+            builder: (context, snapshot) {
+              final data = snapshot.data?.data() as Map<String, dynamic>?;
+              final photoBase64 = data?['photoBase64'] as String?;
+              return Row(
+                children: [
+                  CircleAvatar(
+                    radius: 18,
+                    backgroundColor: AppTheme.primaryMid.withOpacity(0.15),
+                    backgroundImage:
+                        photoBase64 != null ? MemoryImage(base64Decode(photoBase64)) : null,
+                    child: photoBase64 == null
+                        ? const Icon(Icons.person, color: AppTheme.primaryMid)
+                        : null,
+                  ),
+                  const SizedBox(width: 10),
+                  Text(widget.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 10),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: AppTheme.accent.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      widget.roleLabel,
+                      style: const TextStyle(
+                          color: AppTheme.primaryMid, fontWeight: FontWeight.w600, fontSize: 12),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  IconButton(
+                    icon: const Icon(Icons.logout, color: AppTheme.primaryDark),
+                    onPressed: widget.onLogout,
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------- SUPERVISOR CHOICE SCREEN (Work / Fuel) ----------------
+// Only shown to supervisors whose user doc has canAccessFuel == true (see
+// AuthGate and LoginScreen's post-login routing). Everyone else goes
+// straight to SupervisorScreen, unchanged.
+class SupervisorChoiceScreen extends StatelessWidget {
+  final String name;
+  const SupervisorChoiceScreen({super.key, required this.name});
+
+  Future<void> _logout(BuildContext context) async {
+    await FirebaseAuth.instance.signOut();
+    if (context.mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 700;
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Align(
+                alignment: Alignment.topRight,
+                child: TextButton.icon(
+                  onPressed: () => _logout(context),
+                  icon: const Icon(Icons.logout, color: Colors.white),
+                  label: const Text('Logout', style: TextStyle(color: Colors.white)),
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: isDesktop ? 440 : double.infinity),
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Welcome, $name',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            'What would you like to do today?',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.7)),
+                          ),
+                          const SizedBox(height: 36),
+                          GradientButton(
+                            label: '1. Work',
+                            icon: Icons.engineering,
+                            height: 64,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(builder: (_) => SupervisorScreen(name: name)),
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          GradientButton(
+                            label: '2. Fuel',
+                            icon: Icons.local_gas_station,
+                            height: 64,
+                            onTap: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => FuelEntryScreen(supervisorName: name),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- FUEL ENTRY SCREEN ----------------
+class FuelEntryScreen extends StatefulWidget {
+  final String supervisorName;
+  const FuelEntryScreen({super.key, required this.supervisorName});
+
+  @override
+  State<FuelEntryScreen> createState() => _FuelEntryScreenState();
+}
+
+class _FuelEntryScreenState extends State<FuelEntryScreen> {
+  String? _selectedStationId;
+  String? _selectedStationName;
+  final _truckNumberController = TextEditingController();
+  final _litersController = TextEditingController();
+  final _amountController = TextEditingController();
+  final _billNumberController = TextEditingController();
+  String? _billPhotoBase64;
+  String _errorText = '';
+  bool _isSubmitting = false;
+
+  Future<void> _capturePhoto() async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.camera,
+        maxWidth: 800,
+        imageQuality: 60,
+      );
+      if (pickedFile == null) return;
+
+      final bytes = await pickedFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+
+      // Firestore document limit is 1MB; keep a safety margin
+      if (base64String.length > 700000) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Photo too large. Please retake.')),
+          );
+        }
+        return;
+      }
+
+      setState(() => _billPhotoBase64 = base64String);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error capturing photo: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _submitFuelEntry() async {
+    if (_isSubmitting) return;
+
+    if (_selectedStationId == null || _selectedStationName == null) {
+      setState(() => _errorText = 'Please select a fuel station.');
+      return;
+    }
+    if (_truckNumberController.text.trim().isEmpty) {
+      setState(() => _errorText = 'Please enter a truck number.');
+      return;
+    }
+    final liters = double.tryParse(_litersController.text.trim());
+    if (liters == null) {
+      setState(() => _errorText = 'Please enter a valid fuel amount (liters).');
+      return;
+    }
+    final amount = double.tryParse(_amountController.text.trim());
+    if (amount == null) {
+      setState(() => _errorText = 'Please enter a valid amount (Rs.).');
+      return;
+    }
+    if (_billPhotoBase64 == null) {
+      setState(() => _errorText = 'Bill photo is required.');
+      return;
+    }
+
+    setState(() {
+      _errorText = '';
+      _isSubmitting = true;
+    });
+
+    try {
+      final billNumber = _billNumberController.text.trim();
+      await FirebaseFirestore.instance.collection('fuel_entries').add({
+        'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
+        'supervisorName': widget.supervisorName,
+        'fuelStationId': _selectedStationId,
+        'fuelStationName': _selectedStationName,
+        'truckNumber': _truckNumberController.text.trim(),
+        'liters': liters,
+        'amount': amount,
+        'billNumber': billNumber.isEmpty ? null : billNumber,
+        'billPhotoBase64': _billPhotoBase64,
+        'createdAt': FieldValue.serverTimestamp(),
+        'date': GoogleSheetsService.formatDate(DateTime.now()),
+      });
+
+      // Sheets row built from the controllers before they're cleared below.
+      // Bill photo is intentionally excluded — it's Base64 image data and
+      // doesn't belong in a spreadsheet cell.
+      GoogleSheetsService.sendRow(sheetName: 'Fuel_Reports', row: [
+        GoogleSheetsService.formatDate(DateTime.now()),
+        widget.supervisorName,
+        _selectedStationName,
+        _truckNumberController.text.trim(),
+        _litersController.text.trim(),
+        _amountController.text.trim(),
+        billNumber.isEmpty ? '' : billNumber,
+        GoogleSheetsService.formatTime(Timestamp.now()),
+      ]);
+
+      _truckNumberController.clear();
+      _litersController.clear();
+      _amountController.clear();
+      _billNumberController.clear();
+
+      setState(() {
+        _selectedStationId = null;
+        _selectedStationName = null;
+        _billPhotoBase64 = null;
+        _isSubmitting = false;
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fuel entry submitted successfully!')),
+        );
+      }
+    } catch (e) {
+      setState(() => _isSubmitting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to submit fuel entry: $e')),
+        );
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width > 700;
+
+    return Scaffold(
+      body: Container(
+        decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+        child: SafeArea(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(4, 4, 12, 0),
+                child: Row(
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.arrow_back, color: Colors.white),
+                      onPressed: () => Navigator.pop(context),
+                    ),
+                    const Expanded(
+                      child: Text('Fuel Entry',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    ),
+                    IconButton(
+                      // Placeholder for now — a dedicated fuel history screen
+                      // is a follow-up feature.
+                      icon: const Icon(Icons.history, color: Colors.white),
+                      onPressed: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Fuel history coming soon.')),
+                        );
+                      },
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: Center(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24.0),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: isDesktop ? 480 : double.infinity),
+                      child: LoginFormCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text('Select Fuel Station',
+                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            StreamBuilder<QuerySnapshot>(
+                              stream:
+                                  FirebaseFirestore.instance.collection('fuel_stations').snapshots(),
+                              builder: (context, snapshot) {
+                                if (!snapshot.hasData) {
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 12),
+                                    child: Center(child: CircularProgressIndicator()),
+                                  );
+                                }
+                                final stations = snapshot.data!.docs;
+                                return DropdownButtonFormField<String>(
+                                  initialValue: _selectedStationId,
+                                  decoration: InputDecoration(
+                                    prefixIcon: const Icon(Icons.local_gas_station),
+                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                  ),
+                                  items: stations.map((doc) {
+                                    final data = doc.data() as Map<String, dynamic>;
+                                    return DropdownMenuItem<String>(
+                                      value: doc.id,
+                                      child: Text(data['name'] ?? ''),
+                                    );
+                                  }).toList(),
+                                  onChanged: (val) {
+                                    final selected = stations.firstWhere((d) => d.id == val);
+                                    final data = selected.data() as Map<String, dynamic>;
+                                    setState(() {
+                                      _selectedStationId = val;
+                                      _selectedStationName = data['name'];
+                                    });
+                                  },
+                                );
+                              },
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _truckNumberController,
+                              textCapitalization: TextCapitalization.characters,
+                              decoration: InputDecoration(
+                                labelText: 'Truck Number',
+                                prefixIcon: const Icon(Icons.local_shipping),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _litersController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'Fuel (Liters)',
+                                prefixIcon: const Icon(Icons.local_gas_station),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _amountController,
+                              keyboardType: TextInputType.number,
+                              decoration: InputDecoration(
+                                labelText: 'Amount (Rs.)',
+                                prefixIcon: const Icon(Icons.payments),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            TextField(
+                              controller: _billNumberController,
+                              keyboardType: TextInputType.number,
+                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              decoration: InputDecoration(
+                                labelText: 'Bill Number (optional)',
+                                prefixIcon: const Icon(Icons.receipt_long),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            const Text('Bill Photo *', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const SizedBox(height: 8),
+                            GestureDetector(
+                              onTap: _capturePhoto,
+                              child: Container(
+                                height: 160,
+                                width: double.infinity,
+                                decoration: BoxDecoration(
+                                  color: Colors.grey[200],
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: Colors.grey[400]!),
+                                ),
+                                child: _billPhotoBase64 == null
+                                    ? const Center(
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.camera_alt, size: 36, color: Colors.grey),
+                                            SizedBox(height: 8),
+                                            Text('Tap to take bill photo',
+                                                style: TextStyle(color: Colors.grey)),
+                                          ],
+                                        ),
+                                      )
+                                    : ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: Image.memory(
+                                          base64Decode(_billPhotoBase64!),
+                                          fit: BoxFit.cover,
+                                          width: double.infinity,
+                                        ),
+                                      ),
+                              ),
+                            ),
+                            if (_billPhotoBase64 != null)
+                              Align(
+                                alignment: Alignment.centerRight,
+                                child: TextButton.icon(
+                                  onPressed: _capturePhoto,
+                                  icon: const Icon(Icons.refresh),
+                                  label: const Text('Retake Photo'),
+                                ),
+                              ),
+                            if (_errorText.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 8, bottom: 8),
+                                child: Text(_errorText,
+                                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+                              ),
+                            const SizedBox(height: 16),
+                            GradientButton(
+                              label: _isSubmitting ? 'Submitting...' : 'SUBMIT FUEL ENTRY',
+                              onTap: _submitFuelEntry,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -2545,6 +4679,27 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     'Maintenance',
   ];
 
+  // Site name (trimmed, lowercase) -> dedicated Google Sheet tab name.
+  // Every completed load at a mapped site gets duplicated to its own tab,
+  // independent of and in addition to the Supervisor_Loads/Plant_Loads sync.
+  // Add new loading site -> sheet name mappings here.
+  static const Map<String, String> _siteSheetMap = {
+    'athukorala land': 'Athukorala_Land_Loads',
+    'lalith land': 'Lalith_Land_Loads',
+    'hesei site': 'Hesei_Site_Loads',
+    'dhompe site': 'Dhompe_Site_Loads',
+    'cmc plant': 'CMC_Plant_Loads',
+    'maga site': 'Maga_Site_Loads',
+    'rajakaruna land': 'Rajakaruna_Land_Loads',
+  };
+
+  void _syncToSiteSpecificSheet(List<dynamic> row) {
+    final sheetName = _siteSheetMap[widget.siteName.trim().toLowerCase()];
+    if (sheetName != null) {
+      GoogleSheetsService.sendRow(sheetName: sheetName, row: row);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2622,6 +4777,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       }
     }
 
+    final today = DateTime.now();
+    final dateString =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+
     await _recordsRef.add({
       'category': category,
       'isLoadingCategory': isLoadingCategory,
@@ -2641,6 +4800,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       'loadCompletedAt': null,
       'isCompleted': false,
       'createdAt': FieldValue.serverTimestamp(),
+      // Denormalized for ManagementSiteReportsScreen's flat
+      // collectionGroup('work_records') query, so it doesn't need to fetch
+      // each record's parent daily_sessions doc just to report on it.
+      'date': dateString,
+      'machineName': widget.machineName,
+      'siteName': widget.siteName,
+      'supervisorName': widget.supervisorName,
     });
   }
 
@@ -2711,6 +4877,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       } else {
         debugPrint('[PLANT_DEBUG] isPlantSite check FAILED, not sending to Plant_Loads');
       }
+
+      // Independent of the Plant_Loads check above: some loading sites also
+      // get their own dedicated sheet tab.
+      _syncToSiteSpecificSheet(row);
     } catch (e) {
       debugPrint('[PLANT_DEBUG] _completeLoadingRecord EXCEPTION: $e');
       if (mounted) {
@@ -2874,6 +5044,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                 if (siteDoc.data()?['isPlantSite'] == true) {
                   GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
                 }
+
+                // Independent of the Plant_Loads check above: some loading
+                // sites also get their own dedicated sheet tab.
+                _syncToSiteSpecificSheet(row);
 
                 if (context.mounted) {
                   // Close dialog and go back to supervisor home in one atomic
@@ -3287,6 +5461,8 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                           if (!snapshot.hasData) {
                             return const Center(child: CircularProgressIndicator());
                           }
+                          debugPrint(
+                              '[UNLOADPICKER_DEBUG] Total sites: ${snapshot.data!.docs.length}');
                           final trimmedSearch = searchText.trim();
                           final filtered = snapshot.data!.docs.where((doc) {
                             final data = doc.data() as Map<String, dynamic>;
@@ -3294,6 +5470,8 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                             final name = (data['name'] ?? '').toString();
                             return name.toLowerCase().contains(trimmedSearch.toLowerCase());
                           }).toList();
+                          debugPrint(
+                              '[UNLOADPICKER_DEBUG] Filtered unloading sites: ${filtered.length}');
                           final hasExactMatch = filtered.any((doc) =>
                               ((doc.data() as Map<String, dynamic>)['name'] ?? '')
                                   .toString()
@@ -5544,6 +7722,37 @@ void pushWebAware(BuildContext context, Widget page) {
   Navigator.push(
     context,
     kIsWeb ? FadeSlideRoute(page: page) : MaterialPageRoute(builder: (_) => page),
+  );
+}
+
+// Shared confirmation dialog for destructive delete actions, so accidental
+// taps on a delete icon can't wipe data without a second step.
+void confirmDelete({
+  required BuildContext context,
+  required String title,
+  required String message,
+  required Future<void> Function() onConfirm,
+}) {
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text(title),
+      content: Text(message),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            await onConfirm();
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          },
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+          child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+        ),
+      ],
+    ),
   );
 }
 
@@ -8058,7 +10267,13 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                                 : 'No driver assigned'),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _deleteTruck(docId),
+                              onPressed: () => confirmDelete(
+                                context: context,
+                                title: 'Delete Truck?',
+                                message:
+                                    'Are you sure you want to delete this truck? This cannot be undone.',
+                                onConfirm: () => _deleteTruck(docId),
+                              ),
                             ),
                             onTap: () {
                               pushWebAware(
@@ -8069,6 +10284,186 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                                 ),
                               );
                             },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+// ---------------- FUEL STATION MANAGEMENT SCREEN ----------------
+class FuelStationManagementScreen extends StatefulWidget {
+  const FuelStationManagementScreen({super.key});
+
+  @override
+  State<FuelStationManagementScreen> createState() => _FuelStationManagementScreenState();
+}
+
+class _FuelStationManagementScreenState extends State<FuelStationManagementScreen> {
+  final _stationNameController = TextEditingController();
+  final _stationLocationController = TextEditingController();
+
+  Future<void> _addFuelStation() async {
+    final enteredName = _stationNameController.text.trim();
+    if (enteredName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please enter a station name.')),
+      );
+      return;
+    }
+
+    try {
+      final existingStations =
+          await FirebaseFirestore.instance.collection('fuel_stations').get();
+      final normalizedEntry = enteredName.toUpperCase();
+      final isDuplicate = existingStations.docs.any((doc) {
+        final data = doc.data();
+        final existingName = (data['name'] as String?)?.trim().toUpperCase() ?? '';
+        return existingName == normalizedEntry;
+      });
+
+      if (isDuplicate) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('This fuel station is already registered.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      await FirebaseFirestore.instance.collection('fuel_stations').add({
+        'name': enteredName,
+        'location': _stationLocationController.text.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      _stationNameController.clear();
+      _stationLocationController.clear();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Fuel station added successfully!')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to add fuel station: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _deleteFuelStation(String docId) async {
+    await FirebaseFirestore.instance.collection('fuel_stations').doc(docId).delete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Manage Fuel Stations'),
+        backgroundColor: Colors.deepOrange[800],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _stationNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Station Name',
+                    prefixIcon: const Icon(Icons.local_gas_station),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _stationLocationController,
+                  decoration: InputDecoration(
+                    labelText: 'Location (optional)',
+                    prefixIcon: const Icon(Icons.map),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _addFuelStation,
+                    icon: const Icon(Icons.add, color: Colors.white),
+                    label: const Text('ADD FUEL STATION', style: TextStyle(color: Colors.white)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange[800],
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('fuel_stations')
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(child: Text('No fuel stations added yet.'));
+                }
+
+                final stations = snapshot.data!.docs;
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: stations.length,
+                  itemBuilder: (context, index) {
+                    final data = stations[index].data() as Map<String, dynamic>;
+                    final docId = stations[index].id;
+
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.deepOrange.withOpacity(0.15),
+                              child:
+                                  const Icon(Icons.local_gas_station, color: Colors.deepOrange),
+                            ),
+                            title: Text(data['name'] ?? ''),
+                            subtitle: Text((data['location'] ?? '').toString().isEmpty
+                                ? 'No location set'
+                                : data['location']),
+                            trailing: IconButton(
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () => confirmDelete(
+                                context: context,
+                                title: 'Delete Fuel Station?',
+                                message:
+                                    'Are you sure you want to delete this fuel station? This cannot be undone.',
+                                onConfirm: () => _deleteFuelStation(docId),
+                              ),
+                            ),
                           ),
                         ),
                       ),

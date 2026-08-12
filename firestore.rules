@@ -1,0 +1,158 @@
+rules_version = '2';
+
+// Draft rules for project200machine-5559d, based on the collections and
+// access patterns actually used in lib/main.dart. Apply manually via
+// Firebase Console -> Firestore Database -> Rules.
+//
+// Roles (from users/{uid}.role): admin, owner, supervisor, driver, field_worker.
+// admin/owner manage reference data (sites/machines/trucks/users) and have
+// oversight read access everywhere; supervisor/driver/field_worker own their
+// session data (daily_sessions, driver_sessions, truck_sessions) via a *Uid
+// field that must match request.auth.uid.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function myRole() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role;
+    }
+
+    function isAdminOrOwner() {
+      return isSignedIn() && myRole() in ['admin', 'owner'];
+    }
+
+    function isManagement() {
+      return isSignedIn() && myRole() == 'management';
+    }
+
+    // ---- users ----
+    // Read is broad (not owner/admin-restricted): supervisors query other
+    // users' profiles for pickers/dropdowns in several places (Machine
+    // Operator selection in the Loading task dialog, Truck Driver
+    // autocomplete, Owner team screens), not just their own doc. Only
+    // admin/owner ever write user docs (see AddUserScreen, which writes via
+    // the *admin's* session even though the Auth account itself is created
+    // through a secondary temp app).
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+
+    // ---- reference data: sites, machines, trucks ----
+    // Read by any signed-in user (populates dropdowns/pickers for
+    // supervisors, drivers, field workers). Only admin/owner add, edit
+    // capability flags, or delete.
+    match /sites/{siteId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+    match /machines/{machineId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+    match /trucks/{truckId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+    match /fuel_stations/{stationId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+
+    // ---- daily_sessions (supervisor work days) ----
+    match /daily_sessions/{sessionId} {
+      // Read is broad (not owner-restricted): _startDay looks up whether a
+      // verification code already exists for a site+date across ALL
+      // supervisors, and TruckSiteSelectScreen/DriverSiteSelectScreen do the
+      // same cross-supervisor lookup for code verification. Write stays
+      // scoped to the owning supervisor (or admin/owner).
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+        request.resource.data.supervisorUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner());
+
+      // work_records subcollection: read is broad because supervisors pull
+      // truckDriverName suggestions across ALL sessions via a
+      // collectionGroup('work_records') query (see NewWorkDialog). Writes
+      // stay scoped to the owning session's supervisor, or admin/owner.
+      match /work_records/{recordId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() &&
+          (get(/databases/$(database)/documents/daily_sessions/$(sessionId)).data.supervisorUid
+            == request.auth.uid || isAdminOrOwner());
+      }
+    }
+
+    // ---- driver_sessions ----
+    match /driver_sessions/{sessionId} {
+      allow read: if isSignedIn() &&
+        (resource.data.driverUid == request.auth.uid || isAdminOrOwner());
+      allow create: if isSignedIn() &&
+        request.resource.data.driverUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.driverUid == request.auth.uid || isAdminOrOwner());
+
+      match /work_records/{recordId} {
+        allow read: if isSignedIn();
+        allow write: if isSignedIn() &&
+          (get(/databases/$(database)/documents/driver_sessions/$(sessionId)).data.driverUid
+            == request.auth.uid || isAdminOrOwner());
+      }
+    }
+
+    // Support the collectionGroup('work_records') query directly (some SDK
+    // versions/queries hit this path rather than the nested match above).
+    match /{path=**}/work_records/{recordId} {
+      allow read: if isSignedIn();
+    }
+
+    // ---- fuel_entries (supervisor fuel logging, FuelEntryScreen) ----
+    // Owner-scoped like daily_sessions: a supervisor only needs to create
+    // and read their own entries; admin/owner/management get oversight
+    // read access (ManagementFuelReportsScreen shows every entry).
+    match /fuel_entries/{entryId} {
+      allow read: if isSignedIn() &&
+        (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner() || isManagement());
+      allow create: if isSignedIn() &&
+        request.resource.data.supervisorUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner());
+    }
+
+    // ---- truck_sessions (driver truck tracking: trips, location_points) ----
+    match /truck_sessions/{sessionId} {
+      allow read: if isSignedIn() &&
+        (resource.data.driverUid == request.auth.uid || isAdminOrOwner());
+      allow create: if isSignedIn() &&
+        request.resource.data.driverUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        (resource.data.driverUid == request.auth.uid || isAdminOrOwner());
+
+      match /trips/{tripId} {
+        allow read: if isSignedIn() &&
+          (get(/databases/$(database)/documents/truck_sessions/$(sessionId)).data.driverUid
+            == request.auth.uid || isAdminOrOwner());
+        allow write: if isSignedIn() &&
+          (get(/databases/$(database)/documents/truck_sessions/$(sessionId)).data.driverUid
+            == request.auth.uid || isAdminOrOwner());
+      }
+      match /location_points/{pointId} {
+        allow read: if isSignedIn() &&
+          (get(/databases/$(database)/documents/truck_sessions/$(sessionId)).data.driverUid
+            == request.auth.uid || isAdminOrOwner());
+        allow write: if isSignedIn() &&
+          (get(/databases/$(database)/documents/truck_sessions/$(sessionId)).data.driverUid
+            == request.auth.uid || isAdminOrOwner());
+      }
+    }
+
+    // Default deny for anything not explicitly matched above.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
