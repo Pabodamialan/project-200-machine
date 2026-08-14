@@ -16,7 +16,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as xls;
-import 'download_stub.dart' if (dart.library.html) 'download_web.dart' as downloader;
+import 'download_stub.dart'
+    if (dart.library.html) 'download_web.dart'
+    as downloader;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -47,14 +49,12 @@ class MyApp extends StatelessWidget {
     return MaterialApp(
       title: 'Project 200 Machine',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        useMaterial3: true,
-      ),
+      theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
       home: AuthGate(key: UniqueKey()),
     );
   }
 }
+
 // ---------------- AUTH GATE (auto-login check) ----------------
 class AuthGate extends StatefulWidget {
   const AuthGate({super.key});
@@ -66,7 +66,8 @@ class AuthGate extends StatefulWidget {
 class _AuthGateState extends State<AuthGate> {
   String? _cachedUid;
   Future<DocumentSnapshot>? _userFuture;
-  late final Stream<User?> _authStream = FirebaseAuth.instance.authStateChanges();
+  late final Stream<User?> _authStream = FirebaseAuth.instance
+      .authStateChanges();
 
   Future<DocumentSnapshot> _getUserDoc(String uid) {
     if (_cachedUid != uid || _userFuture == null) {
@@ -89,7 +90,9 @@ class _AuthGateState extends State<AuthGate> {
           return Scaffold(
             body: Container(
               decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
-              child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+              child: const Center(
+                child: CircularProgressIndicator(color: Colors.white),
+              ),
             ),
           );
         }
@@ -108,8 +111,12 @@ class _AuthGateState extends State<AuthGate> {
             if (userSnapshot.connectionState == ConnectionState.waiting) {
               return Scaffold(
                 body: Container(
-                  decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
-                  child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+                  decoration: const BoxDecoration(
+                    gradient: AppTheme.mainGradient,
+                  ),
+                  child: const Center(
+                    child: CircularProgressIndicator(color: Colors.white),
+                  ),
                 ),
               );
             }
@@ -117,13 +124,17 @@ class _AuthGateState extends State<AuthGate> {
             if (userSnapshot.hasError) {
               return Scaffold(
                 body: Container(
-                  decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
+                  decoration: const BoxDecoration(
+                    gradient: AppTheme.mainGradient,
+                  ),
                   child: Center(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text('Error: ${userSnapshot.error}',
-                            style: const TextStyle(color: Colors.white)),
+                        Text(
+                          'Error: ${userSnapshot.error}',
+                          style: const TextStyle(color: Colors.white),
+                        ),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () => FirebaseAuth.instance.signOut(),
@@ -185,6 +196,7 @@ class _AuthGateState extends State<AuthGate> {
     );
   }
 }
+
 // ---------------- PUBLIC MARKETING WEBSITE (web-only landing page) ----------------
 // Shown instead of LoginScreen when a signed-out user opens the app on web
 // (see AuthGate's kIsWeb branch). Mobile always goes straight to
@@ -197,24 +209,47 @@ class _WebsiteService {
   const _WebsiteService(this.icon, this.title, this.description);
 }
 
+// Shared between WebsiteContentManagementScreen (where admins pick one of
+// these by name) and PublicWebsiteScreen's services section (where the
+// stored name is resolved back to an icon).
+const Map<String, IconData> kWebsiteServiceIcons = {
+  'construction': Icons.construction,
+  'local_shipping': Icons.local_shipping,
+  'engineering': Icons.engineering,
+  'precision_manufacturing': Icons.precision_manufacturing,
+  'handyman': Icons.handyman,
+  'build': Icons.build,
+};
+
 class PublicWebsiteScreen extends StatelessWidget {
   const PublicWebsiteScreen({super.key});
 
-  static const List<_WebsiteService> _services = [
-    _WebsiteService(Icons.terrain, 'Excavation Works',
-        'Site clearing, earthmoving, and excavation for projects of any scale.'),
-    _WebsiteService(Icons.local_shipping, 'Fleet Management',
-        'GPS-tracked truck and machine fleet, coordinated in real time.'),
-    _WebsiteService(Icons.supervisor_account, 'Site Supervision',
-        'On-ground supervisors managing daily operations and reporting.'),
-    _WebsiteService(Icons.precision_manufacturing, 'Construction Machinery Rental',
-        'Excavators and heavy machinery available for hire, with operators.'),
-  ];
+  // Fallback content, used until website_content/main exists or whenever a
+  // field on it is empty — keeps the site looking complete even before an
+  // admin has entered real copy.
+  static const String _defaultWhatsappNumber = '94XXXXXXXXX';
 
-  // Placeholder slots for work photos — swap each entry for an
-  // Image.network/Image.asset source once real photos are available.
-  static const List<String> _galleryPlaceholders = [
-    '', '', '', '', '', '',
+  static const List<_WebsiteService> _fallbackServices = [
+    _WebsiteService(
+      Icons.terrain,
+      'Excavation Works',
+      'Site clearing, earthmoving, and excavation for projects of any scale.',
+    ),
+    _WebsiteService(
+      Icons.local_shipping,
+      'Fleet Management',
+      'GPS-tracked truck and machine fleet, coordinated in real time.',
+    ),
+    _WebsiteService(
+      Icons.supervisor_account,
+      'Site Supervision',
+      'On-ground supervisors managing daily operations and reporting.',
+    ),
+    _WebsiteService(
+      Icons.precision_manufacturing,
+      'Construction Machinery Rental',
+      'Excavators and heavy machinery available for hire, with operators.',
+    ),
   ];
 
   void _scrollToSection(GlobalKey key) {
@@ -228,17 +263,25 @@ class PublicWebsiteScreen extends StatelessWidget {
   }
 
   void _openLogin(BuildContext context) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => const LoginScreen()));
+    Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+    );
   }
 
-  Future<void> _openWhatsApp(BuildContext context) async {
-    // TODO: Replace with actual company WhatsApp number.
-    final uri = Uri.parse('https://wa.me/94XXXXXXXXX');
+  Future<void> _openWhatsApp(
+    BuildContext context,
+    String whatsappNumber,
+  ) async {
+    final number = whatsappNumber.isEmpty
+        ? _defaultWhatsappNumber
+        : whatsappNumber;
+    final uri = Uri.parse('https://wa.me/$number');
     final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!launched && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Could not open WhatsApp.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open WhatsApp.')));
     }
   }
 
@@ -260,19 +303,41 @@ class PublicWebsiteScreen extends StatelessWidget {
             onLogin: () => _openLogin(context),
           ),
           Expanded(
-            child: SingleChildScrollView(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _HeroSection(key: heroKey, onGetInTouch: () => _scrollToSection(contactKey)),
-                  _WorkGallerySection(key: workKey, placeholders: _galleryPlaceholders),
-                  _ServicesSection(key: servicesKey, services: _services),
-                  _ContactFooterSection(
-                    key: contactKey,
-                    onWhatsApp: () => _openWhatsApp(context),
+            child: StreamBuilder<DocumentSnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('website_content')
+                  .doc('main')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                final content = snapshot.data?.data() as Map<String, dynamic>?;
+                final whatsappNumber = (content?['whatsappNumber'] ?? '')
+                    .toString();
+
+                return SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _HeroSection(
+                        key: heroKey,
+                        heroTitle: content?['heroTitle'] as String?,
+                        heroSubtitle: content?['heroSubtitle'] as String?,
+                        onGetInTouch: () => _scrollToSection(contactKey),
+                      ),
+                      _WorkGallerySection(key: workKey),
+                      _ServicesSection(
+                        key: servicesKey,
+                        fallbackServices: _fallbackServices,
+                      ),
+                      _ContactFooterSection(
+                        key: contactKey,
+                        aboutText: content?['aboutText'] as String?,
+                        onWhatsApp: () =>
+                            _openWhatsApp(context, whatsappNumber),
+                      ),
+                    ],
                   ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],
@@ -321,15 +386,24 @@ class _WebsiteNavBar extends StatelessWidget {
           if (!isNarrow) ...[
             TextButton(
               onPressed: onHome,
-              child: const Text('Home', style: TextStyle(color: AppTheme.primaryDark)),
+              child: const Text(
+                'Home',
+                style: TextStyle(color: AppTheme.primaryDark),
+              ),
             ),
             TextButton(
               onPressed: onServices,
-              child: const Text('Services', style: TextStyle(color: AppTheme.primaryDark)),
+              child: const Text(
+                'Services',
+                style: TextStyle(color: AppTheme.primaryDark),
+              ),
             ),
             TextButton(
               onPressed: onContact,
-              child: const Text('Contact', style: TextStyle(color: AppTheme.primaryDark)),
+              child: const Text(
+                'Contact',
+                style: TextStyle(color: AppTheme.primaryDark),
+              ),
             ),
             const SizedBox(width: 12),
           ],
@@ -345,22 +419,43 @@ class _WebsiteNavBar extends StatelessWidget {
 }
 
 class _HeroSection extends StatelessWidget {
+  static const String _defaultTitle = 'NODA Civimech Engineering';
+  static const String _defaultSubtitle =
+      "Building Sri Lanka's Infrastructure — Excavation, "
+      "Construction & Fleet Management Solutions";
+
+  final String? heroTitle;
+  final String? heroSubtitle;
   final VoidCallback onGetInTouch;
-  const _HeroSection({super.key, required this.onGetInTouch});
+  const _HeroSection({
+    super.key,
+    this.heroTitle,
+    this.heroSubtitle,
+    required this.onGetInTouch,
+  });
 
   @override
   Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width > 700;
+    final title = (heroTitle == null || heroTitle!.isEmpty)
+        ? _defaultTitle
+        : heroTitle!;
+    final subtitle = (heroSubtitle == null || heroSubtitle!.isEmpty)
+        ? _defaultSubtitle
+        : heroSubtitle!;
 
     return Container(
       width: double.infinity,
-      padding: EdgeInsets.symmetric(horizontal: 24, vertical: isDesktop ? 120 : 72),
+      padding: EdgeInsets.symmetric(
+        horizontal: 24,
+        vertical: isDesktop ? 120 : 72,
+      ),
       decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           Text(
-            'NODA Civimech Engineering',
+            title,
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: isDesktop ? 48 : 32,
@@ -372,8 +467,7 @@ class _HeroSection extends StatelessWidget {
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 640),
             child: Text(
-              "Building Sri Lanka's Infrastructure — Excavation, Construction & "
-              "Fleet Management Solutions",
+              subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontSize: isDesktop ? 18 : 15,
@@ -388,7 +482,9 @@ class _HeroSection extends StatelessWidget {
               label: 'Get in Touch',
               icon: Icons.arrow_downward,
               onTap: onGetInTouch,
-              gradient: const LinearGradient(colors: [AppTheme.accent, AppTheme.accent]),
+              gradient: const LinearGradient(
+                colors: [AppTheme.accent, AppTheme.accent],
+              ),
             ),
           ),
         ],
@@ -398,8 +494,7 @@ class _HeroSection extends StatelessWidget {
 }
 
 class _WorkGallerySection extends StatelessWidget {
-  final List<String> placeholders;
-  const _WorkGallerySection({super.key, required this.placeholders});
+  const _WorkGallerySection({super.key});
 
   int _columnsFor(double width) {
     if (width > 1000) return 4;
@@ -421,39 +516,83 @@ class _WorkGallerySection extends StatelessWidget {
           const Text(
             'Our Work',
             style: TextStyle(
-                fontSize: 30, fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryDark,
+            ),
           ),
           const SizedBox(height: 32),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: placeholders.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.3,
-            ),
-            itemBuilder: (context, index) {
-              // placeholders[index] is empty for now — swap in an
-              // Image.network/Image.asset here once real photos exist.
-              return _WebHoverCard(
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.grey[200],
-                    borderRadius: BorderRadius.circular(16),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('website_gallery')
+                .orderBy('order')
+                .snapshots(),
+            builder: (context, snapshot) {
+              final docs = snapshot.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Text(
+                    'Photos coming soon',
+                    style: TextStyle(color: Colors.grey),
                   ),
-                  child: const Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.construction, size: 40, color: Colors.grey),
-                        SizedBox(height: 8),
-                        Text('Add photo here', style: TextStyle(color: Colors.grey)),
-                      ],
-                    ),
-                  ),
+                );
+              }
+
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: docs.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 1.3,
                 ),
+                itemBuilder: (context, index) {
+                  final data = docs[index].data() as Map<String, dynamic>;
+                  final imageBase64 = data['imageBase64'] as String?;
+                  final caption = (data['caption'] ?? '').toString();
+
+                  return _WebHoverCard(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          if (imageBase64 != null)
+                            Image.memory(
+                              base64Decode(imageBase64),
+                              fit: BoxFit.cover,
+                            )
+                          else
+                            Container(color: Colors.grey[200]),
+                          if (caption.isNotEmpty)
+                            Positioned(
+                              left: 0,
+                              right: 0,
+                              bottom: 0,
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 10,
+                                  vertical: 6,
+                                ),
+                                color: Colors.black.withOpacity(0.5),
+                                child: Text(
+                                  caption,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
               );
             },
           ),
@@ -464,13 +603,42 @@ class _WorkGallerySection extends StatelessWidget {
 }
 
 class _ServicesSection extends StatelessWidget {
-  final List<_WebsiteService> services;
-  const _ServicesSection({super.key, required this.services});
+  final List<_WebsiteService> fallbackServices;
+  const _ServicesSection({super.key, required this.fallbackServices});
 
   int _columnsFor(double width) {
     if (width > 1000) return 4;
     if (width > 700) return 2;
     return 1;
+  }
+
+  Widget _serviceCard(IconData icon, String title, String description) {
+    return _WebHoverCard(
+      child: Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          boxShadow: [AppTheme.softShadow],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 32, color: AppTheme.primaryMid),
+            const SizedBox(height: 12),
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              description,
+              style: TextStyle(color: Colors.grey[700], fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   @override
@@ -487,42 +655,48 @@ class _ServicesSection extends StatelessWidget {
           const Text(
             'Our Services',
             style: TextStyle(
-                fontSize: 30, fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+              fontSize: 30,
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryDark,
+            ),
           ),
           const SizedBox(height: 32),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: services.length,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-              childAspectRatio: 1.1,
-            ),
-            itemBuilder: (context, index) {
-              final service = services[index];
-              return _WebHoverCard(
-                child: Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [AppTheme.softShadow],
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(service.icon, size: 32, color: AppTheme.primaryMid),
-                      const SizedBox(height: 12),
-                      Text(service.title,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                      const SizedBox(height: 8),
-                      Text(service.description,
-                          style: TextStyle(color: Colors.grey[700], fontSize: 13)),
-                    ],
-                  ),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('website_services')
+                .orderBy('order')
+                .snapshots(),
+            builder: (context, snapshot) {
+              final docs = snapshot.data?.docs ?? [];
+
+              final cards = docs.isNotEmpty
+                  ? docs.map((doc) {
+                      final data = doc.data() as Map<String, dynamic>;
+                      final icon =
+                          kWebsiteServiceIcons[data['iconName']] ?? Icons.build;
+                      return _serviceCard(
+                        icon,
+                        (data['title'] ?? '').toString(),
+                        (data['description'] ?? '').toString(),
+                      );
+                    }).toList()
+                  : fallbackServices
+                        .map(
+                          (s) => _serviceCard(s.icon, s.title, s.description),
+                        )
+                        .toList();
+
+              return GridView.builder(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: cards.length,
+                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: columns,
+                  crossAxisSpacing: 16,
+                  mainAxisSpacing: 16,
+                  childAspectRatio: 1.1,
                 ),
+                itemBuilder: (context, index) => cards[index],
               );
             },
           ),
@@ -533,8 +707,13 @@ class _ServicesSection extends StatelessWidget {
 }
 
 class _ContactFooterSection extends StatelessWidget {
+  final String? aboutText;
   final VoidCallback onWhatsApp;
-  const _ContactFooterSection({super.key, required this.onWhatsApp});
+  const _ContactFooterSection({
+    super.key,
+    this.aboutText,
+    required this.onWhatsApp,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -546,8 +725,23 @@ class _ContactFooterSection extends StatelessWidget {
         children: [
           const Text(
             'NODA Civimech Engineering',
-            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+            style: TextStyle(
+              fontSize: 22,
+              fontWeight: FontWeight.bold,
+              color: Colors.white,
+            ),
           ),
+          if (aboutText != null && aboutText!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 560),
+              child: Text(
+                aboutText!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.white.withOpacity(0.85)),
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             'Address: 123 Placeholder Road, Colombo, Sri Lanka',
@@ -564,19 +758,26 @@ class _ContactFooterSection extends StatelessWidget {
             child: ElevatedButton.icon(
               onPressed: onWhatsApp,
               icon: const Icon(Icons.chat, color: Colors.white),
-              label: const Text('Chat with us on WhatsApp',
-                  style: TextStyle(color: Colors.white)),
+              label: const Text(
+                'Chat with us on WhatsApp',
+                style: TextStyle(color: Colors.white),
+              ),
               style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFF25D366),
                 padding: const EdgeInsets.symmetric(vertical: 14),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
           ),
           const SizedBox(height: 24),
           Text(
             '© ${DateTime.now().year} NODA Civimech Engineering. All rights reserved.',
-            style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.6),
+              fontSize: 12,
+            ),
           ),
         ],
       ),
@@ -613,15 +814,18 @@ class _LoginScreenState extends State<LoginScreen> {
       final videoUri = Uri.base.resolve('assets/videos/login_bg.mp4');
       final controller = VideoPlayerController.networkUrl(videoUri);
       _videoController = controller;
-      controller.initialize().then((_) {
-        if (!mounted) return;
-        controller.setLooping(true);
-        controller.setVolume(0.0);
-        controller.play();
-        setState(() => _videoInitialized = true);
-      }).catchError((Object e, StackTrace st) {
-        debugPrint('Login background video failed to initialize: $e');
-      });
+      controller
+          .initialize()
+          .then((_) {
+            if (!mounted) return;
+            controller.setLooping(true);
+            controller.setVolume(0.0);
+            controller.play();
+            setState(() => _videoInitialized = true);
+          })
+          .catchError((Object e, StackTrace st) {
+            debugPrint('Login background video failed to initialize: $e');
+          });
     }
   }
 
@@ -639,11 +843,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
     try {
       // Step 1: Sign in with Firebase Auth
-      final userCredential =
-          await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _emailController.text.trim(),
-        password: _passwordController.text.trim(),
-      ).timeout(const Duration(seconds: 20));
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(
+            email: _emailController.text.trim(),
+            password: _passwordController.text.trim(),
+          )
+          .timeout(const Duration(seconds: 20));
 
       final uid = userCredential.user!.uid;
 
@@ -681,7 +886,8 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (role == 'management' && !kIsWeb) {
         setState(() {
-          _errorMessage = 'This account can only be used on the website, not the mobile app.';
+          _errorMessage =
+              'This account can only be used on the website, not the mobile app.';
         });
         await FirebaseAuth.instance.signOut();
         return;
@@ -763,130 +969,152 @@ class _LoginScreenState extends State<LoginScreen> {
     final isDesktop = screenWidth > 700;
 
     final loginContent = SafeArea(
-          child: Center(
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: isDesktop ? 440 : double.infinity,
-              ),
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.all(24.0),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                  TweenAnimationBuilder<double>(
-                    tween: Tween(begin: 0.0, end: 1.0),
-                    duration: const Duration(milliseconds: 600),
-                    curve: Curves.elasticOut,
-                    builder: (context, value, child) {
-                      return Transform.scale(scale: value, child: child);
-                    },
-                    child: Container(
-                      width: 130,
-                      height: 130,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(28),
-                        boxShadow: [
-                          BoxShadow(
-                            color: AppTheme.accent.withOpacity(0.4),
-                            blurRadius: 24,
-                            spreadRadius: 2,
-                          ),
-                        ],
-                      ),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(28),
-                        child: Image.asset(
-                          'assets/images/logo_final_gradient.png',
-                          fit: BoxFit.cover,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: isDesktop ? 440 : double.infinity,
+          ),
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0.0, end: 1.0),
+                  duration: const Duration(milliseconds: 600),
+                  curve: Curves.elasticOut,
+                  builder: (context, value, child) {
+                    return Transform.scale(scale: value, child: child);
+                  },
+                  child: Container(
+                    width: 130,
+                    height: 130,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(28),
+                      boxShadow: [
+                        BoxShadow(
+                          color: AppTheme.accent.withOpacity(0.4),
+                          blurRadius: 24,
+                          spreadRadius: 2,
                         ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  const Text(
-                    'NODA Civimech Engineering',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    'Login to continue',
-                    style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.7)),
-                  ),
-                  const SizedBox(height: 36),
-                  LoginFormCard(
-                    child: Column(
-                      children: [
-                        TextField(
-                          controller: _emailController,
-                          style: const TextStyle(color: Colors.black87),
-                          decoration: InputDecoration(
-                            labelText: 'Email',
-                            labelStyle: TextStyle(color: Colors.grey[700]),
-                            prefixIcon: Icon(Icons.email, color: Colors.grey[700]),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[400]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.primaryMid, width: 2),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          style: const TextStyle(color: Colors.black87),
-                          decoration: InputDecoration(
-                            labelText: 'Password',
-                            labelStyle: TextStyle(color: Colors.grey[700]),
-                            prefixIcon: Icon(Icons.lock, color: Colors.grey[700]),
-                            suffixIcon: IconButton(
-                              icon: Icon(
-                                _obscurePassword ? Icons.visibility_off : Icons.visibility,
-                                color: Colors.grey[700],
-                              ),
-                              onPressed: () {
-                                setState(() => _obscurePassword = !_obscurePassword);
-                              },
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.grey[400]!),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.primaryMid, width: 2),
-                            ),
-                          ),
-                        ),
-                        if (_errorMessage.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            _errorMessage,
-                            style: const TextStyle(color: Colors.redAccent, fontSize: 13),
-                          ),
-                        ],
-                        const SizedBox(height: 24),
-                        _isLoading
-                            ? const CircularProgressIndicator(color: Colors.white)
-                            : GradientButton(
-                                label: 'LOGIN',
-                                icon: Icons.login,
-                                onTap: _login,
-                              ),
                       ],
                     ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Image.asset(
+                        'assets/images/logo_final_gradient.png',
+                        fit: BoxFit.cover,
+                      ),
+                    ),
                   ),
-                ],
                 ),
-              ),
+                const SizedBox(height: 24),
+                const Text(
+                  'NODA Civimech Engineering',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Login to continue',
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.white.withOpacity(0.7),
+                  ),
+                ),
+                const SizedBox(height: 36),
+                LoginFormCard(
+                  child: Column(
+                    children: [
+                      TextField(
+                        controller: _emailController,
+                        style: const TextStyle(color: Colors.black87),
+                        decoration: InputDecoration(
+                          labelText: 'Email',
+                          labelStyle: TextStyle(color: Colors.grey[700]),
+                          prefixIcon: Icon(
+                            Icons.email,
+                            color: Colors.grey[700],
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[400]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppTheme.primaryMid,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _passwordController,
+                        obscureText: _obscurePassword,
+                        style: const TextStyle(color: Colors.black87),
+                        decoration: InputDecoration(
+                          labelText: 'Password',
+                          labelStyle: TextStyle(color: Colors.grey[700]),
+                          prefixIcon: Icon(Icons.lock, color: Colors.grey[700]),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              _obscurePassword
+                                  ? Icons.visibility_off
+                                  : Icons.visibility,
+                              color: Colors.grey[700],
+                            ),
+                            onPressed: () {
+                              setState(
+                                () => _obscurePassword = !_obscurePassword,
+                              );
+                            },
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: Colors.grey[400]!),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(
+                              color: AppTheme.primaryMid,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                      ),
+                      if (_errorMessage.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          _errorMessage,
+                          style: const TextStyle(
+                            color: Colors.redAccent,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                      _isLoading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : GradientButton(
+                              label: 'LOGIN',
+                              icon: Icons.login,
+                              onTap: _login,
+                            ),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
-        );
+        ),
+      ),
+    );
 
     return Scaffold(
       body: kIsWeb
@@ -1011,7 +1239,9 @@ class AdminDashboard extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const MachineManagementScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const MachineManagementScreen(),
+                  ),
                 );
               },
             ),
@@ -1028,7 +1258,9 @@ class AdminDashboard extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const SiteManagementScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const SiteManagementScreen(),
+                  ),
                 );
               },
             ),
@@ -1045,7 +1277,9 @@ class AdminDashboard extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const AdminSiteListScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const AdminSiteListScreen(),
+                  ),
                 );
               },
             ),
@@ -1062,7 +1296,9 @@ class AdminDashboard extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const TruckManagementScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const TruckManagementScreen(),
+                  ),
                 );
               },
             ),
@@ -1079,7 +1315,66 @@ class AdminDashboard extends StatelessWidget {
               onTap: () {
                 Navigator.push(
                   context,
-                  MaterialPageRoute(builder: (_) => const FuelStationManagementScreen()),
+                  MaterialPageRoute(
+                    builder: (_) => const FuelStationManagementScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 7,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.web,
+              title: 'Website Content',
+              subtitle: 'Manage the public website',
+              color: Colors.indigo,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const WebsiteContentManagementScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 8,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.assessment,
+              title: 'Site Reports',
+              subtitle: 'Filterable report, chart and Excel export',
+              color: Colors.teal,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ManagementSiteReportsScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 9,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.local_gas_station,
+              title: 'Fuel Reports',
+              subtitle: 'Filterable report, chart and Excel export',
+              color: Colors.deepOrange,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const ManagementFuelReportsScreen(),
+                  ),
                 );
               },
             ),
@@ -1093,17 +1388,18 @@ class AdminDashboard extends StatelessWidget {
         title: const Text('Admin Dashboard'),
         backgroundColor: Colors.blue[800],
         actions: [
-          IconButton(
-            icon: const Icon(Icons.logout),
-            onPressed: logout,
-          ),
+          IconButton(icon: const Icon(Icons.logout), onPressed: logout),
         ],
       ),
       body: WebAppShell(
         appName: 'NODA Admin',
         onLogout: logout,
         menuItems: [
-          WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+          WebSidebarItem(
+            icon: Icons.dashboard,
+            label: 'Dashboard',
+            onTap: () {},
+          ),
           WebSidebarItem(
             icon: Icons.list_alt,
             label: 'Users',
@@ -1145,11 +1441,35 @@ class AdminDashboard extends StatelessWidget {
             ),
           ),
           WebSidebarItem(
+            icon: Icons.web,
+            label: 'Website Content',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const WebsiteContentManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
             icon: Icons.bar_chart,
             label: 'Reports',
             onTap: () => Navigator.push(
               context,
               FadeSlideRoute(page: const AdminSiteListScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.assessment,
+            label: 'Site Reports',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const ManagementSiteReportsScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.local_gas_station,
+            label: 'Fuel Reports',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const ManagementFuelReportsScreen()),
             ),
           ),
         ],
@@ -1205,6 +1525,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
   String? _photoBase64;
   bool _obscurePassword = true;
   bool _canAccessFuel = false;
+  bool _canEditReports = false;
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -1224,7 +1545,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
       if (base64String.length > 700000) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Image too large. Please choose a smaller photo.')),
+            const SnackBar(
+              content: Text('Image too large. Please choose a smaller photo.'),
+            ),
           );
         }
         return;
@@ -1233,9 +1556,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
       setState(() => _photoBase64 = base64String);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error picking image: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error picking image: $e')));
       }
     }
   }
@@ -1295,7 +1618,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
       return;
     }
 
-    if (_selectedRole == 'field_worker' && !_canDriveTruck && !_canOperateMachine) {
+    if (_selectedRole == 'field_worker' &&
+        !_canDriveTruck &&
+        !_canOperateMachine) {
       setState(() {
         _isError = true;
         _message = 'Please select at least one: Driver or Operator.';
@@ -1327,15 +1652,24 @@ class _AddUserScreenState extends State<AddUserScreen> {
           .collection('users')
           .doc(newUser.user!.uid)
           .set({
-        'name': _nameController.text.trim(),
-        'email': _emailController.text.trim(),
-        'role': _selectedRole,
-        'canDriveTruck': _selectedRole == 'field_worker' ? _canDriveTruck : false,
-        'canOperateMachine': _selectedRole == 'field_worker' ? _canOperateMachine : false,
-        'canAccessFuel': _selectedRole == 'supervisor' ? _canAccessFuel : false,
-        'photoBase64': _photoBase64,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+            'name': _nameController.text.trim(),
+            'email': _emailController.text.trim(),
+            'role': _selectedRole,
+            'canDriveTruck': _selectedRole == 'field_worker'
+                ? _canDriveTruck
+                : false,
+            'canOperateMachine': _selectedRole == 'field_worker'
+                ? _canOperateMachine
+                : false,
+            'canAccessFuel': _selectedRole == 'supervisor'
+                ? _canAccessFuel
+                : false,
+            'canEditReports': _selectedRole == 'management'
+                ? _canEditReports
+                : false,
+            'photoBase64': _photoBase64,
+            'createdAt': FieldValue.serverTimestamp(),
+          });
 
       // Sign out and delete the temporary app instance
       await tempAuth.signOut();
@@ -1392,7 +1726,11 @@ class _AddUserScreenState extends State<AddUserScreen> {
                           ? MemoryImage(base64Decode(_photoBase64!))
                           : null,
                       child: _photoBase64 == null
-                          ? Icon(Icons.person, size: 50, color: Colors.blue[800])
+                          ? Icon(
+                              Icons.person,
+                              size: 50,
+                              color: Colors.blue[800],
+                            )
                           : null,
                     ),
                     Positioned(
@@ -1405,7 +1743,11 @@ class _AddUserScreenState extends State<AddUserScreen> {
                           shape: BoxShape.circle,
                           border: Border.all(color: Colors.white, width: 2),
                         ),
-                        child: const Icon(Icons.camera_alt, size: 16, color: Colors.white),
+                        child: const Icon(
+                          Icons.camera_alt,
+                          size: 16,
+                          color: Colors.white,
+                        ),
                       ),
                     ),
                   ],
@@ -1420,7 +1762,10 @@ class _AddUserScreenState extends State<AddUserScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            const Text('Select Role', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Select Role',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             Column(
               children: [
@@ -1448,9 +1793,22 @@ class _AddUserScreenState extends State<AddUserScreen> {
                   groupValue: _selectedRole,
                   onChanged: (val) => setState(() => _selectedRole = val!),
                 ),
+                if (_selectedRole == 'management')
+                  CheckboxListTile(
+                    title: const Text('Can Edit Reports'),
+                    value: _canEditReports,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (val) =>
+                        setState(() => _canEditReports = val ?? false),
+                  ),
                 if (_selectedRole == 'field_worker')
                   Padding(
-                    padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8),
+                    padding: const EdgeInsets.only(
+                      left: 16,
+                      right: 16,
+                      bottom: 8,
+                    ),
                     child: Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
@@ -1461,21 +1819,31 @@ class _AddUserScreenState extends State<AddUserScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('What can they operate?',
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+                          const Text(
+                            'What can they operate?',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
                           CheckboxListTile(
                             title: const Text('Driver (can operate trucks)'),
                             value: _canDriveTruck,
                             contentPadding: EdgeInsets.zero,
                             controlAffinity: ListTileControlAffinity.leading,
-                            onChanged: (val) => setState(() => _canDriveTruck = val ?? false),
+                            onChanged: (val) =>
+                                setState(() => _canDriveTruck = val ?? false),
                           ),
                           CheckboxListTile(
-                            title: const Text('Operator (can operate machines)'),
+                            title: const Text(
+                              'Operator (can operate machines)',
+                            ),
                             value: _canOperateMachine,
                             contentPadding: EdgeInsets.zero,
                             controlAffinity: ListTileControlAffinity.leading,
-                            onChanged: (val) => setState(() => _canOperateMachine = val ?? false),
+                            onChanged: (val) => setState(
+                              () => _canOperateMachine = val ?? false,
+                            ),
                           ),
                         ],
                       ),
@@ -1489,7 +1857,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
               decoration: InputDecoration(
                 labelText: 'Full Name',
                 prefixIcon: const Icon(Icons.person),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -1499,7 +1869,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
               decoration: InputDecoration(
                 labelText: 'Email',
                 prefixIcon: const Icon(Icons.email),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -1510,10 +1882,15 @@ class _AddUserScreenState extends State<AddUserScreen> {
                 labelText: 'Password (min 6 characters)',
                 prefixIcon: const Icon(Icons.lock),
                 suffixIcon: IconButton(
-                  icon: Icon(_obscurePassword ? Icons.visibility_off : Icons.visibility),
-                  onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
+                  icon: Icon(
+                    _obscurePassword ? Icons.visibility_off : Icons.visibility,
+                  ),
+                  onPressed: () =>
+                      setState(() => _obscurePassword = !_obscurePassword),
                 ),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
               ),
             ),
             if (_selectedRole == 'supervisor')
@@ -1522,7 +1899,8 @@ class _AddUserScreenState extends State<AddUserScreen> {
                 value: _canAccessFuel,
                 contentPadding: EdgeInsets.zero,
                 controlAffinity: ListTileControlAffinity.leading,
-                onChanged: (val) => setState(() => _canAccessFuel = val ?? false),
+                onChanged: (val) =>
+                    setState(() => _canAccessFuel = val ?? false),
               ),
             const SizedBox(height: 8),
             if (_message.isNotEmpty)
@@ -1530,7 +1908,10 @@ class _AddUserScreenState extends State<AddUserScreen> {
                 padding: const EdgeInsets.only(top: 8.0),
                 child: Text(
                   _message,
-                  style: TextStyle(color: _isError ? Colors.red : Colors.green, fontSize: 13),
+                  style: TextStyle(
+                    color: _isError ? Colors.red : Colors.green,
+                    fontSize: 13,
+                  ),
                 ),
               ),
             const SizedBox(height: 24),
@@ -1541,11 +1922,16 @@ class _AddUserScreenState extends State<AddUserScreen> {
                 onPressed: _isLoading ? null : _createUser,
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.blue[800],
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                 ),
                 child: _isLoading
                     ? const CircularProgressIndicator(color: Colors.white)
-                    : const Text('CREATE ACCOUNT', style: TextStyle(fontSize: 16, color: Colors.white)),
+                    : const Text(
+                        'CREATE ACCOUNT',
+                        style: TextStyle(fontSize: 16, color: Colors.white),
+                      ),
               ),
             ),
           ],
@@ -1587,8 +1973,8 @@ class ManageUsersScreen extends StatelessWidget {
               Color roleColor = role == 'admin'
                   ? Colors.blue
                   : role == 'owner'
-                      ? Colors.green
-                      : Colors.orange;
+                  ? Colors.green
+                  : Colors.orange;
 
               final userId = users[index].id;
               final currentUserUid = FirebaseAuth.instance.currentUser?.uid;
@@ -1603,9 +1989,12 @@ class ManageUsersScreen extends StatelessWidget {
                     child: ListTile(
                       leading: CircleAvatar(
                         backgroundColor: roleColor.withOpacity(0.15),
-                        backgroundImage:
-                            photoBase64 != null ? MemoryImage(base64Decode(photoBase64)) : null,
-                        child: photoBase64 == null ? Icon(Icons.person, color: roleColor) : null,
+                        backgroundImage: photoBase64 != null
+                            ? MemoryImage(base64Decode(photoBase64))
+                            : null,
+                        child: photoBase64 == null
+                            ? Icon(Icons.person, color: roleColor)
+                            : null,
                       ),
                       title: Text(data['name'] ?? 'No name'),
                       subtitle: Text('${data['email'] ?? ''}\nRole: $role'),
@@ -1629,22 +2018,28 @@ class ManageUsersScreen extends StatelessWidget {
                             IconButton(
                               icon: Icon(
                                 Icons.local_gas_station,
-                                color:
-                                    data['canAccessFuel'] == true ? Colors.green : Colors.grey,
+                                color: data['canAccessFuel'] == true
+                                    ? Colors.green
+                                    : Colors.grey,
                               ),
                               onPressed: () {
-                                final currentlyHasAccess = data['canAccessFuel'] == true;
+                                final currentlyHasAccess =
+                                    data['canAccessFuel'] == true;
                                 final newValue = !currentlyHasAccess;
                                 final userName = data['name'] ?? 'this user';
                                 showDialog(
                                   context: context,
                                   builder: (_) => AlertDialog(
-                                    title: Text(currentlyHasAccess
-                                        ? 'Revoke Fuel Access?'
-                                        : 'Grant Fuel Access?'),
-                                    content: Text(currentlyHasAccess
-                                        ? 'Remove fuel entry access from $userName?'
-                                        : 'Allow $userName to submit fuel entries?'),
+                                    title: Text(
+                                      currentlyHasAccess
+                                          ? 'Revoke Fuel Access?'
+                                          : 'Grant Fuel Access?',
+                                    ),
+                                    content: Text(
+                                      currentlyHasAccess
+                                          ? 'Remove fuel entry access from $userName?'
+                                          : 'Allow $userName to submit fuel entries?',
+                                    ),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context),
@@ -1655,14 +2050,81 @@ class ManageUsersScreen extends StatelessWidget {
                                           await FirebaseFirestore.instance
                                               .collection('users')
                                               .doc(userId)
-                                              .update({'canAccessFuel': newValue});
+                                              .update({
+                                                'canAccessFuel': newValue,
+                                              });
                                           if (context.mounted) {
                                             Navigator.pop(context);
-                                            ScaffoldMessenger.of(context).showSnackBar(
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
                                               SnackBar(
-                                                content: Text(newValue
-                                                    ? 'Fuel access granted'
-                                                    : 'Fuel access revoked'),
+                                                content: Text(
+                                                  newValue
+                                                      ? 'Fuel access granted'
+                                                      : 'Fuel access revoked',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: const Text('CONFIRM'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          if (role == 'management')
+                            IconButton(
+                              icon: Icon(
+                                Icons.edit_note,
+                                color: data['canEditReports'] == true
+                                    ? Colors.green
+                                    : Colors.grey,
+                              ),
+                              onPressed: () {
+                                final currentlyCanEdit =
+                                    data['canEditReports'] == true;
+                                final newValue = !currentlyCanEdit;
+                                final userName = data['name'] ?? 'this user';
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: Text(
+                                      currentlyCanEdit
+                                          ? 'Revoke Report Edit Access?'
+                                          : 'Grant Report Edit Access?',
+                                    ),
+                                    content: Text(
+                                      currentlyCanEdit
+                                          ? 'Remove report editing access from $userName?'
+                                          : 'Allow $userName to edit report records?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          await FirebaseFirestore.instance
+                                              .collection('users')
+                                              .doc(userId)
+                                              .update({
+                                                'canEditReports': newValue,
+                                              });
+                                          if (context.mounted) {
+                                            Navigator.pop(context);
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  newValue
+                                                      ? 'Report edit access granted'
+                                                      : 'Report edit access revoked',
+                                                ),
                                               ),
                                             );
                                           }
@@ -1683,7 +2145,8 @@ class ManageUsersScreen extends StatelessWidget {
                                   builder: (_) => AlertDialog(
                                     title: const Text('Delete User'),
                                     content: Text(
-                                        'Remove access for ${data['name'] ?? 'this user'}? They will no longer be able to use the app.'),
+                                      'Remove access for ${data['name'] ?? 'this user'}? They will no longer be able to use the app.',
+                                    ),
                                     actions: [
                                       TextButton(
                                         onPressed: () => Navigator.pop(context),
@@ -1697,15 +2160,24 @@ class ManageUsersScreen extends StatelessWidget {
                                               .delete();
                                           if (context.mounted) {
                                             Navigator.pop(context);
-                                            ScaffoldMessenger.of(context).showSnackBar(
-                                              const SnackBar(content: Text('User access removed.')),
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              const SnackBar(
+                                                content: Text(
+                                                  'User access removed.',
+                                                ),
+                                              ),
                                             );
                                           }
                                         },
-                                        style:
-                                            ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
-                                        child: const Text('DELETE',
-                                            style: TextStyle(color: Colors.white)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.red[700],
+                                        ),
+                                        child: const Text(
+                                          'DELETE',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
                                       ),
                                     ],
                                   ),
@@ -1724,12 +2196,14 @@ class ManageUsersScreen extends StatelessWidget {
       ),
     );
   }
-}// ---------------- MACHINE MANAGEMENT SCREEN ----------------
+} // ---------------- MACHINE MANAGEMENT SCREEN ----------------
+
 class MachineManagementScreen extends StatefulWidget {
   const MachineManagementScreen({super.key});
 
   @override
-  State<MachineManagementScreen> createState() => _MachineManagementScreenState();
+  State<MachineManagementScreen> createState() =>
+      _MachineManagementScreenState();
 }
 
 class _MachineManagementScreenState extends State<MachineManagementScreen> {
@@ -1737,18 +2211,14 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
   final _machineNumberController = TextEditingController();
   String _selectedType = '200 Machine';
 
-  final List<String> _machineTypes = [
-    '200 Machine',
-    '70 Machine',
-    'Loader',
-  ];
+  final List<String> _machineTypes = ['200 Machine', '70 Machine', 'Loader'];
 
   Future<void> _addMachine() async {
     if (_machineNameController.text.trim().isEmpty ||
         _machineNumberController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please fill all fields.')));
       return;
     }
 
@@ -1792,7 +2262,9 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                   decoration: InputDecoration(
                     labelText: 'Machine Name (e.g. JCB 1)',
                     prefixIcon: const Icon(Icons.construction),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1801,7 +2273,9 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                   decoration: InputDecoration(
                     labelText: 'Machine Number / Plate',
                     prefixIcon: const Icon(Icons.numbers),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -1809,10 +2283,15 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                   initialValue: _selectedType,
                   decoration: InputDecoration(
                     labelText: 'Machine Type',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                   items: _machineTypes
-                      .map((type) => DropdownMenuItem(value: type, child: Text(type)))
+                      .map(
+                        (type) =>
+                            DropdownMenuItem(value: type, child: Text(type)),
+                      )
                       .toList(),
                   onChanged: (val) => setState(() => _selectedType = val!),
                 ),
@@ -1823,10 +2302,15 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _addMachine,
                     icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text('ADD MACHINE', style: TextStyle(color: Colors.white)),
+                    label: const Text(
+                      'ADD MACHINE',
+                      style: TextStyle(color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.orange[800],
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
@@ -1865,11 +2349,15 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
                           child: ListTile(
                             leading: CircleAvatar(
                               backgroundColor: Colors.orange.withOpacity(0.15),
-                              child: const Icon(Icons.precision_manufacturing,
-                                  color: Colors.orange),
+                              child: const Icon(
+                                Icons.precision_manufacturing,
+                                color: Colors.orange,
+                              ),
                             ),
                             title: Text(data['name'] ?? ''),
-                            subtitle: Text('${data['type'] ?? ''} • ${data['number'] ?? ''}'),
+                            subtitle: Text(
+                              '${data['type'] ?? ''} • ${data['number'] ?? ''}',
+                            ),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
                               onPressed: () => confirmDelete(
@@ -1924,17 +2412,20 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
   Future<void> _addSite() async {
     final enteredName = _siteNameController.text.trim();
     if (enteredName.isEmpty || _siteLocationController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please fill all fields.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please fill all fields.')));
       return;
     }
 
-    final existingSites = await FirebaseFirestore.instance.collection('sites').get();
+    final existingSites = await FirebaseFirestore.instance
+        .collection('sites')
+        .get();
     final normalizedEntry = enteredName.toUpperCase();
     final isDuplicate = existingSites.docs.any((doc) {
       final data = doc.data();
-      final existingName = (data['name'] as String?)?.trim().toUpperCase() ?? '';
+      final existingName =
+          (data['name'] as String?)?.trim().toUpperCase() ?? '';
       return existingName == normalizedEntry;
     });
 
@@ -1968,9 +2459,9 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     });
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Site added successfully!')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Site added successfully!')));
     }
   }
 
@@ -1997,16 +2488,25 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   decoration: InputDecoration(
                     labelText: 'Site Name',
                     prefixIcon: const Icon(Icons.location_city),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                  stream: FirebaseFirestore.instance
+                      .collection('sites')
+                      .snapshots(),
                   builder: (context, snapshot) {
                     final query = _siteNameController.text.trim().toLowerCase();
-                    if (query.isEmpty || !snapshot.hasData) return const SizedBox.shrink();
+                    if (query.isEmpty || !snapshot.hasData)
+                      return const SizedBox.shrink();
                     final matches = snapshot.data!.docs
-                        .map((doc) => (doc.data() as Map<String, dynamic>)['name'] as String?)
+                        .map(
+                          (doc) =>
+                              (doc.data() as Map<String, dynamic>)['name']
+                                  as String?,
+                        )
                         .whereType<String>()
                         .where((name) => name.toLowerCase().contains(query))
                         .take(5)
@@ -2017,22 +2517,31 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          const Text('Similar sites already registered:',
-                              style: TextStyle(
-                                  fontSize: 12,
-                                  color: Colors.orange,
-                                  fontWeight: FontWeight.w600)),
+                          const Text(
+                            'Similar sites already registered:',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Colors.orange,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
                           const SizedBox(height: 4),
                           Wrap(
                             spacing: 6,
                             runSpacing: 6,
                             children: matches
-                                .map((name) => Chip(
-                                      label: Text(name, style: const TextStyle(fontSize: 12)),
-                                      backgroundColor: Colors.orange[50],
-                                      visualDensity: VisualDensity.compact,
-                                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                    ))
+                                .map(
+                                  (name) => Chip(
+                                    label: Text(
+                                      name,
+                                      style: const TextStyle(fontSize: 12),
+                                    ),
+                                    backgroundColor: Colors.orange[50],
+                                    visualDensity: VisualDensity.compact,
+                                    materialTapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                )
                                 .toList(),
                           ),
                         ],
@@ -2046,7 +2555,9 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   decoration: InputDecoration(
                     labelText: 'Location / Address',
                     prefixIcon: const Icon(Icons.map),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 CheckboxListTile(
@@ -2054,21 +2565,24 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text('Is this a Plant Site?'),
                   value: _isPlantSite,
-                  onChanged: (val) => setState(() => _isPlantSite = val ?? false),
+                  onChanged: (val) =>
+                      setState(() => _isPlantSite = val ?? false),
                 ),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text('Can be selected as a Working Site?'),
                   value: _canBeLoadingSite,
-                  onChanged: (val) => setState(() => _canBeLoadingSite = val ?? true),
+                  onChanged: (val) =>
+                      setState(() => _canBeLoadingSite = val ?? true),
                 ),
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   controlAffinity: ListTileControlAffinity.leading,
                   title: const Text('Can be selected as an Unloading Site?'),
                   value: _canBeUnloadingSite,
-                  onChanged: (val) => setState(() => _canBeUnloadingSite = val ?? true),
+                  onChanged: (val) =>
+                      setState(() => _canBeUnloadingSite = val ?? true),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -2077,10 +2591,15 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _addSite,
                     icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text('ADD SITE', style: TextStyle(color: Colors.white)),
+                    label: const Text(
+                      'ADD SITE',
+                      style: TextStyle(color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.teal[800],
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
@@ -2104,12 +2623,20 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
 
                 final allSites = snapshot.data!.docs;
                 final loadingSites = allSites
-                    .where((doc) =>
-                        (doc.data() as Map<String, dynamic>)['canBeLoadingSite'] != false)
+                    .where(
+                      (doc) =>
+                          (doc.data()
+                              as Map<String, dynamic>)['canBeLoadingSite'] !=
+                          false,
+                    )
                     .toList();
                 final unloadingSites = allSites
-                    .where((doc) =>
-                        (doc.data() as Map<String, dynamic>)['canBeUnloadingSite'] != false)
+                    .where(
+                      (doc) =>
+                          (doc.data()
+                              as Map<String, dynamic>)['canBeUnloadingSite'] !=
+                          false,
+                    )
                     .toList();
 
                 return DefaultTabController(
@@ -2167,11 +2694,14 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   child: const Icon(Icons.location_on, color: Colors.teal),
                 ),
                 title: Text(data['name'] ?? ''),
-                subtitle: Text([
-                  data['location'] ?? '',
-                  if (data['isPlantSite'] == true) '🏭 Plant Site',
-                  if (data['canBeLoadingSite'] == false) '🚫 Not a Working Site',
-                ].where((s) => s.isNotEmpty).join('  •  ')),
+                subtitle: Text(
+                  [
+                    data['location'] ?? '',
+                    if (data['isPlantSite'] == true) '🏭 Plant Site',
+                    if (data['canBeLoadingSite'] == false)
+                      '🚫 Not a Working Site',
+                  ].where((s) => s.isNotEmpty).join('  •  '),
+                ),
                 trailing: IconButton(
                   icon: const Icon(Icons.delete, color: Colors.red),
                   onPressed: () => confirmDelete(
@@ -2184,7 +2714,10 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                 ),
                 onTap: () => pushWebAware(
                   context,
-                  SiteHistoryScreen(siteId: docId, siteName: data['name'] ?? ''),
+                  SiteHistoryScreen(
+                    siteId: docId,
+                    siteName: data['name'] ?? '',
+                  ),
                 ),
               ),
             ),
@@ -2194,6 +2727,7 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     );
   }
 }
+
 // ---------------- OWNER DASHBOARD ----------------
 class OwnerDashboard extends StatefulWidget {
   final String name;
@@ -2222,7 +2756,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     }
   }
 
-  Future<Map<String, int>> _calculateCategoryLoadCounts(List<QueryDocumentSnapshot> sessions) async {
+  Future<Map<String, int>> _calculateCategoryLoadCounts(
+    List<QueryDocumentSnapshot> sessions,
+  ) async {
     final Map<String, int> loadCountsByCategory = {};
 
     for (final session in sessions) {
@@ -2237,7 +2773,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         if (data['isCompleted'] != true) continue;
 
         final category = data['category'] ?? 'Unknown';
-        loadCountsByCategory[category] = (loadCountsByCategory[category] ?? 0) + 1;
+        loadCountsByCategory[category] =
+            (loadCountsByCategory[category] ?? 0) + 1;
       }
     }
 
@@ -2265,7 +2802,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                         Text('$animatedValue', style: valueStyle),
                   )
                 : Text('$value', style: valueStyle),
-            Text(label, style: const TextStyle(fontSize: 12, color: Colors.grey)),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
           ],
         ),
       ),
@@ -2323,7 +2863,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
             return Card(
               elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -2342,7 +2884,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                               color: colors[i % colors.length],
                               radius: 55,
                               titleStyle: const TextStyle(
-                                  fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
                             );
                           }),
                         ),
@@ -2365,7 +2910,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                               ),
                             ),
                             const SizedBox(width: 4),
-                            Text(entries[i].key, style: const TextStyle(fontSize: 12)),
+                            Text(
+                              entries[i].key,
+                              style: const TextStyle(fontSize: 12),
+                            ),
                           ],
                         );
                       }),
@@ -2414,6 +2962,42 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
             },
           ),
         ),
+        const SizedBox(height: 12),
+        _WebStaggeredFadeIn(
+          index: 4,
+          child: DashboardMenuCard(
+            icon: Icons.assessment,
+            title: 'Site Reports',
+            subtitle: 'Filterable report, chart and Excel export',
+            color: Colors.teal,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ManagementSiteReportsScreen(),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        _WebStaggeredFadeIn(
+          index: 5,
+          child: DashboardMenuCard(
+            icon: Icons.local_gas_station,
+            title: 'Fuel Reports',
+            subtitle: 'Filterable report, chart and Excel export',
+            color: Colors.deepOrange,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ManagementFuelReportsScreen(),
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }
@@ -2422,8 +3006,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('Live Machine Status',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        const Text(
+          'Live Machine Status',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         const SizedBox(height: 12),
         StreamBuilder<QuerySnapshot>(
           stream: FirebaseFirestore.instance
@@ -2462,7 +3048,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
 
                 return Card(
                   margin: const EdgeInsets.only(bottom: 10),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Column(
@@ -2474,26 +3062,39 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                             Expanded(
                               child: Text(
                                 sData['machineName'] ?? '',
-                                style:
-                                    const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 16,
+                                ),
                               ),
                             ),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: isActive ? Colors.green : Colors.grey,
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
                                 isActive ? 'ACTIVE' : 'COMPLETED',
-                                style: const TextStyle(color: Colors.white, fontSize: 11),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                ),
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 4),
-                        Text('Site: ${sData['siteName']} • Supervisor: ${sData['supervisorName']}',
-                            style: const TextStyle(fontSize: 13, color: Colors.black87)),
+                        Text(
+                          'Site: ${sData['siteName']} • Supervisor: ${sData['supervisorName']}',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Colors.black87,
+                          ),
+                        ),
                         const Divider(height: 16),
 
                         // Current work record (running one)
@@ -2506,20 +3107,33 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                               .limit(1)
                               .snapshots(),
                           builder: (context, workSnap) {
-                            if (!workSnap.hasData || workSnap.data!.docs.isEmpty) {
-                              return const Text('No active work right now',
-                                  style: TextStyle(fontSize: 13, color: Colors.grey));
+                            if (!workSnap.hasData ||
+                                workSnap.data!.docs.isEmpty) {
+                              return const Text(
+                                'No active work right now',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Colors.grey,
+                                ),
+                              );
                             }
                             final workData =
-                                workSnap.data!.docs.first.data() as Map<String, dynamic>;
+                                workSnap.data!.docs.first.data()
+                                    as Map<String, dynamic>;
                             return Row(
                               children: [
-                                const Icon(Icons.play_circle_fill, color: Colors.green, size: 18),
+                                const Icon(
+                                  Icons.play_circle_fill,
+                                  color: Colors.green,
+                                  size: 18,
+                                ),
                                 const SizedBox(width: 6),
                                 Text(
                                   'Working: ${workData['category']}',
-                                  style:
-                                      const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                  ),
                                 ),
                               ],
                             );
@@ -2572,57 +3186,76 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
         stream: FirebaseFirestore.instance.collection('sites').snapshots(),
         builder: (context, siteSnap) {
           return StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('machines').snapshots(),
+            stream: FirebaseFirestore.instance
+                .collection('machines')
+                .snapshots(),
             builder: (context, machineSnap) {
               return StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('trucks')
+                    .snapshots(),
                 builder: (context, truckSnap) {
                   final results = <_OwnerSearchResult>[];
 
-                  for (final doc in siteSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                  for (final doc
+                      in siteSnap.data?.docs ??
+                          const <QueryDocumentSnapshot>[]) {
                     final data = doc.data() as Map<String, dynamic>;
                     final name = (data['name'] ?? '').toString();
                     if (name.toLowerCase().contains(query)) {
-                      results.add(_OwnerSearchResult(
-                        type: 'Site',
-                        icon: Icons.location_on,
-                        id: doc.id,
-                        name: name,
-                        data: data,
-                      ));
+                      results.add(
+                        _OwnerSearchResult(
+                          type: 'Site',
+                          icon: Icons.location_on,
+                          id: doc.id,
+                          name: name,
+                          data: data,
+                        ),
+                      );
                     }
                   }
-                  for (final doc in machineSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                  for (final doc
+                      in machineSnap.data?.docs ??
+                          const <QueryDocumentSnapshot>[]) {
                     final data = doc.data() as Map<String, dynamic>;
                     final name = (data['name'] ?? '').toString();
                     if (name.toLowerCase().contains(query)) {
-                      results.add(_OwnerSearchResult(
-                        type: 'Machine',
-                        icon: Icons.precision_manufacturing,
-                        id: doc.id,
-                        name: name,
-                        data: data,
-                      ));
+                      results.add(
+                        _OwnerSearchResult(
+                          type: 'Machine',
+                          icon: Icons.precision_manufacturing,
+                          id: doc.id,
+                          name: name,
+                          data: data,
+                        ),
+                      );
                     }
                   }
-                  for (final doc in truckSnap.data?.docs ?? const <QueryDocumentSnapshot>[]) {
+                  for (final doc
+                      in truckSnap.data?.docs ??
+                          const <QueryDocumentSnapshot>[]) {
                     final data = doc.data() as Map<String, dynamic>;
                     final name = (data['truckNumber'] ?? '').toString();
                     if (name.toLowerCase().contains(query)) {
-                      results.add(_OwnerSearchResult(
-                        type: 'Truck',
-                        icon: Icons.local_shipping,
-                        id: doc.id,
-                        name: name,
-                        data: data,
-                      ));
+                      results.add(
+                        _OwnerSearchResult(
+                          type: 'Truck',
+                          icon: Icons.local_shipping,
+                          id: doc.id,
+                          name: name,
+                          data: data,
+                        ),
+                      );
                     }
                   }
 
                   if (results.isEmpty) {
                     return const Padding(
                       padding: EdgeInsets.all(16),
-                      child: Text('No matches found.', style: TextStyle(color: Colors.grey)),
+                      child: Text(
+                        'No matches found.',
+                        style: TextStyle(color: Colors.grey),
+                      ),
                     );
                   }
 
@@ -2646,8 +3279,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      SiteHistoryScreen(siteId: r.id, siteName: r.name),
+                                  builder: (_) => SiteHistoryScreen(
+                                    siteId: r.id,
+                                    siteName: r.name,
+                                  ),
                                 ),
                               );
                               break;
@@ -2668,8 +3303,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                               Navigator.push(
                                 context,
                                 MaterialPageRoute(
-                                  builder: (_) =>
-                                      TruckProfileScreen(truckId: r.id, truckNumber: r.name),
+                                  builder: (_) => TruckProfileScreen(
+                                    truckId: r.id,
+                                    truckNumber: r.name,
+                                  ),
                                 ),
                               );
                               break;
@@ -2697,23 +3334,44 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           stream: FirebaseFirestore.instance.collection('machines').snapshots(),
           builder: (context, machineSnap) {
             return StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('trucks')
+                  .snapshots(),
               builder: (context, truckSnap) {
                 return StreamBuilder<QuerySnapshot>(
                   stream: FirebaseFirestore.instance
                       .collection('users')
-                      .where('role', whereIn: ['supervisor', 'driver', 'field_worker'])
+                      .where(
+                        'role',
+                        whereIn: ['supervisor', 'driver', 'field_worker'],
+                      )
                       .snapshots(),
                   builder: (context, teamSnap) {
                     final cards = [
-                      _summaryCard('Total Sites', siteSnap.data?.docs.length ?? 0,
-                          Icons.location_on, Colors.teal),
-                      _summaryCard('Total Machines', machineSnap.data?.docs.length ?? 0,
-                          Icons.precision_manufacturing, Colors.orange),
-                      _summaryCard('Total Trucks', truckSnap.data?.docs.length ?? 0,
-                          Icons.local_shipping, Colors.deepOrange),
-                      _summaryCard('Total Team Members', teamSnap.data?.docs.length ?? 0,
-                          Icons.groups, Colors.deepPurple),
+                      _summaryCard(
+                        'Total Sites',
+                        siteSnap.data?.docs.length ?? 0,
+                        Icons.location_on,
+                        Colors.teal,
+                      ),
+                      _summaryCard(
+                        'Total Machines',
+                        machineSnap.data?.docs.length ?? 0,
+                        Icons.precision_manufacturing,
+                        Colors.orange,
+                      ),
+                      _summaryCard(
+                        'Total Trucks',
+                        truckSnap.data?.docs.length ?? 0,
+                        Icons.local_shipping,
+                        Colors.deepOrange,
+                      ),
+                      _summaryCard(
+                        'Total Team Members',
+                        teamSnap.data?.docs.length ?? 0,
+                        Icons.groups,
+                        Colors.deepPurple,
+                      ),
                     ];
 
                     return GridView.count(
@@ -2742,7 +3400,8 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
   Widget build(BuildContext context) {
     final todayDate = _todayString();
     final isDesktopWeb =
-        kIsWeb && MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
+        kIsWeb &&
+        MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
 
     if (!isDesktopWeb) {
       // ---- Mobile (and narrow-web) layout: untouched. ----
@@ -2756,7 +3415,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
             children: [
               Text(
                 'Welcome, ${widget.name}',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
@@ -2773,8 +3435,9 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     .snapshots(),
                 builder: (context, snapshot) {
                   final sessions = snapshot.data?.docs ?? [];
-                  final activeSessions =
-                      sessions.where((d) => (d.data() as Map)['status'] == 'active').length;
+                  final activeSessions = sessions
+                      .where((d) => (d.data() as Map)['status'] == 'active')
+                      .length;
 
                   return Row(
                     children: [
@@ -2807,8 +3470,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               ),
               const SizedBox(height: 24),
 
-              const Text('Today — Work Category Breakdown',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const Text(
+                'Today — Work Category Breakdown',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 12),
               _buildCategoryChart(todayDate),
               const SizedBox(height: 24),
@@ -2827,17 +3492,18 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           title: const Text('Owner Dashboard'),
           backgroundColor: Colors.green[800],
           actions: [
-            IconButton(
-              icon: const Icon(Icons.logout),
-              onPressed: _logout,
-            ),
+            IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
           ],
         ),
         body: WebAppShell(
           appName: 'NODA Owner',
           onLogout: _logout,
           menuItems: [
-            WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+            WebSidebarItem(
+              icon: Icons.dashboard,
+              label: 'Dashboard',
+              onTap: () {},
+            ),
             WebSidebarItem(
               icon: Icons.location_on,
               label: 'Sites',
@@ -2889,8 +3555,10 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
           const SizedBox(height: 24),
           _buildSummaryCardsGrid(context),
           const SizedBox(height: 24),
-          const Text('Today — Work Category Breakdown',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+          const Text(
+            'Today — Work Category Breakdown',
+            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
           const SizedBox(height: 12),
           _buildCategoryChart(todayDate),
           const SizedBox(height: 24),
@@ -2904,13 +3572,21 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
     return Scaffold(
       body: Column(
         children: [
-          _DashboardTopBar(name: widget.name, roleLabel: 'Owner', onLogout: _logout),
+          _DashboardTopBar(
+            name: widget.name,
+            roleLabel: 'Owner',
+            onLogout: _logout,
+          ),
           Expanded(
             child: WebAppShell(
               appName: 'NODA Owner',
               onLogout: _logout,
               menuItems: [
-                WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+                WebSidebarItem(
+                  icon: Icons.dashboard,
+                  label: 'Dashboard',
+                  onTap: () {},
+                ),
                 WebSidebarItem(
                   icon: Icons.location_on,
                   label: 'Sites',
@@ -2933,6 +3609,22 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                   onTap: () => Navigator.push(
                     context,
                     FadeSlideRoute(page: const FuelStationManagementScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.assessment,
+                  label: 'Site Reports',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const ManagementSiteReportsScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.local_gas_station,
+                  label: 'Fuel Reports',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const ManagementFuelReportsScreen()),
                   ),
                 ),
               ],
@@ -3006,13 +3698,21 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
     return Scaffold(
       body: Column(
         children: [
-          _DashboardTopBar(name: widget.name, roleLabel: 'Management', onLogout: _logout),
+          _DashboardTopBar(
+            name: widget.name,
+            roleLabel: 'Management',
+            onLogout: _logout,
+          ),
           Expanded(
             child: WebAppShell(
               appName: 'NODA Management',
               onLogout: _logout,
               menuItems: [
-                WebSidebarItem(icon: Icons.dashboard, label: 'Dashboard', onTap: () {}),
+                WebSidebarItem(
+                  icon: Icons.dashboard,
+                  label: 'Dashboard',
+                  onTap: () {},
+                ),
                 WebSidebarItem(
                   icon: Icons.local_gas_station,
                   label: 'Fuel Reports',
@@ -3040,10 +3740,147 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
 }
 
 // ---------------- MANAGEMENT FUEL REPORTS SCREEN (web-only) ----------------
-class ManagementFuelReportsScreen extends StatelessWidget {
+class ManagementFuelReportsScreen extends StatefulWidget {
   const ManagementFuelReportsScreen({super.key});
 
-  void _showBillPhoto(BuildContext context, String? billPhotoBase64) {
+  @override
+  State<ManagementFuelReportsScreen> createState() =>
+      _ManagementFuelReportsScreenState();
+}
+
+class _ManagementFuelReportsScreenState
+    extends State<ManagementFuelReportsScreen> {
+  // Photo excluded — Excel export uses these 8; the on-screen table adds a
+  // 9th "Photo" column separately (thumbnail button, not text).
+  static const List<String> _columns = [
+    'Date',
+    'Supervisor',
+    'Fuel Station',
+    'Truck Number',
+    'Liters',
+    'Amount',
+    'Bill Number',
+    'Time',
+  ];
+
+  DateTimeRange? _dateRange;
+  String? _selectedStationName;
+  String? _selectedSupervisorName;
+  final _truckNumberController = TextEditingController();
+  String _truckNumberFilter = '';
+  Timer? _debounce;
+
+  // Created once, not inline in build() — see ManagementSiteReportsScreen's
+  // _workRecordsStream for why: Query.snapshots() returns a new Stream
+  // object on every call, and StreamBuilder resubscribes (blanking the body)
+  // whenever it's handed a different stream instance. Building these inline
+  // would reintroduce that white-flash bug on every debounced filter change.
+  late final Stream<QuerySnapshot> _fuelEntriesStream = FirebaseFirestore
+      .instance
+      .collection('fuel_entries')
+      .snapshots();
+  late final Stream<QuerySnapshot> _fuelStationsStream = FirebaseFirestore
+      .instance
+      .collection('fuel_stations')
+      .snapshots();
+  late final Stream<QuerySnapshot> _supervisorsStream = FirebaseFirestore
+      .instance
+      .collection('users')
+      .where('role', isEqualTo: 'supervisor')
+      .snapshots();
+
+  // Fetched once — determines whether the Actions/edit column shows at all
+  // (admin/owner, or management with canEditReports == true).
+  late final Future<DocumentSnapshot> _currentUserFuture = FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
+      .get();
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _truckNumberController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+    }
+  }
+
+  void _clearFilters() {
+    _debounce?.cancel();
+    setState(() {
+      _dateRange = null;
+      _selectedStationName = null;
+      _selectedSupervisorName = null;
+      _truckNumberController.clear();
+      _truckNumberFilter = '';
+    });
+  }
+
+  bool _matchesFilters(Map<String, dynamic> data) {
+    if (_dateRange != null) {
+      final dateStr = data['date'] as String?;
+      if (dateStr == null) return false;
+      final parts = dateStr.split('-');
+      if (parts.length != 3) return false;
+      final recordDate = DateTime(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+      final startDate = DateTime(
+        _dateRange!.start.year,
+        _dateRange!.start.month,
+        _dateRange!.start.day,
+      );
+      final endDate = DateTime(
+        _dateRange!.end.year,
+        _dateRange!.end.month,
+        _dateRange!.end.day,
+      );
+      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate))
+        return false;
+    }
+    if (_selectedStationName != null &&
+        data['fuelStationName'] != _selectedStationName) {
+      return false;
+    }
+    if (_selectedSupervisorName != null &&
+        data['supervisorName'] != _selectedSupervisorName) {
+      return false;
+    }
+    final truckQuery = _truckNumberFilter.trim().toLowerCase();
+    if (truckQuery.isNotEmpty) {
+      final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
+      if (!truckNumber.contains(truckQuery)) return false;
+    }
+    return true;
+  }
+
+  List<String> _rowValues(Map<String, dynamic> data) {
+    return [
+      (data['date'] ?? '').toString(),
+      (data['supervisorName'] ?? '').toString(),
+      (data['fuelStationName'] ?? '').toString(),
+      (data['truckNumber'] ?? '').toString(),
+      data['liters']?.toString() ?? '',
+      data['amount']?.toString() ?? '',
+      (data['billNumber'] ?? '').toString(),
+      GoogleSheetsService.formatTime(data['createdAt']),
+    ];
+  }
+
+  void _showBillPhoto(String? billPhotoBase64) {
     if (billPhotoBase64 == null) return;
     showDialog(
       context: context,
@@ -3055,6 +3892,430 @@ class ManagementFuelReportsScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _exportToExcel(List<Map<String, dynamic>> records) async {
+    final excelFile = xls.Excel.createExcel();
+    final defaultSheetName = excelFile.getDefaultSheet() ?? 'Sheet1';
+    excelFile.rename(defaultSheetName, 'Fuel Report');
+    final sheet = excelFile['Fuel Report'];
+
+    sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
+    for (final data in records) {
+      sheet.appendRow(
+        _rowValues(data).map((v) => xls.TextCellValue(v)).toList(),
+      );
+    }
+
+    final bytes = excelFile.save();
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to generate Excel file.')),
+        );
+      }
+      return;
+    }
+
+    final filename = 'Fuel_Report_${DateTime.now().toIso8601String()}.xlsx';
+    downloader.downloadBytes(bytes, filename);
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Report exported.')));
+    }
+  }
+
+  Widget _buildFiltersRow() {
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 230,
+          child: OutlinedButton.icon(
+            onPressed: _pickDateRange,
+            icon: const Icon(Icons.date_range),
+            label: Text(
+              _dateRange == null
+                  ? 'All Time'
+                  : '${GoogleSheetsService.formatDate(_dateRange!.start)} - '
+                        '${GoogleSheetsService.formatDate(_dateRange!.end)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _fuelStationsStream,
+            builder: (context, snapshot) {
+              final stations = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedStationName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Fuel Station',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Stations'),
+                  ),
+                  ...stations.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedStationName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _supervisorsStream,
+            builder: (context, snapshot) {
+              final supervisors = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedSupervisorName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Supervisor',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Supervisors'),
+                  ),
+                  ...supervisors.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) =>
+                    setState(() => _selectedSupervisorName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _truckNumberController,
+            onChanged: (value) {
+              _debounce?.cancel();
+              _debounce = Timer(const Duration(milliseconds: 400), () {
+                setState(() => _truckNumberFilter = value);
+              });
+            },
+            decoration: InputDecoration(
+              labelText: 'Truck Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        OutlinedButton.icon(
+          onPressed: _clearFilters,
+          icon: const Icon(Icons.clear),
+          label: const Text('Clear Filters'),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChart(List<Map<String, dynamic>> records) {
+    final Map<String, int> countsByDate = {};
+    for (final r in records) {
+      final date = (r['date'] ?? 'Unknown').toString();
+      countsByDate[date] = (countsByDate[date] ?? 0) + 1;
+    }
+    final sortedDates = countsByDate.keys.toList()..sort();
+
+    if (sortedDates.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 20),
+        child: Text('No records match these filters.'),
+      );
+    }
+
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: SizedBox(
+          height: 220,
+          child: BarChart(
+            BarChartData(
+              alignment: BarChartAlignment.spaceAround,
+              barGroups: [
+                for (int i = 0; i < sortedDates.length; i++)
+                  BarChartGroupData(
+                    x: i,
+                    barRods: [
+                      BarChartRodData(
+                        toY: countsByDate[sortedDates[i]]!.toDouble(),
+                        color: Colors.deepOrange,
+                        width: 16,
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                    ],
+                  ),
+              ],
+              titlesData: FlTitlesData(
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: true, reservedSize: 28),
+                ),
+                bottomTitles: AxisTitles(
+                  sideTitles: SideTitles(
+                    showTitles: true,
+                    reservedSize: 40,
+                    getTitlesWidget: (value, meta) {
+                      final i = value.toInt();
+                      if (i < 0 || i >= sortedDates.length)
+                        return const SizedBox.shrink();
+                      final label = sortedDates[i].length >= 10
+                          ? sortedDates[i].substring(5)
+                          : sortedDates[i];
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          label,
+                          style: const TextStyle(fontSize: 10),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+              ),
+              borderData: FlBorderData(show: false),
+              gridData: const FlGridData(show: true, drawVerticalLine: false),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Firestore-only edit — deliberately does not call
+  // GoogleSheetsService.sendRow anywhere in this method, so it can never
+  // trigger a Sheets sync.
+  void _showEditFuelEntryDialog(
+    DocumentReference ref,
+    Map<String, dynamic> data,
+  ) {
+    final stationController = TextEditingController(
+      text: (data['fuelStationName'] ?? '').toString(),
+    );
+    final truckNumberController = TextEditingController(
+      text: (data['truckNumber'] ?? '').toString(),
+    );
+    final supervisorController = TextEditingController(
+      text: (data['supervisorName'] ?? '').toString(),
+    );
+    final litersController = TextEditingController(
+      text: data['liters']?.toString() ?? '',
+    );
+    final amountController = TextEditingController(
+      text: data['amount']?.toString() ?? '',
+    );
+    final billNumberController = TextEditingController(
+      text: (data['billNumber'] ?? '').toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Fuel Entry'),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: stationController,
+                  decoration: const InputDecoration(labelText: 'Fuel Station'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: truckNumberController,
+                  decoration: const InputDecoration(labelText: 'Truck Number'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: supervisorController,
+                  decoration: const InputDecoration(
+                    labelText: 'Supervisor Name',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: litersController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Liters'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: amountController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: billNumberController,
+                  decoration: const InputDecoration(labelText: 'Bill Number'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await ref.update({
+                  'fuelStationName': stationController.text.trim(),
+                  'truckNumber': truckNumberController.text.trim(),
+                  'supervisorName': supervisorController.text.trim(),
+                  'liters': double.tryParse(litersController.text.trim()),
+                  'amount': double.tryParse(amountController.text.trim()),
+                  'billNumber': billNumberController.text.trim(),
+                });
+
+                // Sync the edit back to the same Sheet row (update-in-place
+                // via recordId) instead of appending a duplicate. Column
+                // order matches FuelEntryScreen's original Fuel_Reports row.
+                GoogleSheetsService.sendRow(
+                  sheetName: 'Fuel_Reports',
+                  row: [
+                    (data['date'] ?? '').toString(),
+                    supervisorController.text.trim(),
+                    stationController.text.trim(),
+                    truckNumberController.text.trim(),
+                    litersController.text.trim(),
+                    amountController.text.trim(),
+                    billNumberController.text.trim(),
+                    GoogleSheetsService.formatTime(data['createdAt']),
+                  ],
+                  recordId: ref.id,
+                );
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Record updated.')),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Failed to update record: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTable(List<Map<String, dynamic>> records, bool canEdit) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        columns: [
+          ..._columns.map(
+            (c) => DataColumn(
+              label: Text(
+                c,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          const DataColumn(
+            label: Text('Photo', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          if (canEdit)
+            const DataColumn(
+              label: Text(
+                'Actions',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+        rows: records.map((data) {
+          final values = _rowValues(data);
+          final billPhotoBase64 = data['billPhotoBase64'] as String?;
+          return DataRow(
+            cells: [
+              ...values.map((v) => DataCell(Text(v))),
+              DataCell(
+                IconButton(
+                  icon: Icon(
+                    Icons.receipt_long,
+                    color: billPhotoBase64 != null
+                        ? Colors.deepOrange
+                        : Colors.grey[300],
+                  ),
+                  onPressed: billPhotoBase64 != null
+                      ? () => _showBillPhoto(billPhotoBase64)
+                      : null,
+                ),
+              ),
+              if (canEdit)
+                DataCell(
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
+                    onPressed: () => _showEditFuelEntryDialog(
+                      data['_ref'] as DocumentReference,
+                      data,
+                    ),
+                  ),
+                ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -3062,45 +4323,104 @@ class ManagementFuelReportsScreen extends StatelessWidget {
         title: const Text('Fuel Reports'),
         backgroundColor: Colors.deepOrange[800],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: FirebaseFirestore.instance
-            .collection('fuel_entries')
-            .orderBy('createdAt', descending: true)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-            return const Center(child: Text('No fuel entries yet.'));
-          }
+      body: FutureBuilder<DocumentSnapshot>(
+        future: _currentUserFuture,
+        builder: (context, userSnap) {
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final role = userData?['role'] as String?;
+          final canEdit =
+              role == 'admin' ||
+              role == 'owner' ||
+              (role == 'management' && userData?['canEditReports'] == true);
 
-          final entries = snapshot.data!.docs;
+          return StreamBuilder<QuerySnapshot>(
+            stream: _fuelEntriesStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error loading records: ${snapshot.error}'),
+                );
+              }
 
-          return ListView.builder(
-            padding: const EdgeInsets.all(12),
-            itemCount: entries.length,
-            itemBuilder: (context, index) {
-              final data = entries[index].data() as Map<String, dynamic>;
-              final billNumber = data['billNumber'] as String?;
+              final allRecords = (snapshot.data?.docs ?? []).map((d) {
+                final data = Map<String, dynamic>.from(
+                  d.data() as Map<String, dynamic>,
+                );
+                // Kept for the Edit action (Part C) — _rowValues() only
+                // reads specific named fields, so this never leaks into the
+                // table text or Excel export.
+                data['_ref'] = d.reference;
+                return data;
+              }).toList();
 
-              return Card(
-                margin: const EdgeInsets.only(bottom: 10),
-                child: ListTile(
-                  leading: CircleAvatar(
-                    backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                    child: const Icon(Icons.local_gas_station, color: Colors.deepOrange),
-                  ),
-                  title: Text('${data['supervisorName'] ?? ''} • ${data['fuelStationName'] ?? ''}'),
-                  subtitle: Text(
-                    '${data['date'] ?? ''}\n'
-                    'Truck: ${data['truckNumber'] ?? ''} • '
-                    '${data['liters'] ?? ''} L • Rs. ${data['amount'] ?? ''}'
-                    '${billNumber != null && billNumber.isNotEmpty ? ' • Bill: $billNumber' : ''}',
-                  ),
-                  isThreeLine: true,
-                  trailing: const Icon(Icons.receipt_long),
-                  onTap: () => _showBillPhoto(context, data['billPhotoBase64'] as String?),
+              // Chronological order: date ascending, then same-day entries by
+              // createdAt ascending — oldest first, matching Site Reports.
+              final filtered = allRecords.where(_matchesFilters).toList()
+                ..sort((a, b) {
+                  final dateCompare = (a['date'] ?? '').toString().compareTo(
+                    (b['date'] ?? '').toString(),
+                  );
+                  if (dateCompare != 0) return dateCompare;
+
+                  final aTime = a['createdAt'] as Timestamp?;
+                  final bTime = b['createdAt'] as Timestamp?;
+                  if (aTime == null && bTime == null) return 0;
+                  if (aTime == null) return -1;
+                  if (bTime == null) return 1;
+                  return aTime.compareTo(bTime);
+                });
+
+              double totalLiters = 0;
+              double totalAmount = 0;
+              for (final r in filtered) {
+                totalLiters += (r['liters'] as num?)?.toDouble() ?? 0;
+                totalAmount += (r['amount'] as num?)?.toDouble() ?? 0;
+              }
+
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildFiltersRow(),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '${filtered.length} records',
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                        SizedBox(
+                          width: 200,
+                          child: GradientButton(
+                            label: 'Export to Excel',
+                            icon: Icons.download,
+                            height: 44,
+                            onTap: filtered.isEmpty
+                                ? () {}
+                                : () => _exportToExcel(filtered),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Total Liters: ${totalLiters.toStringAsFixed(1)}   •   '
+                      'Total Amount: Rs. ${totalAmount.toStringAsFixed(2)}',
+                      style: TextStyle(
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    _buildChart(filtered),
+                    const SizedBox(height: 20),
+                    _buildTable(filtered, canEdit),
+                  ],
                 ),
               );
             },
@@ -3116,10 +4436,12 @@ class ManagementSiteReportsScreen extends StatefulWidget {
   const ManagementSiteReportsScreen({super.key});
 
   @override
-  State<ManagementSiteReportsScreen> createState() => _ManagementSiteReportsScreenState();
+  State<ManagementSiteReportsScreen> createState() =>
+      _ManagementSiteReportsScreenState();
 }
 
-class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScreen> {
+class _ManagementSiteReportsScreenState
+    extends State<ManagementSiteReportsScreen> {
   static const List<String> _columns = [
     'Date',
     'Machine',
@@ -3156,7 +4478,8 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
   // debounced filter-change ones — created a fresh Stream and caused a
   // full unsubscribe/resubscribe, which is what the white flash actually
   // was.
-  late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore.instance
+  late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore
+      .instance
       .collectionGroup('work_records')
       .where('isLoadingCategory', isEqualTo: true)
       .where('isCompleted', isEqualTo: true)
@@ -3165,14 +4488,24 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
   // Same reasoning as _workRecordsStream — the filter dropdowns' own
   // StreamBuilders must not be handed a fresh stream on every keystroke
   // rebuild either.
-  late final Stream<QuerySnapshot> _sitesStream =
-      FirebaseFirestore.instance.collection('sites').snapshots();
-  late final Stream<QuerySnapshot> _machinesStream =
-      FirebaseFirestore.instance.collection('machines').snapshots();
+  late final Stream<QuerySnapshot> _sitesStream = FirebaseFirestore.instance
+      .collection('sites')
+      .snapshots();
+  late final Stream<QuerySnapshot> _machinesStream = FirebaseFirestore.instance
+      .collection('machines')
+      .snapshots();
   late final Stream<QuerySnapshot> _operatorsStream = FirebaseFirestore.instance
       .collection('users')
       .where('canOperateMachine', isEqualTo: true)
       .snapshots();
+
+  // Fetched once — determines whether the Actions/edit column shows at all
+  // (admin/owner, or management with canEditReports == true).
+  late final Future<DocumentSnapshot> _currentUserFuture = FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
+      .get();
 
   // Per-session daily_sessions doc fetches, cached across rebuilds so
   // records missing the denormalized fields (see _enrichRecords) don't
@@ -3226,21 +4559,36 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
       if (dateStr == null) return false;
       final parts = dateStr.split('-');
       if (parts.length != 3) return false;
-      final recordDate =
-          DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
-      final startDate =
-          DateTime(_dateRange!.start.year, _dateRange!.start.month, _dateRange!.start.day);
-      final endDate = DateTime(_dateRange!.end.year, _dateRange!.end.month, _dateRange!.end.day);
-      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate)) return false;
+      final recordDate = DateTime(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+      final startDate = DateTime(
+        _dateRange!.start.year,
+        _dateRange!.start.month,
+        _dateRange!.start.day,
+      );
+      final endDate = DateTime(
+        _dateRange!.end.year,
+        _dateRange!.end.month,
+        _dateRange!.end.day,
+      );
+      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate))
+        return false;
     }
-    if (_selectedSiteName != null && data['siteName'] != _selectedSiteName) return false;
-    if (_selectedMachineName != null && data['machineName'] != _selectedMachineName) return false;
+    if (_selectedSiteName != null && data['siteName'] != _selectedSiteName)
+      return false;
+    if (_selectedMachineName != null &&
+        data['machineName'] != _selectedMachineName)
+      return false;
     final truckQuery = _truckNumberFilter.trim().toLowerCase();
     if (truckQuery.isNotEmpty) {
       final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
       if (!truckNumber.contains(truckQuery)) return false;
     }
-    if (_selectedOperatorName != null && data['machineOperatorName'] != _selectedOperatorName) {
+    if (_selectedOperatorName != null &&
+        data['machineOperatorName'] != _selectedOperatorName) {
       return false;
     }
     return true;
@@ -3249,8 +4597,9 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
   List<String> _rowValues(Map<String, dynamic> data) {
     final startMeter = (data['startMeter'] as num?)?.toDouble();
     final endMeter = (data['endMeter'] as num?)?.toDouble();
-    final meterRun =
-        (startMeter != null && endMeter != null) ? (endMeter - startMeter).toStringAsFixed(1) : '';
+    final meterRun = (startMeter != null && endMeter != null)
+        ? (endMeter - startMeter).toStringAsFixed(1)
+        : '';
     return [
       (data['date'] ?? '').toString(),
       (data['machineName'] ?? '').toString(),
@@ -3280,7 +4629,9 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
 
     sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
     for (final data in records) {
-      sheet.appendRow(_rowValues(data).map((v) => xls.TextCellValue(v)).toList());
+      sheet.appendRow(
+        _rowValues(data).map((v) => xls.TextCellValue(v)).toList(),
+      );
     }
 
     final bytes = excelFile.save();
@@ -3297,9 +4648,9 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
     downloader.downloadBytes(bytes, filename);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Report exported.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Report exported.')));
     }
   }
 
@@ -3318,7 +4669,7 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
               _dateRange == null
                   ? 'All Time'
                   : '${GoogleSheetsService.formatDate(_dateRange!.start)} - '
-                      '${GoogleSheetsService.formatDate(_dateRange!.end)}',
+                        '${GoogleSheetsService.formatDate(_dateRange!.end)}',
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -3335,13 +4686,23 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
                 decoration: InputDecoration(
                   labelText: 'Site',
                   isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 items: [
-                  const DropdownMenuItem<String>(value: null, child: Text('All Sites')),
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Sites'),
+                  ),
                   ...sites.map((doc) {
-                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
-                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
                   }),
                 ],
                 onChanged: (val) => setState(() => _selectedSiteName = val),
@@ -3361,13 +4722,23 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
                 decoration: InputDecoration(
                   labelText: 'Machine',
                   isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 items: [
-                  const DropdownMenuItem<String>(value: null, child: Text('All Machines')),
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Machines'),
+                  ),
                   ...machines.map((doc) {
-                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
-                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
                   }),
                 ],
                 onChanged: (val) => setState(() => _selectedMachineName = val),
@@ -3388,7 +4759,9 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
             decoration: InputDecoration(
               labelText: 'Truck Number',
               isDense: true,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
             ),
           ),
         ),
@@ -3404,13 +4777,23 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
                 decoration: InputDecoration(
                   labelText: 'Machine Operator',
                   isDense: true,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
                 items: [
-                  const DropdownMenuItem<String>(value: null, child: Text('All Operators')),
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Operators'),
+                  ),
                   ...operators.map((doc) {
-                    final name = ((doc.data() as Map<String, dynamic>)['name'] ?? '').toString();
-                    return DropdownMenuItem<String>(value: name, child: Text(name));
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
                   }),
                 ],
                 onChanged: (val) => setState(() => _selectedOperatorName = val),
@@ -3467,26 +4850,36 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
                   ),
               ],
               titlesData: FlTitlesData(
-                leftTitles:
-                    AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 28)),
+                leftTitles: AxisTitles(
+                  sideTitles: SideTitles(showTitles: true, reservedSize: 28),
+                ),
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 40,
                     getTitlesWidget: (value, meta) {
                       final i = value.toInt();
-                      if (i < 0 || i >= sortedDates.length) return const SizedBox.shrink();
-                      final label =
-                          sortedDates[i].length >= 10 ? sortedDates[i].substring(5) : sortedDates[i];
+                      if (i < 0 || i >= sortedDates.length)
+                        return const SizedBox.shrink();
+                      final label = sortedDates[i].length >= 10
+                          ? sortedDates[i].substring(5)
+                          : sortedDates[i];
                       return Padding(
                         padding: const EdgeInsets.only(top: 6),
-                        child: Text(label, style: const TextStyle(fontSize: 10)),
+                        child: Text(
+                          label,
+                          style: const TextStyle(fontSize: 10),
+                        ),
                       );
                     },
                   ),
                 ),
-                topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+                topTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
+                rightTitles: const AxisTitles(
+                  sideTitles: SideTitles(showTitles: false),
+                ),
               ),
               borderData: FlBorderData(show: false),
               gridData: const FlGridData(show: true, drawVerticalLine: false),
@@ -3497,16 +4890,302 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
     );
   }
 
-  Widget _buildTable(List<Map<String, dynamic>> records) {
+  // Firestore-only edit — deliberately does not call
+  // GoogleSheetsService.sendRow anywhere in this method, so it can never
+  // trigger a Sheets sync.
+  // Matches _WorkSessionScreenState's _formatDuration exactly, so an edit's
+  // resynced Duration column looks identical to one written at task-complete
+  // time.
+  String _formatSyncDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  void _showEditRecordDialog(DocumentReference ref, Map<String, dynamic> data) {
+    final siteNameController = TextEditingController(
+      text: (data['siteName'] ?? '').toString(),
+    );
+    final machineNameController = TextEditingController(
+      text: (data['machineName'] ?? '').toString(),
+    );
+    final supervisorNameController = TextEditingController(
+      text: (data['supervisorName'] ?? '').toString(),
+    );
+    final categoryController = TextEditingController(
+      text: (data['category'] ?? '').toString(),
+    );
+    final truckNumberController = TextEditingController(
+      text: (data['truckNumber'] ?? '').toString(),
+    );
+    final billNumberController = TextEditingController(
+      text: (data['billNumber'] ?? '').toString(),
+    );
+    final unloadingSiteController = TextEditingController(
+      text: (data['unloadingSiteName'] ?? '').toString(),
+    );
+    final distanceController = TextEditingController(
+      text: data['distanceKm']?.toString() ?? '',
+    );
+    final startMeterController = TextEditingController(
+      text: data['startMeter']?.toString() ?? '',
+    );
+    final endMeterController = TextEditingController(
+      text: data['endMeter']?.toString() ?? '',
+    );
+    final cubeController = TextEditingController(
+      text: data['cubeCount']?.toString() ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Record'),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: siteNameController,
+                  decoration: const InputDecoration(labelText: 'Site Name'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: machineNameController,
+                  decoration: const InputDecoration(labelText: 'Machine Name'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: supervisorNameController,
+                  decoration: const InputDecoration(
+                    labelText: 'Supervisor Name',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: categoryController,
+                  decoration: const InputDecoration(labelText: 'Category'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: truckNumberController,
+                  decoration: const InputDecoration(labelText: 'Truck Number'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: billNumberController,
+                  decoration: const InputDecoration(labelText: 'Bill Number'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: unloadingSiteController,
+                  decoration: const InputDecoration(
+                    labelText: 'Unloading Site',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: distanceController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Distance KM'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: startMeterController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Start Meter'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: endMeterController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'End Meter'),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: cubeController,
+                  keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Cube'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              try {
+                await ref.update({
+                  'siteName': siteNameController.text.trim(),
+                  'machineName': machineNameController.text.trim(),
+                  'supervisorName': supervisorNameController.text.trim(),
+                  'category': categoryController.text.trim(),
+                  'truckNumber': truckNumberController.text.trim(),
+                  'billNumber': billNumberController.text.trim(),
+                  'unloadingSiteName': unloadingSiteController.text.trim(),
+                  'distanceKm': double.tryParse(distanceController.text.trim()),
+                  'startMeter': double.tryParse(
+                    startMeterController.text.trim(),
+                  ),
+                  'endMeter': double.tryParse(endMeterController.text.trim()),
+                  // Kept as a string — matches how NewWorkDialog/_startNewWork
+                  // save it, not a number field.
+                  'cubeCount': cubeController.text.trim(),
+                });
+
+                // Sync the edit back to the same Sheet row (update-in-place
+                // via recordId) instead of appending a duplicate. Column
+                // order matches _completeLoadingRecord's original 17-column
+                // Supervisor_Loads row exactly — this is deliberately NOT
+                // _rowValues()'s table/export order, which substitutes a
+                // computed "Meter Run" for the real Duration column at the
+                // same index; sending that here would silently corrupt the
+                // sheet's Duration column.
+                final merged = {
+                  ...data,
+                  ...{
+                    'siteName': siteNameController.text.trim(),
+                    'machineName': machineNameController.text.trim(),
+                    'supervisorName': supervisorNameController.text.trim(),
+                    'category': categoryController.text.trim(),
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': unloadingSiteController.text.trim(),
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'startMeter': double.tryParse(
+                      startMeterController.text.trim(),
+                    ),
+                    'endMeter': double.tryParse(endMeterController.text.trim()),
+                    'cubeCount': cubeController.text.trim(),
+                  },
+                };
+                final syncRow = [
+                  (merged['date'] ?? '').toString(),
+                  (merged['machineName'] ?? '').toString(),
+                  (merged['siteName'] ?? '').toString(),
+                  (merged['supervisorName'] ?? '').toString(),
+                  (merged['category'] ?? '').toString(),
+                  (merged['truckNumber'] ?? '').toString(),
+                  (merged['billNumber'] ?? '').toString(),
+                  (merged['unloadingSiteName'] ?? '').toString(),
+                  merged['distanceKm']?.toString() ?? '',
+                  merged['startMeter']?.toString() ?? '',
+                  merged['endMeter']?.toString() ?? '',
+                  _formatSyncDuration(
+                    (merged['totalDurationSeconds'] ?? 0) as int,
+                  ),
+                  GoogleSheetsService.formatTime(merged['loadStartedAt']),
+                  GoogleSheetsService.formatTime(merged['loadCompletedAt']),
+                  (merged['truckDriverName'] ?? '').toString(),
+                  (merged['cubeCount'] ?? '').toString(),
+                  (merged['machineOperatorName'] ?? '').toString(),
+                ];
+                GoogleSheetsService.sendRow(
+                  sheetName: 'Supervisor_Loads',
+                  row: syncRow,
+                  recordId: ref.id,
+                );
+
+                // Mirror _completeLoadingRecord's Plant_Loads / site-specific
+                // sheet sync so an edit updates those tabs in place too, not
+                // just Supervisor_Loads. Uses the (possibly just-edited) site
+                // name to look up the site doc, since work_records only store
+                // siteName, not siteId.
+                final editedSiteName = siteNameController.text.trim();
+                final siteQuery = await FirebaseFirestore.instance
+                    .collection('sites')
+                    .where('name', isEqualTo: editedSiteName)
+                    .limit(1)
+                    .get();
+                final editIsPlantSite =
+                    siteQuery.docs.isNotEmpty &&
+                    siteQuery.docs.first.data()['isPlantSite'] == true;
+                final editSiteSpecificMatch =
+                    kSiteSheetMap[editedSiteName.toLowerCase()];
+                if (editIsPlantSite) {
+                  GoogleSheetsService.sendRow(
+                    sheetName: 'Plant_Loads',
+                    row: syncRow,
+                    recordId: ref.id,
+                  );
+                }
+                if (editSiteSpecificMatch != null) {
+                  GoogleSheetsService.sendRow(
+                    sheetName: editSiteSpecificMatch,
+                    row: syncRow,
+                    recordId: ref.id,
+                  );
+                }
+
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Record updated.')),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Failed to update record: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTable(List<Map<String, dynamic>> records, bool canEdit) {
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
-        columns: _columns
-            .map((c) => DataColumn(label: Text(c, style: const TextStyle(fontWeight: FontWeight.bold))))
-            .toList(),
+        columns: [
+          ..._columns.map(
+            (c) => DataColumn(
+              label: Text(
+                c,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+          if (canEdit)
+            const DataColumn(
+              label: Text(
+                'Actions',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
         rows: records.map((data) {
           final values = _rowValues(data);
-          return DataRow(cells: values.map((v) => DataCell(Text(v))).toList());
+          return DataRow(
+            cells: [
+              ...values.map((v) => DataCell(Text(v))),
+              if (canEdit)
+                DataCell(
+                  IconButton(
+                    icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
+                    onPressed: () => _showEditRecordDialog(
+                      data['_ref'] as DocumentReference,
+                      data,
+                    ),
+                  ),
+                ),
+            ],
+          );
         }).toList(),
       ),
     );
@@ -3519,12 +5198,21 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
   // entirely, and each parent session is only ever fetched once (cached in
   // _sessionDocCache) even though several of its records may be missing
   // fields.
-  Future<List<Map<String, dynamic>>> _enrichRecords(List<QueryDocumentSnapshot> docs) async {
+  Future<List<Map<String, dynamic>>> _enrichRecords(
+    List<QueryDocumentSnapshot> docs,
+  ) async {
     final results = <Map<String, dynamic>>[];
 
     for (final doc in docs) {
-      final data = Map<String, dynamic>.from(doc.data() as Map<String, dynamic>);
-      final missingDenormalized = data['date'] == null ||
+      final data = Map<String, dynamic>.from(
+        doc.data() as Map<String, dynamic>,
+      );
+      // Kept for the Edit action (Part C) so it can write back to this exact
+      // work_record doc. _rowValues() only reads specific named fields, so
+      // this extra key never leaks into the table text or Excel export.
+      data['_ref'] = doc.reference;
+      final missingDenormalized =
+          data['date'] == null ||
           data['machineName'] == null ||
           data['siteName'] == null ||
           data['supervisorName'] == null;
@@ -3534,7 +5222,9 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
         if (sessionRef != null) {
           try {
             final sessionDoc = await _sessionDocCache.putIfAbsent(
-                sessionRef.id, () => sessionRef.get());
+              sessionRef.id,
+              () => sessionRef.get(),
+            );
             final sessionData = sessionDoc.data() as Map<String, dynamic>?;
             if (sessionData != null) {
               data['date'] ??= sessionData['date'];
@@ -3561,81 +5251,104 @@ class _ManagementSiteReportsScreenState extends State<ManagementSiteReportsScree
         title: const Text('Site Reports'),
         backgroundColor: Colors.teal[800],
       ),
-      body: StreamBuilder<QuerySnapshot>(
-        stream: _workRecordsStream,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-          if (snapshot.hasError) {
-            return Center(child: Text('Error loading records: ${snapshot.error}'));
-          }
+      body: FutureBuilder<DocumentSnapshot>(
+        future: _currentUserFuture,
+        builder: (context, userSnap) {
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final role = userData?['role'] as String?;
+          final canEdit =
+              role == 'admin' ||
+              role == 'owner' ||
+              (role == 'management' && userData?['canEditReports'] == true);
 
-          if (!identical(snapshot.data, _lastSnapshot)) {
-            _lastSnapshot = snapshot.data;
-            _enrichedFuture = _enrichRecords(snapshot.data?.docs ?? []);
-          }
-
-          return FutureBuilder<List<Map<String, dynamic>>>(
-            future: _enrichedFuture,
-            builder: (context, enrichSnap) {
-              if (!enrichSnap.hasData) {
+          return StreamBuilder<QuerySnapshot>(
+            stream: _workRecordsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error loading records: ${snapshot.error}'),
+                );
+              }
 
-              final allRecords = enrichSnap.data!;
-              // Chronological order: date ascending, then same-day records
-              // by when the load actually started (falling back to
-              // createdAt if that's missing) — oldest first, matching the
-              // Supervisor_Loads sheet's row order. Both the table and the
-              // chart, plus Excel export, all read from this same sorted
-              // `filtered` list, so the order applies everywhere
-              // automatically.
-              final filtered = allRecords.where(_matchesFilters).toList()
-                ..sort((a, b) {
-                  final dateCompare =
-                      (a['date'] ?? '').toString().compareTo((b['date'] ?? '').toString());
-                  if (dateCompare != 0) return dateCompare;
+              if (!identical(snapshot.data, _lastSnapshot)) {
+                _lastSnapshot = snapshot.data;
+                _enrichedFuture = _enrichRecords(snapshot.data?.docs ?? []);
+              }
 
-                  final aTime =
-                      (a['loadStartedAt'] as Timestamp?) ?? (a['createdAt'] as Timestamp?);
-                  final bTime =
-                      (b['loadStartedAt'] as Timestamp?) ?? (b['createdAt'] as Timestamp?);
-                  if (aTime == null && bTime == null) return 0;
-                  if (aTime == null) return -1;
-                  if (bTime == null) return 1;
-                  return aTime.compareTo(bTime);
-                });
+              return FutureBuilder<List<Map<String, dynamic>>>(
+                future: _enrichedFuture,
+                builder: (context, enrichSnap) {
+                  if (!enrichSnap.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
 
-              return SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildFiltersRow(),
-                    const SizedBox(height: 20),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  final allRecords = enrichSnap.data!;
+                  // Chronological order: date ascending, then same-day records
+                  // by when the load actually started (falling back to
+                  // createdAt if that's missing) — oldest first, matching the
+                  // Supervisor_Loads sheet's row order. Both the table and the
+                  // chart, plus Excel export, all read from this same sorted
+                  // `filtered` list, so the order applies everywhere
+                  // automatically.
+                  final filtered = allRecords.where(_matchesFilters).toList()
+                    ..sort((a, b) {
+                      final dateCompare = (a['date'] ?? '')
+                          .toString()
+                          .compareTo((b['date'] ?? '').toString());
+                      if (dateCompare != 0) return dateCompare;
+
+                      final aTime =
+                          (a['loadStartedAt'] as Timestamp?) ??
+                          (a['createdAt'] as Timestamp?);
+                      final bTime =
+                          (b['loadStartedAt'] as Timestamp?) ??
+                          (b['createdAt'] as Timestamp?);
+                      if (aTime == null && bTime == null) return 0;
+                      if (aTime == null) return -1;
+                      if (bTime == null) return 1;
+                      return aTime.compareTo(bTime);
+                    });
+
+                  return SingleChildScrollView(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('${filtered.length} records',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        SizedBox(
-                          width: 200,
-                          child: GradientButton(
-                            label: 'Export to Excel',
-                            icon: Icons.download,
-                            height: 44,
-                            onTap: filtered.isEmpty ? () {} : () => _exportToExcel(filtered),
-                          ),
+                        _buildFiltersRow(),
+                        const SizedBox(height: 20),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Text(
+                              '${filtered.length} records',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(
+                              width: 200,
+                              child: GradientButton(
+                                label: 'Export to Excel',
+                                icon: Icons.download,
+                                height: 44,
+                                onTap: filtered.isEmpty
+                                    ? () {}
+                                    : () => _exportToExcel(filtered),
+                              ),
+                            ),
+                          ],
                         ),
+                        const SizedBox(height: 16),
+                        _buildChart(filtered),
+                        const SizedBox(height: 20),
+                        _buildTable(filtered, canEdit),
                       ],
                     ),
-                    const SizedBox(height: 16),
-                    _buildChart(filtered),
-                    const SizedBox(height: 20),
-                    _buildTable(filtered),
-                  ],
-                ),
+                  );
+                },
               );
             },
           );
@@ -3697,13 +5410,20 @@ class _DashboardTopBarState extends State<_DashboardTopBar> {
             alignment: Alignment.center,
             child: const Text(
               'N',
-              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+              ),
             ),
           ),
           const SizedBox(width: 10),
           const Text(
             'NODA Civimech Engineering',
-            style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.primaryDark),
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              color: AppTheme.primaryDark,
+            ),
           ),
           const Spacer(),
           FutureBuilder<DocumentSnapshot>(
@@ -3716,17 +5436,24 @@ class _DashboardTopBarState extends State<_DashboardTopBar> {
                   CircleAvatar(
                     radius: 18,
                     backgroundColor: AppTheme.primaryMid.withOpacity(0.15),
-                    backgroundImage:
-                        photoBase64 != null ? MemoryImage(base64Decode(photoBase64)) : null,
+                    backgroundImage: photoBase64 != null
+                        ? MemoryImage(base64Decode(photoBase64))
+                        : null,
                     child: photoBase64 == null
                         ? const Icon(Icons.person, color: AppTheme.primaryMid)
                         : null,
                   ),
                   const SizedBox(width: 10),
-                  Text(widget.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                  Text(
+                    widget.name,
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
                   const SizedBox(width: 10),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: AppTheme.accent.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(20),
@@ -3734,7 +5461,10 @@ class _DashboardTopBarState extends State<_DashboardTopBar> {
                     child: Text(
                       widget.roleLabel,
                       style: const TextStyle(
-                          color: AppTheme.primaryMid, fontWeight: FontWeight.w600, fontSize: 12),
+                        color: AppTheme.primaryMid,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 12),
@@ -3785,13 +5515,18 @@ class SupervisorChoiceScreen extends StatelessWidget {
                 child: TextButton.icon(
                   onPressed: () => _logout(context),
                   icon: const Icon(Icons.logout, color: Colors.white),
-                  label: const Text('Logout', style: TextStyle(color: Colors.white)),
+                  label: const Text(
+                    'Logout',
+                    style: TextStyle(color: Colors.white),
+                  ),
                 ),
               ),
               Expanded(
                 child: Center(
                   child: ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: isDesktop ? 440 : double.infinity),
+                    constraints: BoxConstraints(
+                      maxWidth: isDesktop ? 440 : double.infinity,
+                    ),
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.symmetric(horizontal: 24.0),
                       child: Column(
@@ -3801,13 +5536,19 @@ class SupervisorChoiceScreen extends StatelessWidget {
                             'Welcome, $name',
                             textAlign: TextAlign.center,
                             style: const TextStyle(
-                                fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                              fontSize: 22,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                           const SizedBox(height: 6),
                           Text(
                             'What would you like to do today?',
                             textAlign: TextAlign.center,
-                            style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.7)),
+                            style: TextStyle(
+                              fontSize: 14,
+                              color: Colors.white.withOpacity(0.7),
+                            ),
                           ),
                           const SizedBox(height: 36),
                           GradientButton(
@@ -3816,7 +5557,9 @@ class SupervisorChoiceScreen extends StatelessWidget {
                             height: 64,
                             onTap: () => Navigator.push(
                               context,
-                              MaterialPageRoute(builder: (_) => SupervisorScreen(name: name)),
+                              MaterialPageRoute(
+                                builder: (_) => SupervisorScreen(name: name),
+                              ),
                             ),
                           ),
                           const SizedBox(height: 16),
@@ -3827,7 +5570,8 @@ class SupervisorChoiceScreen extends StatelessWidget {
                             onTap: () => Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (_) => FuelEntryScreen(supervisorName: name),
+                                builder: (_) =>
+                                    FuelEntryScreen(supervisorName: name),
                               ),
                             ),
                           ),
@@ -3891,9 +5635,9 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
       setState(() => _billPhotoBase64 = base64String);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error capturing photo: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error capturing photo: $e')));
       }
     }
   }
@@ -3931,33 +5675,39 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
 
     try {
       final billNumber = _billNumberController.text.trim();
-      await FirebaseFirestore.instance.collection('fuel_entries').add({
-        'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
-        'supervisorName': widget.supervisorName,
-        'fuelStationId': _selectedStationId,
-        'fuelStationName': _selectedStationName,
-        'truckNumber': _truckNumberController.text.trim(),
-        'liters': liters,
-        'amount': amount,
-        'billNumber': billNumber.isEmpty ? null : billNumber,
-        'billPhotoBase64': _billPhotoBase64,
-        'createdAt': FieldValue.serverTimestamp(),
-        'date': GoogleSheetsService.formatDate(DateTime.now()),
-      });
+      final docRef = await FirebaseFirestore.instance
+          .collection('fuel_entries')
+          .add({
+            'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
+            'supervisorName': widget.supervisorName,
+            'fuelStationId': _selectedStationId,
+            'fuelStationName': _selectedStationName,
+            'truckNumber': _truckNumberController.text.trim(),
+            'liters': liters,
+            'amount': amount,
+            'billNumber': billNumber.isEmpty ? null : billNumber,
+            'billPhotoBase64': _billPhotoBase64,
+            'createdAt': FieldValue.serverTimestamp(),
+            'date': GoogleSheetsService.formatDate(DateTime.now()),
+          });
 
       // Sheets row built from the controllers before they're cleared below.
       // Bill photo is intentionally excluded — it's Base64 image data and
       // doesn't belong in a spreadsheet cell.
-      GoogleSheetsService.sendRow(sheetName: 'Fuel_Reports', row: [
-        GoogleSheetsService.formatDate(DateTime.now()),
-        widget.supervisorName,
-        _selectedStationName,
-        _truckNumberController.text.trim(),
-        _litersController.text.trim(),
-        _amountController.text.trim(),
-        billNumber.isEmpty ? '' : billNumber,
-        GoogleSheetsService.formatTime(Timestamp.now()),
-      ]);
+      GoogleSheetsService.sendRow(
+        sheetName: 'Fuel_Reports',
+        row: [
+          GoogleSheetsService.formatDate(DateTime.now()),
+          widget.supervisorName,
+          _selectedStationName,
+          _truckNumberController.text.trim(),
+          _litersController.text.trim(),
+          _amountController.text.trim(),
+          billNumber.isEmpty ? '' : billNumber,
+          GoogleSheetsService.formatTime(Timestamp.now()),
+        ],
+        recordId: docRef.id,
+      );
 
       _truckNumberController.clear();
       _litersController.clear();
@@ -4005,9 +5755,14 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                       onPressed: () => Navigator.pop(context),
                     ),
                     const Expanded(
-                      child: Text('Fuel Entry',
-                          style: TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                      child: Text(
+                        'Fuel Entry',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                     IconButton(
                       // Placeholder for now — a dedicated fuel history screen
@@ -4015,7 +5770,9 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                       icon: const Icon(Icons.history, color: Colors.white),
                       onPressed: () {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('Fuel history coming soon.')),
+                          const SnackBar(
+                            content: Text('Fuel history coming soon.'),
+                          ),
                         );
                       },
                     ),
@@ -4027,41 +5784,56 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.all(24.0),
                     child: ConstrainedBox(
-                      constraints: BoxConstraints(maxWidth: isDesktop ? 480 : double.infinity),
+                      constraints: BoxConstraints(
+                        maxWidth: isDesktop ? 480 : double.infinity,
+                      ),
                       child: LoginFormCard(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            const Text('Select Fuel Station',
-                                style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text(
+                              'Select Fuel Station',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                             const SizedBox(height: 8),
                             StreamBuilder<QuerySnapshot>(
-                              stream:
-                                  FirebaseFirestore.instance.collection('fuel_stations').snapshots(),
+                              stream: FirebaseFirestore.instance
+                                  .collection('fuel_stations')
+                                  .snapshots(),
                               builder: (context, snapshot) {
                                 if (!snapshot.hasData) {
                                   return const Padding(
                                     padding: EdgeInsets.symmetric(vertical: 12),
-                                    child: Center(child: CircularProgressIndicator()),
+                                    child: Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
                                   );
                                 }
                                 final stations = snapshot.data!.docs;
                                 return DropdownButtonFormField<String>(
                                   initialValue: _selectedStationId,
                                   decoration: InputDecoration(
-                                    prefixIcon: const Icon(Icons.local_gas_station),
-                                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                    prefixIcon: const Icon(
+                                      Icons.local_gas_station,
+                                    ),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
                                   ),
                                   items: stations.map((doc) {
-                                    final data = doc.data() as Map<String, dynamic>;
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
                                     return DropdownMenuItem<String>(
                                       value: doc.id,
                                       child: Text(data['name'] ?? ''),
                                     );
                                   }).toList(),
                                   onChanged: (val) {
-                                    final selected = stations.firstWhere((d) => d.id == val);
-                                    final data = selected.data() as Map<String, dynamic>;
+                                    final selected = stations.firstWhere(
+                                      (d) => d.id == val,
+                                    );
+                                    final data =
+                                        selected.data() as Map<String, dynamic>;
                                     setState(() {
                                       _selectedStationId = val;
                                       _selectedStationName = data['name'];
@@ -4077,7 +5849,9 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                               decoration: InputDecoration(
                                 labelText: 'Truck Number',
                                 prefixIcon: const Icon(Icons.local_shipping),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -4087,7 +5861,9 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                               decoration: InputDecoration(
                                 labelText: 'Fuel (Liters)',
                                 prefixIcon: const Icon(Icons.local_gas_station),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
@@ -4097,22 +5873,31 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                               decoration: InputDecoration(
                                 labelText: 'Amount (Rs.)',
                                 prefixIcon: const Icon(Icons.payments),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
                             TextField(
                               controller: _billNumberController,
                               keyboardType: TextInputType.number,
-                              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                              inputFormatters: [
+                                FilteringTextInputFormatter.digitsOnly,
+                              ],
                               decoration: InputDecoration(
                                 labelText: 'Bill Number (optional)',
                                 prefixIcon: const Icon(Icons.receipt_long),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                                border: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
                             ),
                             const SizedBox(height: 16),
-                            const Text('Bill Photo *', style: TextStyle(fontWeight: FontWeight.bold)),
+                            const Text(
+                              'Bill Photo *',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
                             const SizedBox(height: 8),
                             GestureDetector(
                               onTap: _capturePhoto,
@@ -4129,10 +5914,18 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                                         child: Column(
                                           mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Icon(Icons.camera_alt, size: 36, color: Colors.grey),
+                                            Icon(
+                                              Icons.camera_alt,
+                                              size: 36,
+                                              color: Colors.grey,
+                                            ),
                                             SizedBox(height: 8),
-                                            Text('Tap to take bill photo',
-                                                style: TextStyle(color: Colors.grey)),
+                                            Text(
+                                              'Tap to take bill photo',
+                                              style: TextStyle(
+                                                color: Colors.grey,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                       )
@@ -4157,13 +5950,23 @@ class _FuelEntryScreenState extends State<FuelEntryScreen> {
                               ),
                             if (_errorText.isNotEmpty)
                               Padding(
-                                padding: const EdgeInsets.only(top: 8, bottom: 8),
-                                child: Text(_errorText,
-                                    style: const TextStyle(color: Colors.red, fontSize: 13)),
+                                padding: const EdgeInsets.only(
+                                  top: 8,
+                                  bottom: 8,
+                                ),
+                                child: Text(
+                                  _errorText,
+                                  style: const TextStyle(
+                                    color: Colors.red,
+                                    fontSize: 13,
+                                  ),
+                                ),
                               ),
                             const SizedBox(height: 16),
                             GradientButton(
-                              label: _isSubmitting ? 'Submitting...' : 'SUBMIT FUEL ENTRY',
+                              label: _isSubmitting
+                                  ? 'Submitting...'
+                                  : 'SUBMIT FUEL ENTRY',
                               onTap: _submitFuelEntry,
                             ),
                           ],
@@ -4198,6 +6001,8 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
   final _startMeterController = TextEditingController();
   bool _isLoading = false;
   bool _checkingActiveSession = true;
+  bool _isSiteLocked = false;
+  String? _assignedSiteId;
 
   @override
   void initState() {
@@ -4213,7 +6018,10 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
 
       final existing = await FirebaseFirestore.instance
           .collection('daily_sessions')
-          .where('supervisorUid', isEqualTo: FirebaseAuth.instance.currentUser!.uid)
+          .where(
+            'supervisorUid',
+            isEqualTo: FirebaseAuth.instance.currentUser!.uid,
+          )
           .where('date', isEqualTo: dateString)
           .where('status', isEqualTo: 'active')
           .limit(1)
@@ -4239,25 +6047,65 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
     } catch (e) {
       // If offline or error, just fall through to the normal selection screen
     }
+    await _prefillAssignedSite();
     if (mounted) setState(() => _checkingActiveSession = false);
+  }
+
+  // If this supervisor has an assigned site (see SiteHistoryScreen's
+  // "Assigned Supervisor" card), the Site field locks to it — this is a
+  // hard restriction, not just a pre-fill (see _isSiteLocked and the
+  // _startDay safety check below). No assigned site means the Site field
+  // stays fully editable, unchanged from before.
+  Future<void> _prefillAssignedSite() async {
+    try {
+      final uid = FirebaseAuth.instance.currentUser?.uid;
+      if (uid == null) return;
+      final query = await FirebaseFirestore.instance
+          .collection('sites')
+          .where('assignedSupervisorUid', isEqualTo: uid)
+          .limit(1)
+          .get();
+      if (query.docs.isNotEmpty && mounted) {
+        final doc = query.docs.first;
+        setState(() {
+          _selectedSiteId = doc.id;
+          _selectedSiteName = doc.data()['name'] ?? '';
+          _isSiteLocked = true;
+          _assignedSiteId = doc.id;
+        });
+      }
+    } catch (e) {
+      // Non-critical convenience feature; ignore failures.
+    }
   }
 
   Future<void> _startDay() async {
     if (_selectedMachineId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a machine.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a machine.')));
       return;
     }
     if (_selectedSiteId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a site.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a site.')));
       return;
     }
     if (_startMeterController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please enter start meter reading.')),
+      );
+      return;
+    }
+    // Defense-in-depth: the Site field is disabled in the UI whenever
+    // _isSiteLocked is true, so this shouldn't be reachable in practice —
+    // but don't rely solely on a disabled widget to enforce it.
+    if (_isSiteLocked && _selectedSiteId != _assignedSiteId) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('You can only start a day at your assigned site.'),
+        ),
       );
       return;
     }
@@ -4304,20 +6152,23 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
         }
 
         // Create new daily session
-        final docRef = await FirebaseFirestore.instance.collection('daily_sessions').add({
-          'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
-          'supervisorName': widget.name,
-          'machineId': _selectedMachineId,
-          'machineName': _selectedMachineName,
-          'siteId': _selectedSiteId,
-          'siteName': _selectedSiteName,
-          'startMeter': double.tryParse(_startMeterController.text.trim()) ?? 0,
-          'endMeter': null,
-          'date': dateString,
-          'status': 'active',
-          'verificationCode': verificationCode,
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        final docRef = await FirebaseFirestore.instance
+            .collection('daily_sessions')
+            .add({
+              'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
+              'supervisorName': widget.name,
+              'machineId': _selectedMachineId,
+              'machineName': _selectedMachineName,
+              'siteId': _selectedSiteId,
+              'siteName': _selectedSiteName,
+              'startMeter':
+                  double.tryParse(_startMeterController.text.trim()) ?? 0,
+              'endMeter': null,
+              'date': dateString,
+              'status': 'active',
+              'verificationCode': verificationCode,
+              'createdAt': FieldValue.serverTimestamp(),
+            });
         sessionId = docRef.id;
       }
 
@@ -4343,9 +6194,9 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -4391,26 +6242,37 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                         decoration: InputDecoration(
                           hintText: 'Search site name',
                           prefixIcon: const Icon(Icons.search),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
-                        onChanged: (val) => setSheetState(() => searchText = val),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
                       ),
                     ),
                     Expanded(
                       child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
                         builder: (context, snapshot) {
                           if (!snapshot.hasData) {
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
                           }
                           final filtered = snapshot.data!.docs.where((doc) {
                             final data = doc.data() as Map<String, dynamic>;
                             if (data['canBeLoadingSite'] == false) return false;
                             final name = (data['name'] ?? '').toString();
-                            return name.toLowerCase().contains(searchText.toLowerCase());
+                            return name.toLowerCase().contains(
+                              searchText.toLowerCase(),
+                            );
                           }).toList();
                           if (filtered.isEmpty) {
-                            return const Center(child: Text('No matching sites.'));
+                            return const Center(
+                              child: Text('No matching sites.'),
+                            );
                           }
                           return ListView.builder(
                             itemCount: filtered.length,
@@ -4418,7 +6280,10 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                               final doc = filtered[index];
                               final data = doc.data() as Map<String, dynamic>;
                               return ListTile(
-                                leading: const Icon(Icons.location_on, color: Colors.teal),
+                                leading: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.teal,
+                                ),
                                 title: Text(data['name'] ?? ''),
                                 subtitle: Text(data['location'] ?? ''),
                                 onTap: () => Navigator.pop(sheetContext, {
@@ -4454,7 +6319,9 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       return Scaffold(
         body: Container(
           decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
-          child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
         ),
       );
     }
@@ -4470,9 +6337,14 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Welcome, ${widget.name}',
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      'Welcome, ${widget.name}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.logout, color: Colors.white),
                       onPressed: () async {
@@ -4480,7 +6352,9 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                         if (context.mounted) {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
                           );
                         }
                       },
@@ -4494,7 +6368,8 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                   child: Center(
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
-                        maxWidth: (kIsWeb && MediaQuery.of(context).size.width > 700)
+                        maxWidth:
+                            (kIsWeb && MediaQuery.of(context).size.width > 700)
                             ? 500
                             : double.infinity,
                       ),
@@ -4507,9 +6382,13 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Select Machine',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const Text(
+                                    'Select Machine',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   StreamBuilder<QuerySnapshot>(
                                     stream: FirebaseFirestore.instance
@@ -4524,25 +6403,35 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                                         initialValue: _selectedMachineId,
                                         decoration: InputDecoration(
                                           hintText: 'Choose a machine',
-                                          prefixIcon:
-                                              const Icon(Icons.precision_manufacturing),
+                                          prefixIcon: const Icon(
+                                            Icons.precision_manufacturing,
+                                          ),
                                           border: OutlineInputBorder(
-                                              borderRadius: BorderRadius.circular(12)),
+                                            borderRadius: BorderRadius.circular(
+                                              12,
+                                            ),
+                                          ),
                                           filled: true,
                                           fillColor: Colors.white,
                                         ),
                                         items: machines.map((doc) {
-                                          final data = doc.data() as Map<String, dynamic>;
+                                          final data =
+                                              doc.data()
+                                                  as Map<String, dynamic>;
                                           return DropdownMenuItem<String>(
                                             value: doc.id,
-                                            child: Text('${data['name']} (${data['type']})'),
+                                            child: Text(
+                                              '${data['name']} (${data['type']})',
+                                            ),
                                           );
                                         }).toList(),
                                         onChanged: (val) {
-                                          final selected =
-                                              machines.firstWhere((d) => d.id == val);
+                                          final selected = machines.firstWhere(
+                                            (d) => d.id == val,
+                                          );
                                           final data =
-                                              selected.data() as Map<String, dynamic>;
+                                              selected.data()
+                                                  as Map<String, dynamic>;
                                           setState(() {
                                             _selectedMachineId = val;
                                             _selectedMachineName = data['name'];
@@ -4560,31 +6449,58 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Select Site',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const Text(
+                                    'Select Site',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   InkWell(
                                     borderRadius: BorderRadius.circular(12),
-                                    onTap: _showSiteSearchPicker,
+                                    onTap: _isSiteLocked
+                                        ? null
+                                        : _showSiteSearchPicker,
                                     child: InputDecorator(
                                       decoration: InputDecoration(
-                                        prefixIcon: const Icon(Icons.location_on),
+                                        prefixIcon: Icon(
+                                          _isSiteLocked
+                                              ? Icons.lock
+                                              : Icons.location_on,
+                                        ),
                                         border: OutlineInputBorder(
-                                            borderRadius: BorderRadius.circular(12)),
+                                          borderRadius: BorderRadius.circular(
+                                            12,
+                                          ),
+                                        ),
                                         filled: true,
-                                        fillColor: Colors.white,
+                                        fillColor: _isSiteLocked
+                                            ? Colors.grey[300]
+                                            : Colors.white,
                                       ),
                                       child: Text(
                                         _selectedSiteName ?? 'Choose a site',
                                         style: TextStyle(
-                                          color: _selectedSiteName == null
-                                              ? Colors.grey[600]
-                                              : Colors.black87,
+                                          color: _isSiteLocked
+                                              ? Colors.grey[700]
+                                              : (_selectedSiteName == null
+                                                    ? Colors.grey[600]
+                                                    : Colors.black87),
                                         ),
                                       ),
                                     ),
                                   ),
+                                  if (_isSiteLocked) ...[
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      'This site is assigned to you by Admin',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.7),
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ],
                                 ],
                               ),
                             ),
@@ -4594,9 +6510,13 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
-                                  const Text('Start Meter Reading',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold, color: Colors.white)),
+                                  const Text(
+                                    'Start Meter Reading',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   TextField(
                                     controller: _startMeterController,
@@ -4605,7 +6525,8 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                                       hintText: 'e.g. 1234.5',
                                       prefixIcon: const Icon(Icons.speed),
                                       border: OutlineInputBorder(
-                                          borderRadius: BorderRadius.circular(12)),
+                                        borderRadius: BorderRadius.circular(12),
+                                      ),
                                       filled: true,
                                       fillColor: Colors.white,
                                     ),
@@ -4617,7 +6538,9 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
                             _WebStaggeredFadeIn(
                               index: 3,
                               child: _isLoading
-                                  ? const CircularProgressIndicator(color: Colors.white)
+                                  ? const CircularProgressIndicator(
+                                      color: Colors.white,
+                                    )
                                   : GradientButton(
                                       label: 'START DAY / CONTINUE',
                                       icon: Icons.play_arrow,
@@ -4679,24 +6602,14 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     'Maintenance',
   ];
 
-  // Site name (trimmed, lowercase) -> dedicated Google Sheet tab name.
-  // Every completed load at a mapped site gets duplicated to its own tab,
-  // independent of and in addition to the Supervisor_Loads/Plant_Loads sync.
-  // Add new loading site -> sheet name mappings here.
-  static const Map<String, String> _siteSheetMap = {
-    'athukorala land': 'Athukorala_Land_Loads',
-    'lalith land': 'Lalith_Land_Loads',
-    'hesei site': 'Hesei_Site_Loads',
-    'dhompe site': 'Dhompe_Site_Loads',
-    'cmc plant': 'CMC_Plant_Loads',
-    'maga site': 'Maga_Site_Loads',
-    'rajakaruna land': 'Rajakaruna_Land_Loads',
-  };
-
-  void _syncToSiteSpecificSheet(List<dynamic> row) {
-    final sheetName = _siteSheetMap[widget.siteName.trim().toLowerCase()];
+  void _syncToSiteSpecificSheet(List<dynamic> row, String? recordId) {
+    final sheetName = kSiteSheetMap[widget.siteName.trim().toLowerCase()];
     if (sheetName != null) {
-      GoogleSheetsService.sendRow(sheetName: sheetName, row: row);
+      GoogleSheetsService.sendRow(
+        sheetName: sheetName,
+        row: row,
+        recordId: recordId,
+      );
     }
   }
 
@@ -4717,8 +6630,9 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 
   // Pause any currently running record in this session
   Future<void> _pauseRunningRecord() async {
-    final runningSnap =
-        await _recordsRef.where('status', isEqualTo: 'running').get();
+    final runningSnap = await _recordsRef
+        .where('status', isEqualTo: 'running')
+        .get();
 
     for (final doc in runningSnap.docs) {
       final data = doc.data() as Map<String, dynamic>;
@@ -4766,8 +6680,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     // _showEndDayDialog), not per task.
     double? startMeter;
     if (isLoadingCategory) {
-      final existingLoadingSnap =
-          await _recordsRef.where('isLoadingCategory', isEqualTo: true).limit(1).get();
+      final existingLoadingSnap = await _recordsRef
+          .where('isLoadingCategory', isEqualTo: true)
+          .limit(1)
+          .get();
       if (existingLoadingSnap.docs.isEmpty) {
         final sessionDoc = await FirebaseFirestore.instance
             .collection('daily_sessions')
@@ -4859,34 +6775,35 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
         updatedData['machineOperatorName'] ?? '',
       ];
 
-      debugPrint('[PLANT_DEBUG] _completeLoadingRecord: sending Supervisor_Loads row=$row');
-      GoogleSheetsService.sendRow(sheetName: 'Supervisor_Loads', row: row);
+      GoogleSheetsService.sendRow(
+        sheetName: 'Supervisor_Loads',
+        row: row,
+        recordId: recordId,
+      );
 
       // Plant sites also get a copy of every completed load in a dedicated
       // sheet, in addition to the regular Supervisor_Loads log.
-      debugPrint('[PLANT_DEBUG] Checking site: widget.siteId=${widget.siteId}');
-      final siteDoc =
-          await FirebaseFirestore.instance.collection('sites').doc(widget.siteId).get();
-      debugPrint('[PLANT_DEBUG] siteDoc.exists=${siteDoc.exists} siteDoc.id=${siteDoc.id}');
-      debugPrint('[PLANT_DEBUG] Site data: ${siteDoc.data()}');
-      final rawIsPlantSite = siteDoc.data()?['isPlantSite'];
-      debugPrint('[PLANT_DEBUG] isPlantSite value: $rawIsPlantSite, type: ${rawIsPlantSite.runtimeType}');
-      if (siteDoc.data()?['isPlantSite'] == true) {
-        debugPrint('[PLANT_DEBUG] isPlantSite==true -> sending to Plant_Loads: $row');
-        GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
-      } else {
-        debugPrint('[PLANT_DEBUG] isPlantSite check FAILED, not sending to Plant_Loads');
+      final siteDoc = await FirebaseFirestore.instance
+          .collection('sites')
+          .doc(widget.siteId)
+          .get();
+      final isPlantSite = siteDoc.data()?['isPlantSite'] == true;
+      if (isPlantSite) {
+        GoogleSheetsService.sendRow(
+          sheetName: 'Plant_Loads',
+          row: row,
+          recordId: recordId,
+        );
       }
 
       // Independent of the Plant_Loads check above: some loading sites also
       // get their own dedicated sheet tab.
-      _syncToSiteSpecificSheet(row);
+      _syncToSiteSpecificSheet(row, recordId);
     } catch (e) {
-      debugPrint('[PLANT_DEBUG] _completeLoadingRecord EXCEPTION: $e');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to complete load: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to complete load: $e')));
       }
     }
   }
@@ -4914,21 +6831,31 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       builder: (_) => NewWorkDialog(
         loadingCategories: _loadingCategories,
         otherCategories: _otherCategories,
-        onSubmit: (category, truckNumber, billNumber, unloadingSiteName, distanceKm, startMeter,
-            truckDriverName, cubeCount, machineOperatorName) {
-          Navigator.pop(context);
-          _startNewWork(
-            category: category,
-            isLoadingCategory: _loadingCategories.contains(category),
-            truckNumber: truckNumber,
-            billNumber: billNumber,
-            unloadingSiteName: unloadingSiteName,
-            distanceKm: distanceKm,
-            truckDriverName: truckDriverName,
-            cubeCount: cubeCount,
-            machineOperatorName: machineOperatorName,
-          );
-        },
+        onSubmit:
+            (
+              category,
+              truckNumber,
+              billNumber,
+              unloadingSiteName,
+              distanceKm,
+              startMeter,
+              truckDriverName,
+              cubeCount,
+              machineOperatorName,
+            ) {
+              Navigator.pop(context);
+              _startNewWork(
+                category: category,
+                isLoadingCategory: _loadingCategories.contains(category),
+                truckNumber: truckNumber,
+                billNumber: billNumber,
+                unloadingSiteName: unloadingSiteName,
+                distanceKm: distanceKm,
+                truckDriverName: truckDriverName,
+                cubeCount: cubeCount,
+                machineOperatorName: machineOperatorName,
+              );
+            },
       ),
     );
   }
@@ -4941,6 +6868,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     final minute = dt.minute.toString().padLeft(2, '0');
     return '$hour:$minute $period';
   }
+
   void _showEndDayDialog() {
     final endMeterController = TextEditingController();
     showDialog(
@@ -4965,16 +6893,17 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               if (endMeterController.text.trim().isEmpty) return;
               try {
                 await _pauseRunningRecord();
-                final endMeterValue = double.tryParse(endMeterController.text.trim()) ?? 0;
+                final endMeterValue =
+                    double.tryParse(endMeterController.text.trim()) ?? 0;
 
                 await FirebaseFirestore.instance
                     .collection('daily_sessions')
                     .doc(widget.sessionId)
                     .update({
-                  'endMeter': endMeterValue,
-                  'status': 'completed',
-                  'completedAt': FieldValue.serverTimestamp(),
-                });
+                      'endMeter': endMeterValue,
+                      'status': 'completed',
+                      'completedAt': FieldValue.serverTimestamp(),
+                    });
 
                 // Stamp the day's last Loading task with the same end meter.
                 // No orderBy here on purpose: pairing it with the equality
@@ -4982,14 +6911,16 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                 // that isn't provisioned for this project, which made this
                 // query throw FAILED_PRECONDITION and abort the handler
                 // before the dialog could close.
-                final loadingSnap =
-                    await _recordsRef.where('isLoadingCategory', isEqualTo: true).get();
+                final loadingSnap = await _recordsRef
+                    .where('isLoadingCategory', isEqualTo: true)
+                    .get();
                 if (loadingSnap.docs.isNotEmpty) {
                   QueryDocumentSnapshot? lastLoadingDoc;
                   Timestamp? lastLoadingTime;
                   for (final candidate in loadingSnap.docs) {
                     final candidateTime =
-                        (candidate.data() as Map<String, dynamic>)['createdAt'] as Timestamp?;
+                        (candidate.data() as Map<String, dynamic>)['createdAt']
+                            as Timestamp?;
                     if (lastLoadingDoc == null) {
                       // First candidate always starts as the current pick.
                       lastLoadingDoc = candidate;
@@ -5006,7 +6937,9 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                       lastLoadingTime = candidateTime;
                     }
                   }
-                  await lastLoadingDoc!.reference.update({'endMeter': endMeterValue});
+                  await lastLoadingDoc!.reference.update({
+                    'endMeter': endMeterValue,
+                  });
                 }
 
                 // Day-end summary row — just the meter reading and when it
@@ -5035,19 +6968,28 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                   '',
                 ];
 
-                GoogleSheetsService.sendRow(sheetName: 'Supervisor_Loads', row: row);
+                GoogleSheetsService.sendRow(
+                  sheetName: 'Supervisor_Loads',
+                  row: row,
+                );
 
                 final siteDoc = await FirebaseFirestore.instance
                     .collection('sites')
                     .doc(widget.siteId)
                     .get();
                 if (siteDoc.data()?['isPlantSite'] == true) {
-                  GoogleSheetsService.sendRow(sheetName: 'Plant_Loads', row: row);
+                  GoogleSheetsService.sendRow(
+                    sheetName: 'Plant_Loads',
+                    row: row,
+                  );
                 }
 
                 // Independent of the Plant_Loads check above: some loading
-                // sites also get their own dedicated sheet tab.
-                _syncToSiteSpecificSheet(row);
+                // sites also get their own dedicated sheet tab. No recordId
+                // here — this summary row doesn't correspond 1:1 with any
+                // single existing Sheet row (see the comment above), so it
+                // must always append, never overwrite.
+                _syncToSiteSpecificSheet(row, null);
 
                 if (context.mounted) {
                   // Close dialog and go back to supervisor home in one atomic
@@ -5102,7 +7044,8 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => SupervisorHistoryScreen(sessionId: widget.sessionId),
+                  builder: (_) =>
+                      SupervisorHistoryScreen(sessionId: widget.sessionId),
                 ),
               );
             },
@@ -5128,10 +7071,18 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                     children: [
                       const Icon(Icons.vpn_key, size: 16, color: Colors.orange),
                       const SizedBox(width: 6),
-                      const Text('Driver Code: ',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600)),
+                      const Text(
+                        'Driver Code: ',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: Colors.orange[800],
                           borderRadius: BorderRadius.circular(6),
@@ -5139,10 +7090,11 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                         child: Text(
                           widget.verificationCode!,
                           style: const TextStyle(
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
-                              letterSpacing: 2),
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            letterSpacing: 2,
+                          ),
                         ),
                       ),
                     ],
@@ -5162,8 +7114,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                     child: ElevatedButton.icon(
                       onPressed: _showNewWorkDialog,
                       icon: const Icon(Icons.add, color: Colors.white),
-                      label: const Text('NEW WORK', style: TextStyle(color: Colors.white)),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.orange[800]),
+                      label: const Text(
+                        'NEW WORK',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.orange[800],
+                      ),
                     ),
                   ),
                 ),
@@ -5171,15 +7128,19 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
             ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: _recordsRef.orderBy('createdAt', descending: true).snapshots(),
+              stream: _recordsRef
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
               builder: (context, snapshot) {
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                   return const Center(
-                    child: Text('No work started yet.\nTap "+ NEW WORK" to begin.',
-                        textAlign: TextAlign.center),
+                    child: Text(
+                      'No work started yet.\nTap "+ NEW WORK" to begin.',
+                      textAlign: TextAlign.center,
+                    ),
                   );
                 }
 
@@ -5198,131 +7159,196 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                       index: index,
                       child: _WebHoverCard(
                         child: Card(
-                      color: isRunning ? Colors.green[50] : Colors.white,
-                      margin: const EdgeInsets.only(bottom: 10),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                        side: BorderSide(
-                          color: isRunning ? Colors.green : Colors.grey[300]!,
-                          width: isRunning ? 1.5 : 1,
-                        ),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.all(12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          color: isRunning ? Colors.green[50] : Colors.white,
+                          margin: const EdgeInsets.only(bottom: 10),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(
+                              color: isRunning
+                                  ? Colors.green
+                                  : Colors.grey[300]!,
+                              width: isRunning ? 1.5 : 1,
+                            ),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  data['category'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      data['category'] ?? '',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: isRunning
+                                            ? Colors.green
+                                            : Colors.grey[400],
+                                        borderRadius: BorderRadius.circular(20),
+                                      ),
+                                      child: Text(
+                                        isRunning ? 'RUNNING' : 'PAUSED',
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  decoration: BoxDecoration(
-                                    color: isRunning ? Colors.green : Colors.grey[400],
-                                    borderRadius: BorderRadius.circular(20),
-                                  ),
-                                  child: Text(
-                                    isRunning ? 'RUNNING' : 'PAUSED',
-                                    style: const TextStyle(color: Colors.white, fontSize: 11),
-                                  ),
+                                const SizedBox(height: 6),
+                                LiveTimerText(
+                                  totalDurationSeconds:
+                                      (data['totalDurationSeconds'] ?? 0)
+                                          as int,
+                                  isRunning: isRunning,
+                                  lastResumedAt:
+                                      (data['lastResumedAt'] as Timestamp?)
+                                          ?.toDate(),
                                 ),
+                                if (data['truckNumber'] != null) ...[
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    'Truck: ${data['truckNumber']} • Bill: ${data['billNumber']}',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  Text(
+                                    'To: ${data['unloadingSiteName']} • ${data['distanceKm']} KM',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Start Meter: ${data['startMeter'] ?? "-"}'
+                                    '${data['isCompleted'] == true ? "  •  End Meter: ${data['endMeter'] ?? "-"}" : ""}',
+                                    style: const TextStyle(fontSize: 13),
+                                  ),
+                                  if (data['isCompleted'] == true &&
+                                      data['startMeter'] != null &&
+                                      data['endMeter'] != null)
+                                    Text(
+                                      'Meter Run: ${((data['endMeter'] as num) - (data['startMeter'] as num)).toStringAsFixed(1)}',
+                                      style: const TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blue,
+                                      ),
+                                    ),
+                                  Text(
+                                    'Started: ${_formatTime(data['loadStartedAt'])}'
+                                    '${data['loadCompletedAt'] != null ? "  •  Completed: ${_formatTime(data['loadCompletedAt'])}" : ""}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                                const SizedBox(height: 8),
+                                if (data['isCompleted'] == true)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      vertical: 6,
+                                    ),
+                                    alignment: Alignment.center,
+                                    decoration: BoxDecoration(
+                                      color: Colors.blue[50],
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    child: const Text(
+                                      'LOAD COMPLETED',
+                                      style: TextStyle(
+                                        color: Colors.blue,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  )
+                                else if (!isRunning)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _resumeRecord(doc.id),
+                                          icon: const Icon(Icons.play_arrow),
+                                          label: const Text('RESUME'),
+                                        ),
+                                      ),
+                                      if (data['isLoadingCategory'] ==
+                                          true) ...[
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: () =>
+                                                _completeLoadingRecord(doc.id),
+                                            icon: const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'COMPLETE',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.green[700],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  )
+                                else if (isRunning)
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: OutlinedButton.icon(
+                                          onPressed: () =>
+                                              _pauseRunningRecord(),
+                                          icon: const Icon(Icons.pause),
+                                          label: const Text('PAUSE'),
+                                        ),
+                                      ),
+                                      if (data['isLoadingCategory'] ==
+                                          true) ...[
+                                        const SizedBox(width: 8),
+                                        Expanded(
+                                          child: ElevatedButton.icon(
+                                            onPressed: () =>
+                                                _completeLoadingRecord(doc.id),
+                                            icon: const Icon(
+                                              Icons.check,
+                                              color: Colors.white,
+                                            ),
+                                            label: const Text(
+                                              'COMPLETE',
+                                              style: TextStyle(
+                                                color: Colors.white,
+                                              ),
+                                            ),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor:
+                                                  Colors.green[700],
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
                               ],
                             ),
-                            const SizedBox(height: 6),
-                            LiveTimerText(
-                              totalDurationSeconds: (data['totalDurationSeconds'] ?? 0) as int,
-                              isRunning: isRunning,
-                              lastResumedAt: (data['lastResumedAt'] as Timestamp?)?.toDate(),
-                            ),
-                            if (data['truckNumber'] != null) ...[
-                              const SizedBox(height: 6),
-                              Text('Truck: ${data['truckNumber']} • Bill: ${data['billNumber']}',
-                                  style: const TextStyle(fontSize: 13)),
-                              Text(
-                                  'To: ${data['unloadingSiteName']} • ${data['distanceKm']} KM',
-                                  style: const TextStyle(fontSize: 13)),
-                              const SizedBox(height: 4),
-                              Text(
-                                  'Start Meter: ${data['startMeter'] ?? "-"}'
-                                  '${data['isCompleted'] == true ? "  •  End Meter: ${data['endMeter'] ?? "-"}" : ""}',
-                                  style: const TextStyle(fontSize: 13)),
-                              if (data['isCompleted'] == true &&
-                                  data['startMeter'] != null &&
-                                  data['endMeter'] != null)
-                                Text(
-                                    'Meter Run: ${((data['endMeter'] as num) - (data['startMeter'] as num)).toStringAsFixed(1)}',
-                                    style: const TextStyle(
-                                        fontSize: 13, fontWeight: FontWeight.bold, color: Colors.blue)),
-                              Text(
-                                  'Started: ${_formatTime(data['loadStartedAt'])}'
-                                  '${data['loadCompletedAt'] != null ? "  •  Completed: ${_formatTime(data['loadCompletedAt'])}" : ""}',
-                                  style: const TextStyle(fontSize: 12, color: Colors.grey)),
-                            ],
-                            const SizedBox(height: 8),
-                            if (data['isCompleted'] == true)
-                              Container(
-                                padding: const EdgeInsets.symmetric(vertical: 6),
-                                alignment: Alignment.center,
-                                decoration: BoxDecoration(
-                                  color: Colors.blue[50],
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: const Text('LOAD COMPLETED',
-                                    style: TextStyle(color: Colors.blue, fontWeight: FontWeight.bold)),
-                              )
-                            else if (!isRunning)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () => _resumeRecord(doc.id),
-                                      icon: const Icon(Icons.play_arrow),
-                                      label: const Text('RESUME'),
-                                    ),
-                                  ),
-                                  if (data['isLoadingCategory'] == true) ...[
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: ElevatedButton.icon(
-                                        onPressed: () => _completeLoadingRecord(doc.id),
-                                        icon: const Icon(Icons.check, color: Colors.white),
-                                        label: const Text('COMPLETE', style: TextStyle(color: Colors.white)),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              )
-                            else if (isRunning)
-                              Row(
-                                children: [
-                                  Expanded(
-                                    child: OutlinedButton.icon(
-                                      onPressed: () => _pauseRunningRecord(),
-                                      icon: const Icon(Icons.pause),
-                                      label: const Text('PAUSE'),
-                                    ),
-                                  ),
-                                  if (data['isLoadingCategory'] == true) ...[
-                                    const SizedBox(width: 8),
-                                    Expanded(
-                                      child: ElevatedButton.icon(
-                                        onPressed: () => _completeLoadingRecord(doc.id),
-                                        icon: const Icon(Icons.check, color: Colors.white),
-                                        label: const Text('COMPLETE', style: TextStyle(color: Colors.white)),
-                                        style: ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
-                                      ),
-                                    ),
-                                  ],
-                                ],
-                              ),
-                          ],
-                        ),
-                      ),
+                          ),
                         ),
                       ),
                     );
@@ -5347,7 +7373,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               onPressed: _showNewWorkDialog,
               backgroundColor: Colors.orange[800],
               icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text('NEW WORK', style: TextStyle(color: Colors.white)),
+              label: const Text(
+                'NEW WORK',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
       bottomNavigationBar: SafeArea(
         child: Padding(
@@ -5358,7 +7387,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
             child: ElevatedButton.icon(
               onPressed: _showEndDayDialog,
               icon: const Icon(Icons.flag, color: Colors.white),
-              label: const Text('END DAY', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              label: const Text(
+                'END DAY',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
             ),
           ),
@@ -5373,15 +7408,17 @@ class NewWorkDialog extends StatefulWidget {
   final List<String> loadingCategories;
   final List<String> otherCategories;
   final Function(
-      String category,
-      String? truckNumber,
-      String? billNumber,
-      String? unloadingSiteName,
-      double? distanceKm,
-      double? startMeter,
-      String? truckDriverName,
-      String? cubeCount,
-      String? machineOperatorName) onSubmit;
+    String category,
+    String? truckNumber,
+    String? billNumber,
+    String? unloadingSiteName,
+    double? distanceKm,
+    double? startMeter,
+    String? truckDriverName,
+    String? cubeCount,
+    String? machineOperatorName,
+  )
+  onSubmit;
 
   const NewWorkDialog({
     super.key,
@@ -5446,7 +7483,9 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                         decoration: InputDecoration(
                           hintText: 'Search or type a new site name',
                           prefixIcon: const Icon(Icons.search),
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
                         ),
                         onChanged: (val) {
                           debugPrint('[UNLOADPICKER] onChanged val="$val"');
@@ -5456,41 +7495,61 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                     ),
                     Expanded(
                       child: StreamBuilder<QuerySnapshot>(
-                        stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
                         builder: (context, snapshot) {
                           if (!snapshot.hasData) {
-                            return const Center(child: CircularProgressIndicator());
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
                           }
                           debugPrint(
-                              '[UNLOADPICKER_DEBUG] Total sites: ${snapshot.data!.docs.length}');
+                            '[UNLOADPICKER_DEBUG] Total sites: ${snapshot.data!.docs.length}',
+                          );
                           final trimmedSearch = searchText.trim();
                           final filtered = snapshot.data!.docs.where((doc) {
                             final data = doc.data() as Map<String, dynamic>;
-                            if (data['canBeUnloadingSite'] == false) return false;
+                            if (data['canBeUnloadingSite'] == false)
+                              return false;
                             final name = (data['name'] ?? '').toString();
-                            return name.toLowerCase().contains(trimmedSearch.toLowerCase());
+                            return name.toLowerCase().contains(
+                              trimmedSearch.toLowerCase(),
+                            );
                           }).toList();
                           debugPrint(
-                              '[UNLOADPICKER_DEBUG] Filtered unloading sites: ${filtered.length}');
-                          final hasExactMatch = filtered.any((doc) =>
-                              ((doc.data() as Map<String, dynamic>)['name'] ?? '')
-                                  .toString()
-                                  .toLowerCase() ==
-                              trimmedSearch.toLowerCase());
-                          debugPrint('[UNLOADPICKER] build: searchText="$searchText" '
-                              'trimmedSearch="$trimmedSearch" filtered=${filtered.length} '
-                              'hasExactMatch=$hasExactMatch '
-                              'showAddNew=${trimmedSearch.isNotEmpty && !hasExactMatch}');
+                            '[UNLOADPICKER_DEBUG] Filtered unloading sites: ${filtered.length}',
+                          );
+                          final hasExactMatch = filtered.any(
+                            (doc) =>
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString()
+                                    .toLowerCase() ==
+                                trimmedSearch.toLowerCase(),
+                          );
+                          debugPrint(
+                            '[UNLOADPICKER] build: searchText="$searchText" '
+                            'trimmedSearch="$trimmedSearch" filtered=${filtered.length} '
+                            'hasExactMatch=$hasExactMatch '
+                            'showAddNew=${trimmedSearch.isNotEmpty && !hasExactMatch}',
+                          );
 
                           return ListView(
                             children: [
                               if (trimmedSearch.isNotEmpty && !hasExactMatch)
                                 ListTile(
-                                  leading: const Icon(Icons.add_circle, color: AppTheme.accent),
-                                  title: Text("Use '$trimmedSearch' as new unloading site"),
+                                  leading: const Icon(
+                                    Icons.add_circle,
+                                    color: AppTheme.accent,
+                                  ),
+                                  title: Text(
+                                    "Use '$trimmedSearch' as new unloading site",
+                                  ),
                                   onTap: () {
                                     debugPrint(
-                                        '[UNLOADPICKER] add-new tapped, name="$trimmedSearch"');
+                                      '[UNLOADPICKER] add-new tapped, name="$trimmedSearch"',
+                                    );
                                     Navigator.pop(sheetContext, {
                                       'id': null,
                                       'name': trimmedSearch,
@@ -5498,22 +7557,30 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                                   },
                                 ),
                               for (final doc in filtered)
-                                Builder(builder: (context) {
-                                  final data = doc.data() as Map<String, dynamic>;
-                                  return ListTile(
-                                    leading: const Icon(Icons.location_on, color: Colors.teal),
-                                    title: Text(data['name'] ?? ''),
-                                    subtitle: Text(data['location'] ?? ''),
-                                    onTap: () => Navigator.pop(sheetContext, {
-                                      'id': doc.id,
-                                      'name': (data['name'] ?? '').toString(),
-                                    }),
-                                  );
-                                }),
+                                Builder(
+                                  builder: (context) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.location_on,
+                                        color: Colors.teal,
+                                      ),
+                                      title: Text(data['name'] ?? ''),
+                                      subtitle: Text(data['location'] ?? ''),
+                                      onTap: () => Navigator.pop(sheetContext, {
+                                        'id': doc.id,
+                                        'name': (data['name'] ?? '').toString(),
+                                      }),
+                                    );
+                                  },
+                                ),
                               if (filtered.isEmpty && trimmedSearch.isEmpty)
                                 const Padding(
                                   padding: EdgeInsets.all(24),
-                                  child: Text('No sites yet — start typing to add one.'),
+                                  child: Text(
+                                    'No sites yet — start typing to add one.',
+                                  ),
                                 ),
                             ],
                           );
@@ -5535,12 +7602,15 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         _selectedUnloadingSiteId = selected['id'];
         _selectedUnloadingSiteName = selected['name'];
       });
-      debugPrint('[UNLOADPICKER] set _selectedUnloadingSiteName=$_selectedUnloadingSiteName');
+      debugPrint(
+        '[UNLOADPICKER] set _selectedUnloadingSiteName=$_selectedUnloadingSiteName',
+      );
     }
   }
 
   bool get _isLoadingCategory =>
-      _selectedCategory != null && widget.loadingCategories.contains(_selectedCategory);
+      _selectedCategory != null &&
+      widget.loadingCategories.contains(_selectedCategory);
 
   void _handleSubmit() {
     if (_selectedCategory == null) {
@@ -5549,12 +7619,15 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
     }
 
     if (_isLoadingCategory) {
-      if (_selectedTruckNumber == null || _selectedTruckNumber!.trim().isEmpty) {
+      if (_selectedTruckNumber == null ||
+          _selectedTruckNumber!.trim().isEmpty) {
         setState(() => _errorText = 'Please select a truck.');
         return;
       }
       if (_billNumberController.text.trim().isEmpty) {
-        setState(() => _errorText = 'Bill Number is required for loading work.');
+        setState(
+          () => _errorText = 'Bill Number is required for loading work.',
+        );
         return;
       }
       final unloadingSiteName = _selectedUnloadingSiteName?.trim();
@@ -5574,12 +7647,26 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         unloadingSiteName,
         double.tryParse(_distanceController.text.trim()),
         null,
-        _truckDriverController.text.trim().isEmpty ? null : _truckDriverController.text.trim(),
-        _cubeController.text.trim().isEmpty ? null : _cubeController.text.trim(),
+        _truckDriverController.text.trim().isEmpty
+            ? null
+            : _truckDriverController.text.trim(),
+        _cubeController.text.trim().isEmpty
+            ? null
+            : _cubeController.text.trim(),
         _selectedOperatorName,
       );
     } else {
-      widget.onSubmit(_selectedCategory!, null, null, null, null, null, null, null, null);
+      widget.onSubmit(
+        _selectedCategory!,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+      );
     }
   }
 
@@ -5592,12 +7679,17 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Work Category', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Work Category',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             DropdownButtonFormField<String>(
               initialValue: _selectedCategory,
               decoration: InputDecoration(
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
               items: [
                 ...widget.loadingCategories.map(
@@ -5614,10 +7706,15 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
             ),
             if (_isLoadingCategory) ...[
               const SizedBox(height: 16),
-              const Text('Select Truck', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Text(
+                'Select Truck',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
               const SizedBox(height: 8),
               StreamBuilder<QuerySnapshot>(
-                stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+                stream: FirebaseFirestore.instance
+                    .collection('trucks')
+                    .snapshots(),
                 builder: (context, snapshot) {
                   final Set<String> truckNumbers = {};
                   if (snapshot.hasData) {
@@ -5631,26 +7728,32 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                   }
                   return Autocomplete<String>(
                     optionsBuilder: (textEditingValue) {
-                      if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
-                      return truckNumbers.where((number) => number
-                          .toLowerCase()
-                          .contains(textEditingValue.text.toLowerCase()));
+                      if (textEditingValue.text.isEmpty)
+                        return const Iterable<String>.empty();
+                      return truckNumbers.where(
+                        (number) => number.toLowerCase().contains(
+                          textEditingValue.text.toLowerCase(),
+                        ),
+                      );
                     },
                     onSelected: (selection) {
                       _selectedTruckNumber = selection;
                     },
-                    fieldViewBuilder: (context, controller, focusNode, onSubmit) {
-                      controller.text = _selectedTruckNumber ?? '';
-                      return TextField(
-                        controller: controller,
-                        focusNode: focusNode,
-                        onChanged: (val) => _selectedTruckNumber = val,
-                        decoration: InputDecoration(
-                          hintText: 'Enter or choose truck number',
-                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                        ),
-                      );
-                    },
+                    fieldViewBuilder:
+                        (context, controller, focusNode, onSubmit) {
+                          controller.text = _selectedTruckNumber ?? '';
+                          return TextField(
+                            controller: controller,
+                            focusNode: focusNode,
+                            onChanged: (val) => _selectedTruckNumber = val,
+                            decoration: InputDecoration(
+                              hintText: 'Enter or choose truck number',
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                          );
+                        },
                   );
                 },
               ),
@@ -5661,21 +7764,29 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                 inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                 decoration: InputDecoration(
                   labelText: 'Bill Number *',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text('Unloading Site *', style: TextStyle(fontWeight: FontWeight.bold)),
+              const Text(
+                'Unloading Site *',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(height: 8),
               InkWell(
                 borderRadius: BorderRadius.circular(10),
                 onTap: _showUnloadingSitePicker,
                 child: InputDecorator(
                   decoration: InputDecoration(
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   child: Text(
-                    _selectedUnloadingSiteName ?? 'Search or type unloading site name',
+                    _selectedUnloadingSiteName ??
+                        'Search or type unloading site name',
                     style: TextStyle(
                       color: _selectedUnloadingSiteName == null
                           ? Colors.grey[600]
@@ -5690,7 +7801,9 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Distance (KM) *',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
@@ -5721,26 +7834,33 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                       }
                       return Autocomplete<String>(
                         optionsBuilder: (textEditingValue) {
-                          if (textEditingValue.text.isEmpty) return const Iterable<String>.empty();
-                          return pastNames.where((name) => name
-                              .toLowerCase()
-                              .contains(textEditingValue.text.toLowerCase()));
+                          if (textEditingValue.text.isEmpty)
+                            return const Iterable<String>.empty();
+                          return pastNames.where(
+                            (name) => name.toLowerCase().contains(
+                              textEditingValue.text.toLowerCase(),
+                            ),
+                          );
                         },
                         onSelected: (selection) {
                           _truckDriverController.text = selection;
                         },
-                        fieldViewBuilder: (context, controller, focusNode, onSubmit) {
-                          controller.text = _truckDriverController.text;
-                          return TextField(
-                            controller: controller,
-                            focusNode: focusNode,
-                            onChanged: (val) => _truckDriverController.text = val,
-                            decoration: InputDecoration(
-                              labelText: 'Truck Driver Name',
-                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                          );
-                        },
+                        fieldViewBuilder:
+                            (context, controller, focusNode, onSubmit) {
+                              controller.text = _truckDriverController.text;
+                              return TextField(
+                                controller: controller,
+                                focusNode: focusNode,
+                                onChanged: (val) =>
+                                    _truckDriverController.text = val,
+                                decoration: InputDecoration(
+                                  labelText: 'Truck Driver Name',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                              );
+                            },
                       );
                     },
                   );
@@ -5752,11 +7872,16 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                 keyboardType: TextInputType.number,
                 decoration: InputDecoration(
                   labelText: 'Cube (Quantity)',
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                 ),
               ),
               const SizedBox(height: 12),
-              const Text('Machine Operator', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13)),
+              const Text(
+                'Machine Operator',
+                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+              ),
               const SizedBox(height: 8),
               StreamBuilder<QuerySnapshot>(
                 stream: FirebaseFirestore.instance
@@ -5764,22 +7889,29 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                     .where('canOperateMachine', isEqualTo: true)
                     .snapshots(),
                 builder: (context, snapshot) {
-                  if (!snapshot.hasData) return const CircularProgressIndicator();
+                  if (!snapshot.hasData)
+                    return const CircularProgressIndicator();
                   final operators = snapshot.data!.docs;
                   if (operators.isEmpty) {
-                    return const Text('No operators registered.',
-                        style: TextStyle(color: Colors.grey, fontSize: 12));
+                    return const Text(
+                      'No operators registered.',
+                      style: TextStyle(color: Colors.grey, fontSize: 12),
+                    );
                   }
                   return DropdownButtonFormField<String>(
                     initialValue: _selectedOperatorUid,
                     decoration: InputDecoration(
                       hintText: 'Choose operator',
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
                     ),
                     items: operators.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
                       return DropdownMenuItem<String>(
-                          value: doc.id, child: Text(data['name'] ?? ''));
+                        value: doc.id,
+                        child: Text(data['name'] ?? ''),
+                      );
                     }).toList(),
                     onChanged: (val) {
                       final selected = operators.firstWhere((d) => d.id == val);
@@ -5795,7 +7927,10 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
             ],
             if (_errorText.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(_errorText, style: const TextStyle(color: Colors.red, fontSize: 13)),
+              Text(
+                _errorText,
+                style: const TextStyle(color: Colors.red, fontSize: 13),
+              ),
             ],
           ],
         ),
@@ -5814,6 +7949,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
     );
   }
 }
+
 // ---------------- LIVE TIMER TEXT (isolated rebuild) ----------------
 class LiveTimerText extends StatefulWidget {
   final int totalDurationSeconds;
@@ -5878,10 +8014,14 @@ class _LiveTimerTextState extends State<LiveTimerText> {
     return Text(
       _formatDuration(elapsed),
       style: const TextStyle(
-          fontSize: 22, fontWeight: FontWeight.bold, fontFamily: 'monospace'),
+        fontSize: 22,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'monospace',
+      ),
     );
   }
 }
+
 // ---------------- DRIVER: TYPE SELECT (Trucks / Machines) ----------------
 class DriverTypeScreen extends StatefulWidget {
   final String name;
@@ -5942,7 +8082,9 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
       return Scaffold(
         body: Container(
           decoration: const BoxDecoration(gradient: AppTheme.mainGradient),
-          child: const Center(child: CircularProgressIndicator(color: Colors.white)),
+          child: const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          ),
         ),
       );
     }
@@ -5958,9 +8100,14 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text('Welcome, ${widget.name}',
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      'Welcome, ${widget.name}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.logout, color: Colors.white),
                       onPressed: () async {
@@ -5968,7 +8115,9 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
                         if (context.mounted) {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
                           );
                         }
                       },
@@ -5983,8 +8132,13 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('What are you operating today?',
-                          style: TextStyle(fontSize: 15, color: Colors.white.withOpacity(0.8))),
+                      Text(
+                        'What are you operating today?',
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: Colors.white.withOpacity(0.8),
+                        ),
+                      ),
                       const SizedBox(height: 20),
                       GradientButton(
                         label: '1. Trucks',
@@ -5994,7 +8148,9 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => TruckTypeScreen(name: widget.name)),
+                              builder: (_) =>
+                                  TruckTypeScreen(name: widget.name),
+                            ),
                           );
                         },
                       ),
@@ -6007,7 +8163,9 @@ class _DriverTypeScreenState extends State<DriverTypeScreen> {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (_) => DriverMachineTypeScreen(name: widget.name)),
+                              builder: (_) =>
+                                  DriverMachineTypeScreen(name: widget.name),
+                            ),
                           );
                         },
                       ),
@@ -6037,16 +8195,8 @@ class DriverMachineTypeScreen extends StatelessWidget {
       'Mud & Stone Removing',
       'Other',
     ],
-    '70 Machine': [
-      'Soil Cutting',
-      'Plant Loading',
-      'Road Cleaning',
-      'Other',
-    ],
-    'Loader': [
-      'Soil Leveling & Moving',
-      'Road Cleaning',
-    ],
+    '70 Machine': ['Soil Cutting', 'Plant Loading', 'Road Cleaning', 'Other'],
+    'Loader': ['Soil Leveling & Moving', 'Road Cleaning'],
   };
 
   @override
@@ -6071,14 +8221,21 @@ class DriverMachineTypeScreen extends StatelessWidget {
                         } else {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => DriverTypeScreen(name: name)),
+                            MaterialPageRoute(
+                              builder: (_) => DriverTypeScreen(name: name),
+                            ),
                           );
                         }
                       },
                     ),
-                    const Text('Select Machine Type',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'Select Machine Type',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -6121,7 +8278,11 @@ class DriverMachineTypeScreen extends StatelessWidget {
 class DriverMachineSelectScreen extends StatelessWidget {
   final String name;
   final String machineType;
-  const DriverMachineSelectScreen({super.key, required this.name, required this.machineType});
+  const DriverMachineSelectScreen({
+    super.key,
+    required this.name,
+    required this.machineType,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -6143,14 +8304,21 @@ class DriverMachineSelectScreen extends StatelessWidget {
                         } else {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => DriverTypeScreen(name: name)),
+                            MaterialPageRoute(
+                              builder: (_) => DriverTypeScreen(name: name),
+                            ),
                           );
                         }
                       },
                     ),
-                    Text(machineType,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      machineType,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -6162,20 +8330,26 @@ class DriverMachineSelectScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final machines = snapshot.data!.docs;
                     if (machines.isEmpty) {
                       return const Center(
-                          child: Text('No machines registered for this type.',
-                              style: TextStyle(color: Colors.white)));
+                        child: Text(
+                          'No machines registered for this type.',
+                          style: TextStyle(color: Colors.white),
+                        ),
+                      );
                     }
 
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: machines.length,
                       itemBuilder: (context, index) {
-                        final data = machines[index].data() as Map<String, dynamic>;
+                        final data =
+                            machines[index].data() as Map<String, dynamic>;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: DashboardMenuCard(
@@ -6238,15 +8412,17 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
 
   Future<void> _submit() async {
     if (_selectedSiteId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a site.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a site.')));
       return;
     }
 
     if (_codeController.text.trim().length != 4) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the 4-digit supervisor code.')),
+        const SnackBar(
+          content: Text('Please enter the 4-digit supervisor code.'),
+        ),
       );
       return;
     }
@@ -6271,7 +8447,9 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
       if (supervisorMatch.docs.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid code. Check with your supervisor.')),
+            const SnackBar(
+              content: Text('Invalid code. Check with your supervisor.'),
+            ),
           );
           setState(() => _isLoading = false);
         }
@@ -6291,19 +8469,21 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
       if (existing.docs.isNotEmpty) {
         sessionId = existing.docs.first.id;
       } else {
-        final docRef = await FirebaseFirestore.instance.collection('driver_sessions').add({
-          'driverUid': FirebaseAuth.instance.currentUser!.uid,
-          'driverName': widget.name,
-          'machineId': widget.machineId,
-          'machineName': widget.machineName,
-          'machineType': widget.machineType,
-          'siteId': _selectedSiteId,
-          'siteName': _selectedSiteName,
-          'supervisorSessionId': supervisorMatch.docs.first.id,
-          'date': dateString,
-          'status': 'active',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        final docRef = await FirebaseFirestore.instance
+            .collection('driver_sessions')
+            .add({
+              'driverUid': FirebaseAuth.instance.currentUser!.uid,
+              'driverName': widget.name,
+              'machineId': widget.machineId,
+              'machineName': widget.machineName,
+              'machineType': widget.machineType,
+              'siteId': _selectedSiteId,
+              'siteName': _selectedSiteName,
+              'supervisorSessionId': supervisorMatch.docs.first.id,
+              'date': dateString,
+              'status': 'active',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
         sessionId = docRef.id;
       }
 
@@ -6322,7 +8502,9 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -6348,14 +8530,22 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
                         } else {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => DriverTypeScreen(name: widget.name)),
+                            MaterialPageRoute(
+                              builder: (_) =>
+                                  DriverTypeScreen(name: widget.name),
+                            ),
                           );
                         }
                       },
                     ),
-                    Text(widget.machineName,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      widget.machineName,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -6366,14 +8556,23 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Select Working Site',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text(
+                          'Select Working Site',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                          stream: FirebaseFirestore.instance
+                              .collection('sites')
+                              .snapshots(),
                           builder: (context, snapshot) {
                             if (!snapshot.hasData) {
-                              return const CircularProgressIndicator(color: Colors.white);
+                              return const CircularProgressIndicator(
+                                color: Colors.white,
+                              );
                             }
                             final sites = snapshot.data!.docs;
                             return DropdownButtonFormField<String>(
@@ -6382,26 +8581,39 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
                               style: const TextStyle(color: Colors.white),
                               decoration: InputDecoration(
                                 hintText: 'Choose a site',
-                                hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-                                prefixIcon:
-                                    Icon(Icons.location_on, color: Colors.white.withOpacity(0.7)),
+                                hintStyle: TextStyle(
+                                  color: Colors.white.withOpacity(0.6),
+                                ),
+                                prefixIcon: Icon(
+                                  Icons.location_on,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.3),
+                                  ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: AppTheme.accent),
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.accent,
+                                  ),
                                 ),
                               ),
                               items: sites.map((doc) {
                                 final data = doc.data() as Map<String, dynamic>;
                                 return DropdownMenuItem<String>(
-                                    value: doc.id, child: Text(data['name'] ?? ''));
+                                  value: doc.id,
+                                  child: Text(data['name'] ?? ''),
+                                );
                               }).toList(),
                               onChanged: (val) {
-                                final selected = sites.firstWhere((d) => d.id == val);
-                                final data = selected.data() as Map<String, dynamic>;
+                                final selected = sites.firstWhere(
+                                  (d) => d.id == val,
+                                );
+                                final data =
+                                    selected.data() as Map<String, dynamic>;
                                 setState(() {
                                   _selectedSiteId = val;
                                   _selectedSiteName = data['name'];
@@ -6411,28 +8623,47 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
                           },
                         ),
                         const SizedBox(height: 20),
-                        const Text('Supervisor Code',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text(
+                          'Supervisor Code',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: _codeController,
                           keyboardType: TextInputType.number,
                           maxLength: 4,
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 20, letterSpacing: 6),
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            color: Colors.white,
+                            fontSize: 20,
+                            letterSpacing: 6,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
                           decoration: InputDecoration(
                             counterText: '',
                             hintText: '••••',
-                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-                            prefixIcon: Icon(Icons.vpn_key, color: Colors.white.withOpacity(0.7)),
+                            hintStyle: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                            ),
+                            prefixIcon: Icon(
+                              Icons.vpn_key,
+                              color: Colors.white.withOpacity(0.7),
+                            ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                              borderSide: BorderSide(
+                                color: Colors.white.withOpacity(0.3),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.accent),
+                              borderSide: const BorderSide(
+                                color: AppTheme.accent,
+                              ),
                             ),
                           ),
                         ),
@@ -6440,12 +8671,19 @@ class _DriverSiteSelectScreenState extends State<DriverSiteSelectScreen> {
                           padding: const EdgeInsets.only(top: 4),
                           child: Text(
                             'Ask your supervisor for today\'s 4-digit code',
-                            style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+                            style: TextStyle(
+                              color: Colors.white.withOpacity(0.5),
+                              fontSize: 11,
+                            ),
                           ),
                         ),
                         const SizedBox(height: 24),
                         _isLoading
-                            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                            ? const Center(
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                ),
+                              )
                             : GradientButton(
                                 label: 'SUBMIT',
                                 icon: Icons.check,
@@ -6504,7 +8742,9 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
   }
 
   Future<void> _pauseRunningRecord() async {
-    final runningSnap = await _recordsRef.where('status', isEqualTo: 'running').get();
+    final runningSnap = await _recordsRef
+        .where('status', isEqualTo: 'running')
+        .get();
     for (final doc in runningSnap.docs) {
       final data = doc.data() as Map<String, dynamic>;
       final lastResumedAt = (data['lastResumedAt'] as Timestamp?)?.toDate();
@@ -6540,7 +8780,8 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
     }
   }
 
-  bool _isLoadingCategory(String category) => category.toLowerCase().contains('loading');
+  bool _isLoadingCategory(String category) =>
+      category.toLowerCase().contains('loading');
 
   Future<void> _startTask(String taskName) async {
     if (_startMeter == null) {
@@ -6560,8 +8801,10 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
 
     await _pauseRunningRecord();
 
-    final existingTaskSnap =
-        await _recordsRef.where('task', isEqualTo: taskName).limit(1).get();
+    final existingTaskSnap = await _recordsRef
+        .where('task', isEqualTo: taskName)
+        .limit(1)
+        .get();
 
     if (existingTaskSnap.docs.isNotEmpty) {
       await existingTaskSnap.docs.first.reference.update({
@@ -6591,7 +8834,9 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
       barrierDismissible: false,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text('Select Truck'),
           content: StreamBuilder<QuerySnapshot>(
             stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
@@ -6604,8 +8849,10 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
               }
               final trucks = snapshot.data!.docs;
               if (trucks.isEmpty) {
-                return const Text('No trucks registered. Contact Admin.',
-                    style: TextStyle(color: Colors.red, fontSize: 13));
+                return const Text(
+                  'No trucks registered. Contact Admin.',
+                  style: TextStyle(color: Colors.red, fontSize: 13),
+                );
               }
               return Column(
                 mainAxisSize: MainAxisSize.min,
@@ -6616,7 +8863,9 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                     decoration: InputDecoration(
                       hintText: 'Choose truck',
                       prefixIcon: const Icon(Icons.local_shipping),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                     items: trucks.map((doc) {
                       final data = doc.data() as Map<String, dynamic>;
@@ -6637,7 +8886,10 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                   ),
                   if (errorText != null) ...[
                     const SizedBox(height: 8),
-                    Text(errorText!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+                    Text(
+                      errorText!,
+                      style: const TextStyle(color: Colors.red, fontSize: 12),
+                    ),
                   ],
                 ],
               );
@@ -6652,8 +8904,13 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                 }
                 Navigator.pop(dialogContext, selectedTruckNumber);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
-              child: const Text('CONFIRM', style: TextStyle(color: Colors.white)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple[800],
+              ),
+              child: const Text(
+                'CONFIRM',
+                style: TextStyle(color: Colors.white),
+              ),
             ),
           ],
         ),
@@ -6685,7 +8942,9 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
               final val = double.tryParse(controller.text.trim());
               if (val != null) Navigator.pop(context, val);
             },
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.purple[800]),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.purple[800],
+            ),
             child: const Text('CONFIRM', style: TextStyle(color: Colors.white)),
           ),
         ],
@@ -6709,7 +8968,10 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
           ),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
               if (endMeterController.text.trim().isEmpty) return;
@@ -6718,11 +8980,12 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                   .collection('driver_sessions')
                   .doc(widget.sessionId)
                   .update({
-                'startMeter': _startMeter,
-                'endMeter': double.tryParse(endMeterController.text.trim()) ?? 0,
-                'status': 'completed',
-                'completedAt': FieldValue.serverTimestamp(),
-              });
+                    'startMeter': _startMeter,
+                    'endMeter':
+                        double.tryParse(endMeterController.text.trim()) ?? 0,
+                    'status': 'completed',
+                    'completedAt': FieldValue.serverTimestamp(),
+                  });
               if (context.mounted) {
                 Navigator.pop(context);
                 Navigator.popUntil(context, (route) => route.isFirst);
@@ -6765,7 +9028,8 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
               Navigator.push(
                 context,
                 MaterialPageRoute(
-                  builder: (_) => DriverHistoryScreen(sessionId: widget.sessionId),
+                  builder: (_) =>
+                      DriverHistoryScreen(sessionId: widget.sessionId),
                 ),
               );
             },
@@ -6786,7 +9050,9 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
 
           // Active/paused task cards
           StreamBuilder<QuerySnapshot>(
-            stream: _recordsRef.orderBy('createdAt', descending: true).snapshots(),
+            stream: _recordsRef
+                .orderBy('createdAt', descending: true)
+                .snapshots(),
             builder: (context, snapshot) {
               if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
                 return const SizedBox.shrink();
@@ -6795,7 +9061,10 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
 
               return Container(
                 constraints: const BoxConstraints(maxHeight: 220),
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 8,
+                ),
                 child: ListView.builder(
                   itemCount: records.length,
                   itemBuilder: (context, index) {
@@ -6819,7 +9088,7 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                                   color: Colors.green.withOpacity(0.25),
                                   blurRadius: 8,
                                   spreadRadius: 1,
-                                )
+                                ),
                               ]
                             : [],
                       ),
@@ -6835,21 +9104,28 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                               children: [
                                 Text(
                                   data['task'] ?? '',
-                                  style:
-                                      const TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                  ),
                                 ),
                                 if (data['truckNumber'] != null)
                                   Text(
                                     'Truck: ${data['truckNumber']}',
-                                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
                                   ),
                               ],
                             ),
                           ),
                           LiveTimerText(
-                            totalDurationSeconds: (data['totalDurationSeconds'] ?? 0) as int,
+                            totalDurationSeconds:
+                                (data['totalDurationSeconds'] ?? 0) as int,
                             isRunning: isRunning,
-                            lastResumedAt: (data['lastResumedAt'] as Timestamp?)?.toDate(),
+                            lastResumedAt: (data['lastResumedAt'] as Timestamp?)
+                                ?.toDate(),
                           ),
                         ],
                       ),
@@ -6904,8 +9180,13 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _showEndDayDialog,
                     icon: const Icon(Icons.flag, color: Colors.white),
-                    label: const Text('END', style: TextStyle(color: Colors.white)),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
+                    label: const Text(
+                      'END',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.red[700],
+                    ),
                   ),
                 ),
               ),
@@ -6916,6 +9197,7 @@ class _DriverWorkAreaScreenState extends State<DriverWorkAreaScreen> {
     );
   }
 }
+
 // ---------------- DRIVER HISTORY SCREEN ----------------
 class DriverHistoryScreen extends StatelessWidget {
   final String sessionId;
@@ -6952,9 +9234,14 @@ class DriverHistoryScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text("Today's History",
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      "Today's History",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -6966,9 +9253,12 @@ class DriverHistoryScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, sessionSnap) {
                     if (!sessionSnap.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
-                    final sessionData = sessionSnap.data!.data() as Map<String, dynamic>?;
+                    final sessionData =
+                        sessionSnap.data!.data() as Map<String, dynamic>?;
 
                     return StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
@@ -6979,7 +9269,11 @@ class DriverHistoryScreen extends StatelessWidget {
                           .snapshots(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator(color: Colors.white));
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          );
                         }
                         final records = snapshot.data!.docs;
 
@@ -6997,40 +9291,74 @@ class DriverHistoryScreen extends StatelessWidget {
                               GlassCard(
                                 child: Column(
                                   children: [
-                                    const Icon(Icons.timer, color: Colors.white, size: 32),
+                                    const Icon(
+                                      Icons.timer,
+                                      color: Colors.white,
+                                      size: 32,
+                                    ),
                                     const SizedBox(height: 8),
                                     Text(
                                       _formatDuration(totalSeconds),
                                       style: const TextStyle(
-                                          fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    Text('Total Worked Today',
-                                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+                                    Text(
+                                      'Total Worked Today',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.7),
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                     if (sessionData != null &&
                                         sessionData['startMeter'] != null) ...[
-                                      const Divider(color: Colors.white24, height: 24),
+                                      const Divider(
+                                        color: Colors.white24,
+                                        height: 24,
+                                      ),
                                       Row(
-                                        mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceAround,
                                         children: [
                                           Column(
                                             children: [
-                                              Text('${sessionData['startMeter']}',
-                                                  style: const TextStyle(
-                                                      color: Colors.white, fontWeight: FontWeight.bold)),
-                                              Text('Start Meter',
-                                                  style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.6), fontSize: 11)),
+                                              Text(
+                                                '${sessionData['startMeter']}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Start Meter',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.6),
+                                                  fontSize: 11,
+                                                ),
+                                              ),
                                             ],
                                           ),
                                           if (sessionData['endMeter'] != null)
                                             Column(
                                               children: [
-                                                Text('${sessionData['endMeter']}',
-                                                    style: const TextStyle(
-                                                        color: Colors.white, fontWeight: FontWeight.bold)),
-                                                Text('End Meter',
-                                                    style: TextStyle(
-                                                        color: Colors.white.withOpacity(0.6), fontSize: 11)),
+                                                Text(
+                                                  '${sessionData['endMeter']}',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  'End Meter',
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withOpacity(0.6),
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
                                               ],
                                             ),
                                         ],
@@ -7040,19 +9368,31 @@ class DriverHistoryScreen extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              const Text('Task Breakdown',
-                                  style: TextStyle(
-                                      fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                              const Text(
+                                'Task Breakdown',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                               const SizedBox(height: 12),
                               if (records.isEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 20),
-                                  child: Text('No tasks recorded yet.',
-                                      style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 20,
+                                  ),
+                                  child: Text(
+                                    'No tasks recorded yet.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                    ),
+                                  ),
                                 )
                               else
                                 ...records.map((doc) {
-                                  final data = doc.data() as Map<String, dynamic>;
+                                  final data =
+                                      doc.data() as Map<String, dynamic>;
                                   final elapsed = _liveElapsed(data);
                                   final isRunning = data['status'] == 'running';
 
@@ -7063,22 +9403,25 @@ class DriverHistoryScreen extends StatelessWidget {
                                       child: Row(
                                         children: [
                                           if (isRunning) const PulsingDot(),
-                                          if (isRunning) const SizedBox(width: 10),
+                                          if (isRunning)
+                                            const SizedBox(width: 10),
                                           Expanded(
                                             child: Text(
                                               data['task'] ?? '',
                                               style: const TextStyle(
-                                                  color: Colors.white,
-                                                  fontWeight: FontWeight.bold,
-                                                  fontSize: 14),
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
                                             ),
                                           ),
                                           Text(
                                             _formatDuration(elapsed),
                                             style: const TextStyle(
-                                                color: Colors.white,
-                                                fontWeight: FontWeight.bold,
-                                                fontFamily: 'monospace'),
+                                              color: Colors.white,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'monospace',
+                                            ),
                                           ),
                                         ],
                                       ),
@@ -7100,6 +9443,7 @@ class DriverHistoryScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- APP THEME (Central Design System) ----------------
 class AppTheme {
   static const primaryDark = Color(0xFF1A1B4B);
@@ -7217,16 +9561,22 @@ class WebAppShell extends StatelessWidget {
                   child: ListView(
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     children: menuItems
-                        .map((item) => _WebSidebarTile(
-                              icon: item.icon,
-                              label: item.label,
-                              onTap: item.onTap,
-                            ))
+                        .map(
+                          (item) => _WebSidebarTile(
+                            icon: item.icon,
+                            label: item.label,
+                            onTap: item.onTap,
+                          ),
+                        )
                         .toList(),
                   ),
                 ),
                 const Divider(color: Colors.white24, height: 1),
-                _WebSidebarTile(icon: Icons.logout, label: 'Logout', onTap: onLogout),
+                _WebSidebarTile(
+                  icon: Icons.logout,
+                  label: 'Logout',
+                  onTap: onLogout,
+                ),
                 const SizedBox(height: 12),
               ],
             ),
@@ -7269,7 +9619,9 @@ class _WebSidebarTileState extends State<_WebSidebarTile> {
           margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
           decoration: BoxDecoration(
-            color: _hovering ? Colors.white.withOpacity(0.14) : Colors.transparent,
+            color: _hovering
+                ? Colors.white.withOpacity(0.14)
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(8),
           ),
           child: Row(
@@ -7446,7 +9798,10 @@ class _GradientButtonState extends State<GradientButton> {
               Text(
                 widget.label,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 16, fontWeight: FontWeight.w600),
+                  color: Colors.white,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ],
           ),
@@ -7461,7 +9816,11 @@ class GlassCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
 
-  const GlassCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
+  const GlassCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -7564,11 +9923,18 @@ class _DashboardMenuCardState extends State<DashboardMenuCard> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(widget.title,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                      Text(
+                        widget.title,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15,
+                        ),
+                      ),
                       const SizedBox(height: 2),
-                      Text(widget.subtitle,
-                          style: TextStyle(fontSize: 12, color: Colors.grey[600])),
+                      Text(
+                        widget.subtitle,
+                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      ),
                     ],
                   ),
                 ),
@@ -7588,7 +9954,12 @@ class TaskButton extends StatefulWidget {
   final VoidCallback onTap;
   final Color? color;
 
-  const TaskButton({super.key, required this.label, required this.onTap, this.color});
+  const TaskButton({
+    super.key,
+    required this.label,
+    required this.onTap,
+    this.color,
+  });
 
   @override
   State<TaskButton> createState() => _TaskButtonState();
@@ -7648,7 +10019,11 @@ class _TaskButtonState extends State<TaskButton> {
           child: Text(
             widget.label,
             textAlign: TextAlign.center,
-            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w600, fontSize: 14),
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+              fontSize: 14,
+            ),
           ),
         ),
       ),
@@ -7664,7 +10039,8 @@ class PulsingDot extends StatefulWidget {
   State<PulsingDot> createState() => _PulsingDotState();
 }
 
-class _PulsingDotState extends State<PulsingDot> with SingleTickerProviderStateMixin {
+class _PulsingDotState extends State<PulsingDot>
+    with SingleTickerProviderStateMixin {
   late AnimationController _controller;
 
   @override
@@ -7689,7 +10065,10 @@ class _PulsingDotState extends State<PulsingDot> with SingleTickerProviderStateM
       child: Container(
         width: 10,
         height: 10,
-        decoration: const BoxDecoration(color: Colors.green, shape: BoxShape.circle),
+        decoration: const BoxDecoration(
+          color: Colors.green,
+          shape: BoxShape.circle,
+        ),
       ),
     );
   }
@@ -7699,21 +10078,24 @@ class _PulsingDotState extends State<PulsingDot> with SingleTickerProviderStateM
 class FadeSlideRoute extends PageRouteBuilder {
   final Widget page;
   FadeSlideRoute({required this.page})
-      : super(
-          transitionDuration: const Duration(milliseconds: 350),
-          pageBuilder: (context, animation, secondaryAnimation) => page,
-          transitionsBuilder: (context, animation, secondaryAnimation, child) {
-            final fade = CurvedAnimation(parent: animation, curve: Curves.easeOut);
-            final slide = Tween<Offset>(
-              begin: const Offset(0, 0.05),
-              end: Offset.zero,
-            ).animate(fade);
-            return FadeTransition(
-              opacity: fade,
-              child: SlideTransition(position: slide, child: child),
-            );
-          },
-        );
+    : super(
+        transitionDuration: const Duration(milliseconds: 350),
+        pageBuilder: (context, animation, secondaryAnimation) => page,
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final fade = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOut,
+          );
+          final slide = Tween<Offset>(
+            begin: const Offset(0, 0.05),
+            end: Offset.zero,
+          ).animate(fade);
+          return FadeTransition(
+            opacity: fade,
+            child: SlideTransition(position: slide, child: child),
+          );
+        },
+      );
 }
 
 // Web gets the fade+slide transition; mobile keeps its native platform
@@ -7721,7 +10103,9 @@ class FadeSlideRoute extends PageRouteBuilder {
 void pushWebAware(BuildContext context, Widget page) {
   Navigator.push(
     context,
-    kIsWeb ? FadeSlideRoute(page: page) : MaterialPageRoute(builder: (_) => page),
+    kIsWeb
+        ? FadeSlideRoute(page: page)
+        : MaterialPageRoute(builder: (_) => page),
   );
 }
 
@@ -7801,9 +10185,14 @@ class SupervisorHistoryScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text("Today's History",
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      "Today's History",
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -7815,9 +10204,12 @@ class SupervisorHistoryScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, sessionSnap) {
                     if (!sessionSnap.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
-                    final sessionData = sessionSnap.data!.data() as Map<String, dynamic>?;
+                    final sessionData =
+                        sessionSnap.data!.data() as Map<String, dynamic>?;
 
                     return StreamBuilder<QuerySnapshot>(
                       stream: FirebaseFirestore.instance
@@ -7828,7 +10220,11 @@ class SupervisorHistoryScreen extends StatelessWidget {
                           .snapshots(),
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
-                          return const Center(child: CircularProgressIndicator(color: Colors.white));
+                          return const Center(
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                            ),
+                          );
                         }
                         final records = snapshot.data!.docs;
 
@@ -7848,59 +10244,107 @@ class SupervisorHistoryScreen extends StatelessWidget {
                               GlassCard(
                                 child: Column(
                                   children: [
-                                    const Icon(Icons.timer, color: Colors.white, size: 32),
+                                    const Icon(
+                                      Icons.timer,
+                                      color: Colors.white,
+                                      size: 32,
+                                    ),
                                     const SizedBox(height: 8),
                                     Text(
                                       _formatDuration(totalSeconds),
                                       style: const TextStyle(
-                                          fontSize: 28, fontWeight: FontWeight.bold, color: Colors.white),
+                                        fontSize: 28,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.white,
+                                      ),
                                     ),
-                                    Text('Total Worked Today',
-                                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+                                    Text(
+                                      'Total Worked Today',
+                                      style: TextStyle(
+                                        color: Colors.white.withOpacity(0.7),
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                     if (sessionData != null) ...[
                                       const SizedBox(height: 8),
                                       Text(
                                         'Started: ${_formatTime(sessionData['createdAt'] as Timestamp?)}'
                                         '${sessionData['completedAt'] != null ? "  •  Ended: ${_formatTime(sessionData['completedAt'] as Timestamp?)}" : ""}',
-                                        style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 12),
+                                        style: TextStyle(
+                                          color: Colors.white.withOpacity(0.6),
+                                          fontSize: 12,
+                                        ),
                                       ),
                                     ],
-                                    const Divider(color: Colors.white24, height: 24),
+                                    const Divider(
+                                      color: Colors.white24,
+                                      height: 24,
+                                    ),
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceAround,
                                       children: [
                                         Column(
                                           children: [
-                                            Text('$completedLoads',
-                                                style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 18)),
-                                            Text('Loads Completed',
-                                                style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.6), fontSize: 11)),
+                                            Text(
+                                              '$completedLoads',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 18,
+                                              ),
+                                            ),
+                                            Text(
+                                              'Loads Completed',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.6,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
                                           ],
                                         ),
-                                        if (sessionData != null && sessionData['startMeter'] != null)
+                                        if (sessionData != null &&
+                                            sessionData['startMeter'] != null)
                                           Column(
                                             children: [
-                                              Text('${sessionData['startMeter']}',
-                                                  style: const TextStyle(
-                                                      color: Colors.white, fontWeight: FontWeight.bold)),
-                                              Text('Start Meter',
-                                                  style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.6), fontSize: 11)),
+                                              Text(
+                                                '${sessionData['startMeter']}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                'Start Meter',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.6),
+                                                  fontSize: 11,
+                                                ),
+                                              ),
                                             ],
                                           ),
-                                        if (sessionData != null && sessionData['endMeter'] != null)
+                                        if (sessionData != null &&
+                                            sessionData['endMeter'] != null)
                                           Column(
                                             children: [
-                                              Text('${sessionData['endMeter']}',
-                                                  style: const TextStyle(
-                                                      color: Colors.white, fontWeight: FontWeight.bold)),
-                                              Text('End Meter',
-                                                  style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.6), fontSize: 11)),
+                                              Text(
+                                                '${sessionData['endMeter']}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                ),
+                                              ),
+                                              Text(
+                                                'End Meter',
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.6),
+                                                  fontSize: 11,
+                                                ),
+                                              ),
                                             ],
                                           ),
                                       ],
@@ -7909,49 +10353,66 @@ class SupervisorHistoryScreen extends StatelessWidget {
                                 ),
                               ),
                               const SizedBox(height: 20),
-                              const Text('Work Records',
-                                  style: TextStyle(
-                                      fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                              const Text(
+                                'Work Records',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white,
+                                ),
+                              ),
                               const SizedBox(height: 12),
                               if (records.isEmpty)
                                 Padding(
-                                  padding: const EdgeInsets.symmetric(vertical: 20),
-                                  child: Text('No work recorded yet.',
-                                      style: TextStyle(color: Colors.white.withOpacity(0.7))),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 20,
+                                  ),
+                                  child: Text(
+                                    'No work recorded yet.',
+                                    style: TextStyle(
+                                      color: Colors.white.withOpacity(0.7),
+                                    ),
+                                  ),
                                 )
                               else
                                 ...records.map((doc) {
-                                  final data = doc.data() as Map<String, dynamic>;
+                                  final data =
+                                      doc.data() as Map<String, dynamic>;
                                   final elapsed = _liveElapsed(data);
                                   final isRunning = data['status'] == 'running';
-                                  final isLoading = data['isLoadingCategory'] == true;
+                                  final isLoading =
+                                      data['isLoadingCategory'] == true;
 
                                   return Padding(
                                     padding: const EdgeInsets.only(bottom: 10),
                                     child: GlassCard(
                                       padding: const EdgeInsets.all(14),
                                       child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
                                         children: [
                                           Row(
                                             children: [
                                               if (isRunning) const PulsingDot(),
-                                              if (isRunning) const SizedBox(width: 10),
+                                              if (isRunning)
+                                                const SizedBox(width: 10),
                                               Expanded(
                                                 child: Text(
                                                   data['category'] ?? '',
                                                   style: const TextStyle(
-                                                      color: Colors.white,
-                                                      fontWeight: FontWeight.bold,
-                                                      fontSize: 14),
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
                                                 ),
                                               ),
                                               Text(
                                                 _formatDuration(elapsed),
                                                 style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontFamily: 'monospace'),
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'monospace',
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -7960,13 +10421,20 @@ class SupervisorHistoryScreen extends StatelessWidget {
                                             Text(
                                               'Truck: ${data['truckNumber'] ?? '-'} • Bill: ${data['billNumber'] ?? '-'}',
                                               style: TextStyle(
-                                                  color: Colors.white.withOpacity(0.8), fontSize: 12),
+                                                color: Colors.white.withOpacity(
+                                                  0.8,
+                                                ),
+                                                fontSize: 12,
+                                              ),
                                             ),
                                             if (data['isCompleted'] == true)
                                               Text(
                                                 'Meter: ${data['startMeter'] ?? "-"} → ${data['endMeter'] ?? "-"}  •  ${_formatTime(data['loadStartedAt'])} - ${_formatTime(data['loadCompletedAt'])}',
                                                 style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.6), fontSize: 11),
+                                                  color: Colors.white
+                                                      .withOpacity(0.6),
+                                                  fontSize: 11,
+                                                ),
                                               ),
                                           ],
                                         ],
@@ -7989,12 +10457,17 @@ class SupervisorHistoryScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- SITE HISTORY SCREEN (Owner) ----------------
 class SiteHistoryScreen extends StatelessWidget {
   final String siteId;
   final String siteName;
 
-  const SiteHistoryScreen({super.key, required this.siteId, required this.siteName});
+  const SiteHistoryScreen({
+    super.key,
+    required this.siteId,
+    required this.siteName,
+  });
 
   static const List<Color> _dayColors = [
     Color(0xFF3D9DE0),
@@ -8019,16 +10492,35 @@ class SiteHistoryScreen extends StatelessWidget {
   String _formatDateHeader(String dateString) {
     final parts = dateString.split('-');
     if (parts.length != 3) return dateString;
-    final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final date = DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
     final today = DateTime.now();
-    final todayStr = "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+    final todayStr =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
     if (dateString == todayStr) return 'Today';
 
     final yesterday = today.subtract(const Duration(days: 1));
-    final yestStr = "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
+    final yestStr =
+        "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
     if (dateString == yestStr) return 'Yesterday';
 
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
@@ -8067,7 +10559,11 @@ class SiteHistoryScreen extends StatelessWidget {
     return '${h}h ${m}m';
   }
 
-  void _showForceCloseDialog(BuildContext context, String sessionId, dynamic startMeter) {
+  void _showForceCloseDialog(
+    BuildContext context,
+    String sessionId,
+    dynamic startMeter,
+  ) {
     final endMeterController = TextEditingController(
       text: startMeter != null ? startMeter.toString() : '',
     );
@@ -8090,7 +10586,9 @@ class SiteHistoryScreen extends StatelessWidget {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 labelText: 'End Meter Reading',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
           ],
@@ -8110,15 +10608,19 @@ class SiteHistoryScreen extends StatelessWidget {
                   .collection('daily_sessions')
                   .doc(sessionId)
                   .collection('work_records');
-              final runningRecords =
-                  await recordsRef.where('status', isEqualTo: 'running').get();
+              final runningRecords = await recordsRef
+                  .where('status', isEqualTo: 'running')
+                  .get();
               for (final doc in runningRecords.docs) {
                 final data = doc.data();
-                final lastResumedAt = (data['lastResumedAt'] as Timestamp?)?.toDate();
+                final lastResumedAt = (data['lastResumedAt'] as Timestamp?)
+                    ?.toDate();
                 final currentTotal = (data['totalDurationSeconds'] ?? 0) as int;
                 int addedSeconds = 0;
                 if (lastResumedAt != null) {
-                  addedSeconds = DateTime.now().difference(lastResumedAt).inSeconds;
+                  addedSeconds = DateTime.now()
+                      .difference(lastResumedAt)
+                      .inSeconds;
                 }
                 await doc.reference.update({
                   'status': 'paused',
@@ -8132,11 +10634,11 @@ class SiteHistoryScreen extends StatelessWidget {
                   .collection('daily_sessions')
                   .doc(sessionId)
                   .update({
-                'endMeter': endMeter,
-                'status': 'completed',
-                'completedAt': FieldValue.serverTimestamp(),
-                'forceClosedByOwner': true,
-              });
+                    'endMeter': endMeter,
+                    'status': 'completed',
+                    'completedAt': FieldValue.serverTimestamp(),
+                    'forceClosedByOwner': true,
+                  });
 
               if (context.mounted) {
                 Navigator.pop(context);
@@ -8146,7 +10648,10 @@ class SiteHistoryScreen extends StatelessWidget {
               }
             },
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
-            child: const Text('FORCE CLOSE', style: TextStyle(color: Colors.white)),
+            child: const Text(
+              'FORCE CLOSE',
+              style: TextStyle(color: Colors.white),
+            ),
           ),
         ],
       ),
@@ -8154,14 +10659,19 @@ class SiteHistoryScreen extends StatelessWidget {
   }
 
   void _showChangeSiteCapabilityDialog(
-      BuildContext context, bool currentCanLoad, bool currentCanUnload) {
+    BuildContext context,
+    bool currentCanLoad,
+    bool currentCanUnload,
+  ) {
     bool canLoad = currentCanLoad;
     bool canUnload = currentCanUnload;
     showDialog(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (dialogContext, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text('Change Site Capability'),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -8170,13 +10680,15 @@ class SiteHistoryScreen extends StatelessWidget {
                 controlAffinity: ListTileControlAffinity.leading,
                 title: const Text('Can be Loading Site'),
                 value: canLoad,
-                onChanged: (val) => setDialogState(() => canLoad = val ?? false),
+                onChanged: (val) =>
+                    setDialogState(() => canLoad = val ?? false),
               ),
               CheckboxListTile(
                 controlAffinity: ListTileControlAffinity.leading,
                 title: const Text('Can be Unloading Site'),
                 value: canUnload,
-                onChanged: (val) => setDialogState(() => canUnload = val ?? false),
+                onChanged: (val) =>
+                    setDialogState(() => canUnload = val ?? false),
               ),
             ],
           ),
@@ -8187,17 +10699,98 @@ class SiteHistoryScreen extends StatelessWidget {
             ),
             ElevatedButton(
               onPressed: () async {
-                await FirebaseFirestore.instance.collection('sites').doc(siteId).update({
-                  'canBeLoadingSite': canLoad,
-                  'canBeUnloadingSite': canUnload,
-                });
+                await FirebaseFirestore.instance
+                    .collection('sites')
+                    .doc(siteId)
+                    .update({
+                      'canBeLoadingSite': canLoad,
+                      'canBeUnloadingSite': canUnload,
+                    });
                 if (dialogContext.mounted) Navigator.pop(dialogContext);
               },
-              style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryMid),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryMid,
+              ),
               child: const Text('Save', style: TextStyle(color: Colors.white)),
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  void _showChangeSupervisorDialog(
+    BuildContext context,
+    String? currentSupervisorUid,
+  ) {
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Change Assigned Supervisor'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .where('role', isEqualTo: 'supervisor')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final supervisors = snapshot.data!.docs;
+              if (supervisors.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No supervisors available.'),
+                );
+              }
+              return SizedBox(
+                height: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: supervisors.length,
+                  itemBuilder: (context, index) {
+                    final data =
+                        supervisors[index].data() as Map<String, dynamic>;
+                    final uid = supervisors[index].id;
+                    final isSelected = uid == currentSupervisorUid;
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.teal.withOpacity(0.15),
+                        child: const Icon(Icons.person, color: Colors.teal),
+                      ),
+                      title: Text(data['name'] ?? ''),
+                      trailing: isSelected
+                          ? const Icon(Icons.check, color: Colors.teal)
+                          : null,
+                      onTap: () async {
+                        await FirebaseFirestore.instance
+                            .collection('sites')
+                            .doc(siteId)
+                            .update({
+                              'assignedSupervisorUid': uid,
+                              'assignedSupervisorName': data['name'] ?? '',
+                            });
+                        if (context.mounted) Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+        ],
       ),
     );
   }
@@ -8219,19 +10812,88 @@ class SiteHistoryScreen extends StatelessWidget {
                       onPressed: () => Navigator.pop(context),
                     ),
                     Expanded(
-                      child: Text(siteName,
-                          style: const TextStyle(
-                              fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                      child: Text(
+                        siteName,
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
               Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: StreamBuilder<DocumentSnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('sites')
+                      .doc(siteId)
+                      .snapshots(),
+                  builder: (context, siteSnap) {
+                    final siteData =
+                        siteSnap.data?.data() as Map<String, dynamic>?;
+                    final assignedSupervisorName =
+                        siteData?['assignedSupervisorName'];
+                    final assignedSupervisorUid =
+                        siteData?['assignedSupervisorUid'];
+
+                    return GlassCard(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Assigned Supervisor',
+                                style: TextStyle(
+                                  color: Colors.white.withOpacity(0.6),
+                                  fontSize: 11,
+                                ),
+                              ),
+                              Text(
+                                assignedSupervisorName ?? 'Not assigned',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 14,
+                                ),
+                              ),
+                            ],
+                          ),
+                          TextButton.icon(
+                            onPressed: () => _showChangeSupervisorDialog(
+                              context,
+                              assignedSupervisorUid,
+                            ),
+                            icon: const Icon(
+                              Icons.edit,
+                              size: 16,
+                              color: AppTheme.accent,
+                            ),
+                            label: const Text(
+                              'Change',
+                              style: TextStyle(color: AppTheme.accent),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                ),
+              ),
+              Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
                 child: StreamBuilder<DocumentSnapshot>(
-                  stream: FirebaseFirestore.instance.collection('sites').doc(siteId).snapshots(),
+                  stream: FirebaseFirestore.instance
+                      .collection('sites')
+                      .doc(siteId)
+                      .snapshots(),
                   builder: (context, siteSnap) {
-                    final siteData = siteSnap.data?.data() as Map<String, dynamic>?;
+                    final siteData =
+                        siteSnap.data?.data() as Map<String, dynamic>?;
                     final canLoad = siteData?['canBeLoadingSite'] != false;
                     final canUnload = siteData?['canBeUnloadingSite'] != false;
                     return GlassCard(
@@ -8244,34 +10906,65 @@ class SiteHistoryScreen extends StatelessWidget {
                               children: [
                                 Row(
                                   children: [
-                                    Icon(canLoad ? Icons.check_circle : Icons.cancel,
-                                        color: canLoad ? Colors.greenAccent : Colors.redAccent,
-                                        size: 16),
+                                    Icon(
+                                      canLoad
+                                          ? Icons.check_circle
+                                          : Icons.cancel,
+                                      color: canLoad
+                                          ? Colors.greenAccent
+                                          : Colors.redAccent,
+                                      size: 16,
+                                    ),
                                     const SizedBox(width: 6),
-                                    const Text('Loading Capability',
-                                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                                    const Text(
+                                      'Loading Capability',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                   ],
                                 ),
                                 const SizedBox(height: 6),
                                 Row(
                                   children: [
-                                    Icon(canUnload ? Icons.check_circle : Icons.cancel,
-                                        color: canUnload ? Colors.greenAccent : Colors.redAccent,
-                                        size: 16),
+                                    Icon(
+                                      canUnload
+                                          ? Icons.check_circle
+                                          : Icons.cancel,
+                                      color: canUnload
+                                          ? Colors.greenAccent
+                                          : Colors.redAccent,
+                                      size: 16,
+                                    ),
                                     const SizedBox(width: 6),
-                                    const Text('Unloading Capability',
-                                        style: TextStyle(color: Colors.white, fontSize: 13)),
+                                    const Text(
+                                      'Unloading Capability',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 13,
+                                      ),
+                                    ),
                                   ],
                                 ),
                               ],
                             ),
                           ),
                           TextButton.icon(
-                            onPressed: () =>
-                                _showChangeSiteCapabilityDialog(context, canLoad, canUnload),
-                            icon: const Icon(Icons.edit, size: 16, color: AppTheme.accent),
-                            label:
-                                const Text('Change', style: TextStyle(color: AppTheme.accent)),
+                            onPressed: () => _showChangeSiteCapabilityDialog(
+                              context,
+                              canLoad,
+                              canUnload,
+                            ),
+                            icon: const Icon(
+                              Icons.edit,
+                              size: 16,
+                              color: AppTheme.accent,
+                            ),
+                            label: const Text(
+                              'Change',
+                              style: TextStyle(color: AppTheme.accent),
+                            ),
                           ),
                         ],
                       ),
@@ -8290,19 +10983,26 @@ class SiteHistoryScreen extends StatelessWidget {
                       return Center(
                         child: Padding(
                           padding: const EdgeInsets.all(24),
-                          child: Text('Error: ${snapshot.error}',
-                              style: const TextStyle(color: Colors.white), textAlign: TextAlign.center),
+                          child: Text(
+                            'Error: ${snapshot.error}',
+                            style: const TextStyle(color: Colors.white),
+                            textAlign: TextAlign.center,
+                          ),
                         ),
                       );
                     }
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final sessions = snapshot.data!.docs;
                     if (sessions.isEmpty) {
                       return const Center(
-                        child: Text('No work history for this site yet.',
-                            style: TextStyle(color: Colors.white)),
+                        child: Text(
+                          'No work history for this site yet.',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       );
                     }
 
@@ -8313,14 +11013,16 @@ class SiteHistoryScreen extends StatelessWidget {
                       final date = data['date'] ?? 'unknown';
                       grouped.putIfAbsent(date, () => []).add(doc);
                     }
-                    final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+                    final sortedDates = grouped.keys.toList()
+                      ..sort((a, b) => b.compareTo(a));
 
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
                       itemCount: sortedDates.length,
                       itemBuilder: (context, dateIndex) {
                         final date = sortedDates[dateIndex];
-                        final dayColor = _dayColors[dateIndex % _dayColors.length];
+                        final dayColor =
+                            _dayColors[dateIndex % _dayColors.length];
                         final daySessions = grouped[date]!;
 
                         return Padding(
@@ -8333,13 +11035,19 @@ class SiteHistoryScreen extends StatelessWidget {
                                   Container(
                                     width: 10,
                                     height: 10,
-                                    decoration: BoxDecoration(color: dayColor, shape: BoxShape.circle),
+                                    decoration: BoxDecoration(
+                                      color: dayColor,
+                                      shape: BoxShape.circle,
+                                    ),
                                   ),
                                   const SizedBox(width: 8),
                                   Text(
                                     _formatDateHeader(date),
                                     style: const TextStyle(
-                                        color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
                                   ),
                                 ],
                               ),
@@ -8349,50 +11057,81 @@ class SiteHistoryScreen extends StatelessWidget {
                                 final isActive = data['status'] == 'active';
 
                                 return Padding(
-                                  padding: const EdgeInsets.only(bottom: 10, left: 18),
+                                  padding: const EdgeInsets.only(
+                                    bottom: 10,
+                                    left: 18,
+                                  ),
                                   child: Container(
                                     decoration: BoxDecoration(
                                       color: Colors.white.withOpacity(0.1),
                                       borderRadius: BorderRadius.circular(14),
-                                      border: Border(left: BorderSide(color: dayColor, width: 4)),
+                                      border: Border(
+                                        left: BorderSide(
+                                          color: dayColor,
+                                          width: 4,
+                                        ),
+                                      ),
                                     ),
                                     padding: const EdgeInsets.all(14),
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
-                                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
                                           children: [
                                             Expanded(
                                               child: Text(
                                                 data['machineName'] ?? '',
                                                 style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14),
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 14,
+                                                ),
                                               ),
                                             ),
                                             GestureDetector(
                                               onTap: isActive
                                                   ? () => _showForceCloseDialog(
-                                                      context, doc.id, data['startMeter'])
+                                                      context,
+                                                      doc.id,
+                                                      data['startMeter'],
+                                                    )
                                                   : null,
                                               child: Container(
-                                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                      vertical: 3,
+                                                    ),
                                                 decoration: BoxDecoration(
-                                                  color: isActive ? Colors.green : Colors.grey,
-                                                  borderRadius: BorderRadius.circular(20),
+                                                  color: isActive
+                                                      ? Colors.green
+                                                      : Colors.grey,
+                                                  borderRadius:
+                                                      BorderRadius.circular(20),
                                                 ),
                                                 child: Row(
-                                                  mainAxisSize: MainAxisSize.min,
+                                                  mainAxisSize:
+                                                      MainAxisSize.min,
                                                   children: [
                                                     Text(
-                                                      isActive ? 'ACTIVE' : 'DONE',
-                                                      style: const TextStyle(color: Colors.white, fontSize: 10),
+                                                      isActive
+                                                          ? 'ACTIVE'
+                                                          : 'DONE',
+                                                      style: const TextStyle(
+                                                        color: Colors.white,
+                                                        fontSize: 10,
+                                                      ),
                                                     ),
                                                     if (isActive) ...[
                                                       const SizedBox(width: 4),
-                                                      const Icon(Icons.edit, size: 11, color: Colors.white),
+                                                      const Icon(
+                                                        Icons.edit,
+                                                        size: 11,
+                                                        color: Colors.white,
+                                                      ),
                                                     ],
                                                   ],
                                                 ),
@@ -8403,23 +11142,43 @@ class SiteHistoryScreen extends StatelessWidget {
                                         const SizedBox(height: 4),
                                         Text(
                                           'Supervisor: ${data['supervisorName'] ?? '-'}',
-                                          style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(
+                                              0.7,
+                                            ),
+                                            fontSize: 12,
+                                          ),
                                         ),
                                         Text(
                                           'Started: ${_formatTime(data['createdAt'] as Timestamp?)}'
                                           '${data['completedAt'] != null ? "  •  Ended: ${_formatTime(data['completedAt'] as Timestamp?)}" : ""}',
-                                          style: TextStyle(color: Colors.white.withOpacity(0.6), fontSize: 11),
+                                          style: TextStyle(
+                                            color: Colors.white.withOpacity(
+                                              0.6,
+                                            ),
+                                            fontSize: 11,
+                                          ),
                                         ),
                                         if (data['startMeter'] != null) ...[
                                           const SizedBox(height: 4),
                                           Row(
                                             children: [
-                                              Icon(Icons.speed, size: 13, color: Colors.white.withOpacity(0.7)),
+                                              Icon(
+                                                Icons.speed,
+                                                size: 13,
+                                                color: Colors.white.withOpacity(
+                                                  0.7,
+                                                ),
+                                              ),
                                               const SizedBox(width: 4),
                                               Text(
                                                 'Start Meter: ${data['startMeter']}'
                                                 '${data['endMeter'] != null ? "  •  End Meter: ${data['endMeter']}" : ""}',
-                                                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
+                                                style: TextStyle(
+                                                  color: Colors.white
+                                                      .withOpacity(0.7),
+                                                  fontSize: 12,
+                                                ),
                                               ),
                                             ],
                                           ),
@@ -8435,27 +11194,48 @@ class SiteHistoryScreen extends StatelessWidget {
                                               return const SizedBox(
                                                 height: 16,
                                                 width: 16,
-                                                child: CircularProgressIndicator(
-                                                    strokeWidth: 2, color: Colors.white),
+                                                child:
+                                                    CircularProgressIndicator(
+                                                      strokeWidth: 2,
+                                                      color: Colors.white,
+                                                    ),
                                               );
                                             }
                                             final loads = futureSnap.data![0];
                                             final seconds = futureSnap.data![1];
                                             return Row(
                                               children: [
-                                                Icon(Icons.local_shipping,
-                                                    size: 14, color: Colors.white.withOpacity(0.7)),
+                                                Icon(
+                                                  Icons.local_shipping,
+                                                  size: 14,
+                                                  color: Colors.white
+                                                      .withOpacity(0.7),
+                                                ),
                                                 const SizedBox(width: 4),
-                                                Text('$loads loads',
-                                                    style: TextStyle(
-                                                        color: Colors.white.withOpacity(0.8), fontSize: 12)),
+                                                Text(
+                                                  '$loads loads',
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
                                                 const SizedBox(width: 16),
-                                                Icon(Icons.timer,
-                                                    size: 14, color: Colors.white.withOpacity(0.7)),
+                                                Icon(
+                                                  Icons.timer,
+                                                  size: 14,
+                                                  color: Colors.white
+                                                      .withOpacity(0.7),
+                                                ),
                                                 const SizedBox(width: 4),
-                                                Text(_formatDuration(seconds),
-                                                    style: TextStyle(
-                                                        color: Colors.white.withOpacity(0.8), fontSize: 12)),
+                                                Text(
+                                                  _formatDuration(seconds),
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withOpacity(0.8),
+                                                    fontSize: 12,
+                                                  ),
+                                                ),
                                               ],
                                             );
                                           },
@@ -8480,6 +11260,7 @@ class SiteHistoryScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- ADMIN SITE LIST (navigates to shared SiteHistoryScreen) ----------------
 class AdminSiteListScreen extends StatelessWidget {
   const AdminSiteListScreen({super.key});
@@ -8500,23 +11281,35 @@ class AdminSiteListScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text('Site History',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'Site History',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                  stream: FirebaseFirestore.instance
+                      .collection('sites')
+                      .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final sites = snapshot.data!.docs;
                     if (sites.isEmpty) {
                       return const Center(
-                        child: Text('No sites added yet.', style: TextStyle(color: Colors.white)),
+                        child: Text(
+                          'No sites added yet.',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       );
                     }
 
@@ -8524,7 +11317,8 @@ class AdminSiteListScreen extends StatelessWidget {
                       padding: const EdgeInsets.all(16),
                       itemCount: sites.length,
                       itemBuilder: (context, index) {
-                        final data = sites[index].data() as Map<String, dynamic>;
+                        final data =
+                            sites[index].data() as Map<String, dynamic>;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: _WebStaggeredFadeIn(
@@ -8558,35 +11352,64 @@ class AdminSiteListScreen extends StatelessWidget {
     );
   }
 }
+
+// Site name (trimmed, lowercase) -> dedicated Google Sheet tab name. Every
+// completed load at a mapped site gets duplicated to its own tab,
+// independent of and in addition to the Supervisor_Loads/Plant_Loads sync.
+// Shared between _WorkSessionScreenState (task-complete time) and
+// ManagementSiteReportsScreen's Edit dialog (post-edit resync), so both
+// stay consistent. Add new loading site -> sheet name mappings here.
+const Map<String, String> kSiteSheetMap = {
+  'athukorala land': 'Athukorala_Land_Loads',
+  'lalith land': 'Lalith_Land_Loads',
+  'hesei site': 'Hesei_Site_Loads',
+  'dhompe site': 'Dhompe_Site_Loads',
+  'cmc plant': 'CMC_Plant_Loads',
+  'maga site': 'Maga_Site_Loads',
+  'rajakaruna land': 'Rajakaruna_Land_Loads',
+};
+
 // ---------------- GOOGLE SHEETS SYNC SERVICE ----------------
 class GoogleSheetsService {
   static const String _webAppUrl =
       'https://script.google.com/macros/s/AKfycbyDjLHlC7MuTeKw2gA6W-7Rlpj1a6aU17RWzHBLPI7B93bXAGOs99IzLpYpc4nd3AY/exec';
 
+  // recordId (a Firestore work_record/fuel_entry doc ID) lets the Apps
+  // Script update that row in place instead of always appending — see
+  // doPost's recordId lookup against the sheet's last column. Omit it (or
+  // pass null) for rows that should always append, e.g. the End Day summary
+  // row, which never corresponds 1:1 with a single existing Sheet row.
   static Future<void> sendRow({
     required String sheetName,
     required List<dynamic> row,
+    String? recordId,
   }) async {
     try {
+      // Record ID is appended as the row's actual last column (visible in
+      // the sheet, hideable manually there) — existing columns are
+      // untouched, this is purely additive. It's also sent as its own
+      // top-level field for the Apps Script's update-in-place lookup, so it
+      // doesn't have to assume which index is "last".
+      final rowWithRecordId = [...row, recordId ?? ''];
+
       // Content-Type must stay outside the CORS-safelisted set (text/plain,
       // not application/json) — Apps Script web apps don't answer the
       // OPTIONS preflight a JSON content-type forces, so on Flutter Web the
       // browser blocks the request before it ever reaches the script. The
       // Apps Script side reads the raw body text and JSON-decodes it itself,
       // so it doesn't care what the header says.
-      debugPrint('[PLANT_DEBUG] sendRow POST sheetName=$sheetName');
-      final response = await http.post(
+      await http.post(
         Uri.parse(_webAppUrl),
         headers: {'Content-Type': 'text/plain'},
         body: jsonEncode({
           'sheetName': sheetName,
-          'row': row,
+          'row': rowWithRecordId,
+          'recordId': recordId ?? '',
         }),
       );
-      debugPrint('[PLANT_DEBUG] sendRow response sheetName=$sheetName status=${response.statusCode} headers=${response.headers} body=${response.body.replaceAll('\n', ' | ')}');
     } catch (e) {
       // Silently fail - Sheets sync is a nice-to-have, shouldn't break the app
-      debugPrint('[PLANT_DEBUG] Google Sheets sync error for sheetName=$sheetName: $e');
+      debugPrint('Google Sheets sync error for sheetName=$sheetName: $e');
     }
   }
 
@@ -8608,6 +11431,7 @@ class GoogleSheetsService {
     return '$hour:$minute $period';
   }
 }
+
 // ---------------- USER PROFILE SCREEN ----------------
 class UserProfileScreen extends StatelessWidget {
   final String userId;
@@ -8657,7 +11481,11 @@ class UserProfileScreen extends StatelessWidget {
   String _formatDateHeader(String dateString) {
     final parts = dateString.split('-');
     if (parts.length != 3) return dateString;
-    final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final date = DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
     final today = DateTime.now();
     final todayStr =
         "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
@@ -8668,7 +11496,20 @@ class UserProfileScreen extends StatelessWidget {
         "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
     if (dateString == yestStr) return 'Yesterday';
 
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
@@ -8725,9 +11566,14 @@ class UserProfileScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text('User Profile',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'User Profile',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -8747,19 +11593,36 @@ class UserProfileScreen extends StatelessWidget {
                                   ? MemoryImage(base64Decode(photoBase64!))
                                   : null,
                               child: photoBase64 == null
-                                  ? const Icon(Icons.person, size: 45, color: Colors.white)
+                                  ? const Icon(
+                                      Icons.person,
+                                      size: 45,
+                                      color: Colors.white,
+                                    )
                                   : null,
                             ),
                             const SizedBox(height: 12),
-                            Text(userName,
-                                style: const TextStyle(
-                                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 18)),
+                            Text(
+                              userName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 18,
+                              ),
+                            ),
                             const SizedBox(height: 4),
-                            Text(userEmail,
-                                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+                            Text(
+                              userEmail,
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 13,
+                              ),
+                            ),
                             const SizedBox(height: 8),
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: AppTheme.accent.withOpacity(0.2),
                                 borderRadius: BorderRadius.circular(20),
@@ -8768,7 +11631,10 @@ class UserProfileScreen extends StatelessWidget {
                               child: Text(
                                 userRole.toUpperCase(),
                                 style: const TextStyle(
-                                    color: AppTheme.accent, fontSize: 11, fontWeight: FontWeight.bold),
+                                  color: AppTheme.accent,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
                           ],
@@ -8778,9 +11644,14 @@ class UserProfileScreen extends StatelessWidget {
 
                       Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('Work History',
-                            style: const TextStyle(
-                                fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                        child: Text(
+                          'Work History',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 12),
 
@@ -8793,19 +11664,24 @@ class UserProfileScreen extends StatelessWidget {
                           if (!snapshot.hasData) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 30),
-                              child: CircularProgressIndicator(color: Colors.white),
+                              child: CircularProgressIndicator(
+                                color: Colors.white,
+                              ),
                             );
                           }
                           final sessions = snapshot.data!.docs;
                           if (sessions.isEmpty) {
                             return const Padding(
                               padding: EdgeInsets.symmetric(vertical: 20),
-                              child: Text('No work history yet.',
-                                  style: TextStyle(color: Colors.white)),
+                              child: Text(
+                                'No work history yet.',
+                                style: TextStyle(color: Colors.white),
+                              ),
                             );
                           }
 
-                          final Map<String, List<QueryDocumentSnapshot>> grouped = {};
+                          final Map<String, List<QueryDocumentSnapshot>>
+                          grouped = {};
                           for (final doc in sessions) {
                             final data = doc.data() as Map<String, dynamic>;
                             final date = data['date'] ?? 'unknown';
@@ -8815,9 +11691,12 @@ class UserProfileScreen extends StatelessWidget {
                             ..sort((a, b) => b.compareTo(a));
 
                           return Column(
-                            children: List.generate(sortedDates.length, (dateIndex) {
+                            children: List.generate(sortedDates.length, (
+                              dateIndex,
+                            ) {
                               final date = sortedDates[dateIndex];
-                              final dayColor = _dayColors[dateIndex % _dayColors.length];
+                              final dayColor =
+                                  _dayColors[dateIndex % _dayColors.length];
                               final daySessions = grouped[date]!;
 
                               return Padding(
@@ -8830,60 +11709,93 @@ class UserProfileScreen extends StatelessWidget {
                                         Container(
                                           width: 10,
                                           height: 10,
-                                          decoration:
-                                              BoxDecoration(color: dayColor, shape: BoxShape.circle),
+                                          decoration: BoxDecoration(
+                                            color: dayColor,
+                                            shape: BoxShape.circle,
+                                          ),
                                         ),
                                         const SizedBox(width: 8),
                                         Text(
                                           _formatDateHeader(date),
                                           style: const TextStyle(
-                                              color: Colors.white,
-                                              fontWeight: FontWeight.bold,
-                                              fontSize: 15),
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 15,
+                                          ),
                                         ),
                                       ],
                                     ),
                                     const SizedBox(height: 10),
                                     ...daySessions.map((doc) {
-                                      final data = doc.data() as Map<String, dynamic>;
-                                      final isActive = data['status'] == 'active';
+                                      final data =
+                                          doc.data() as Map<String, dynamic>;
+                                      final isActive =
+                                          data['status'] == 'active';
 
                                       return Padding(
-                                        padding: const EdgeInsets.only(bottom: 10, left: 18),
+                                        padding: const EdgeInsets.only(
+                                          bottom: 10,
+                                          left: 18,
+                                        ),
                                         child: Container(
                                           decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(0.1),
-                                            borderRadius: BorderRadius.circular(14),
-                                            border:
-                                                Border(left: BorderSide(color: dayColor, width: 4)),
+                                            color: Colors.white.withOpacity(
+                                              0.1,
+                                            ),
+                                            borderRadius: BorderRadius.circular(
+                                              14,
+                                            ),
+                                            border: Border(
+                                              left: BorderSide(
+                                                color: dayColor,
+                                                width: 4,
+                                              ),
+                                            ),
                                           ),
                                           padding: const EdgeInsets.all(14),
                                           child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
                                             children: [
                                               Row(
-                                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                                mainAxisAlignment:
+                                                    MainAxisAlignment
+                                                        .spaceBetween,
                                                 children: [
                                                   Expanded(
                                                     child: Text(
                                                       '${data['machineName'] ?? ''} • ${data['siteName'] ?? ''}',
                                                       style: const TextStyle(
-                                                          color: Colors.white,
-                                                          fontWeight: FontWeight.bold,
-                                                          fontSize: 14),
+                                                        color: Colors.white,
+                                                        fontWeight:
+                                                            FontWeight.bold,
+                                                        fontSize: 14,
+                                                      ),
                                                     ),
                                                   ),
                                                   Container(
-                                                    padding: const EdgeInsets.symmetric(
-                                                        horizontal: 8, vertical: 3),
+                                                    padding:
+                                                        const EdgeInsets.symmetric(
+                                                          horizontal: 8,
+                                                          vertical: 3,
+                                                        ),
                                                     decoration: BoxDecoration(
-                                                      color: isActive ? Colors.green : Colors.grey,
-                                                      borderRadius: BorderRadius.circular(20),
+                                                      color: isActive
+                                                          ? Colors.green
+                                                          : Colors.grey,
+                                                      borderRadius:
+                                                          BorderRadius.circular(
+                                                            20,
+                                                          ),
                                                     ),
                                                     child: Text(
-                                                      isActive ? 'ACTIVE' : 'DONE',
+                                                      isActive
+                                                          ? 'ACTIVE'
+                                                          : 'DONE',
                                                       style: const TextStyle(
-                                                          color: Colors.white, fontSize: 10),
+                                                        color: Colors.white,
+                                                        fontSize: 10,
+                                                      ),
                                                     ),
                                                   ),
                                                 ],
@@ -8893,43 +11805,58 @@ class UserProfileScreen extends StatelessWidget {
                                                 'Started: ${_formatTime(data['createdAt'])}'
                                                 '${data['completedAt'] != null ? "  •  Ended: ${_formatTime(data['completedAt'])}" : ""}',
                                                 style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.6), fontSize: 11),
+                                                  color: Colors.white
+                                                      .withOpacity(0.6),
+                                                  fontSize: 11,
+                                                ),
                                               ),
-                                              if (data['startMeter'] != null) ...[
+                                              if (data['startMeter'] !=
+                                                  null) ...[
                                                 const SizedBox(height: 4),
                                                 Text(
                                                   'Start Meter: ${data['startMeter']}'
                                                   '${data['endMeter'] != null ? "  •  End Meter: ${data['endMeter']}" : ""}',
                                                   style: TextStyle(
-                                                      color: Colors.white.withOpacity(0.7),
-                                                      fontSize: 12),
+                                                    color: Colors.white
+                                                        .withOpacity(0.7),
+                                                    fontSize: 12,
+                                                  ),
                                                 ),
                                               ],
                                               const SizedBox(height: 8),
                                               FutureBuilder<List<int>>(
                                                 future: Future.wait([
                                                   _countLoadsForSession(doc.id),
-                                                  _totalSecondsForSession(doc.id),
+                                                  _totalSecondsForSession(
+                                                    doc.id,
+                                                  ),
                                                 ]),
                                                 builder: (context, futureSnap) {
                                                   if (!futureSnap.hasData) {
                                                     return const SizedBox(
                                                       height: 16,
                                                       width: 16,
-                                                      child: CircularProgressIndicator(
-                                                          strokeWidth: 2, color: Colors.white),
+                                                      child:
+                                                          CircularProgressIndicator(
+                                                            strokeWidth: 2,
+                                                            color: Colors.white,
+                                                          ),
                                                     );
                                                   }
-                                                  final count = futureSnap.data![0];
-                                                  final seconds = futureSnap.data![1];
+                                                  final count =
+                                                      futureSnap.data![0];
+                                                  final seconds =
+                                                      futureSnap.data![1];
                                                   return Row(
                                                     children: [
                                                       Icon(
                                                         userRole == 'driver'
                                                             ? Icons.checklist
-                                                            : Icons.local_shipping,
+                                                            : Icons
+                                                                  .local_shipping,
                                                         size: 14,
-                                                        color: Colors.white.withOpacity(0.7),
+                                                        color: Colors.white
+                                                            .withOpacity(0.7),
                                                       ),
                                                       const SizedBox(width: 4),
                                                       Text(
@@ -8937,18 +11864,29 @@ class UserProfileScreen extends StatelessWidget {
                                                             ? '$count tasks'
                                                             : '$count loads',
                                                         style: TextStyle(
-                                                            color: Colors.white.withOpacity(0.8),
-                                                            fontSize: 12),
+                                                          color: Colors.white
+                                                              .withOpacity(0.8),
+                                                          fontSize: 12,
+                                                        ),
                                                       ),
                                                       const SizedBox(width: 16),
-                                                      Icon(Icons.timer,
-                                                          size: 14,
-                                                          color: Colors.white.withOpacity(0.7)),
+                                                      Icon(
+                                                        Icons.timer,
+                                                        size: 14,
+                                                        color: Colors.white
+                                                            .withOpacity(0.7),
+                                                      ),
                                                       const SizedBox(width: 4),
-                                                      Text(_formatDuration(seconds),
-                                                          style: TextStyle(
-                                                              color: Colors.white.withOpacity(0.8),
-                                                              fontSize: 12)),
+                                                      Text(
+                                                        _formatDuration(
+                                                          seconds,
+                                                        ),
+                                                        style: TextStyle(
+                                                          color: Colors.white
+                                                              .withOpacity(0.8),
+                                                          fontSize: 12,
+                                                        ),
+                                                      ),
                                                     ],
                                                   );
                                                 },
@@ -8976,6 +11914,7 @@ class UserProfileScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- OWNER TEAM LIST SCREEN (all users) ----------------
 class OwnerTeamListScreen extends StatelessWidget {
   const OwnerTeamListScreen({super.key});
@@ -8996,23 +11935,35 @@ class OwnerTeamListScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text('Team',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'Team',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('users').snapshots(),
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final users = snapshot.data!.docs;
                     if (users.isEmpty) {
                       return const Center(
-                        child: Text('No team members yet.', style: TextStyle(color: Colors.white)),
+                        child: Text(
+                          'No team members yet.',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       );
                     }
 
@@ -9027,16 +11978,18 @@ class OwnerTeamListScreen extends StatelessWidget {
                         Color roleColor = role == 'admin'
                             ? Colors.blue
                             : role == 'owner'
-                                ? Colors.green
-                                : role == 'driver'
-                                    ? Colors.purple
-                                    : Colors.orange;
+                            ? Colors.green
+                            : role == 'driver'
+                            ? Colors.purple
+                            : Colors.orange;
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
                           child: Card(
                             elevation: 1,
-                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12),
+                            ),
                             child: ListTile(
                               leading: CircleAvatar(
                                 backgroundColor: roleColor.withOpacity(0.15),
@@ -9047,9 +12000,15 @@ class OwnerTeamListScreen extends StatelessWidget {
                                     ? Icon(Icons.person, color: roleColor)
                                     : null,
                               ),
-                              title: Text(data['name'] ?? '',
-                                  style: const TextStyle(fontWeight: FontWeight.bold)),
-                              subtitle: Text('${data['email'] ?? ''}\nRole: $role'),
+                              title: Text(
+                                data['name'] ?? '',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              subtitle: Text(
+                                '${data['email'] ?? ''}\nRole: $role',
+                              ),
                               isThreeLine: true,
                               trailing: const Icon(Icons.chevron_right),
                               onTap: () {
@@ -9081,6 +12040,7 @@ class OwnerTeamListScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- TEAM CATEGORY SCREEN (Supervisors / Drivers) ----------------
 class TeamCategoryScreen extends StatelessWidget {
   const TeamCategoryScreen({super.key});
@@ -9101,9 +12061,14 @@ class TeamCategoryScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    const Text('Team',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'Team',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -9166,7 +12131,11 @@ class RoleUserListScreen extends StatelessWidget {
   final String role;
   final String title;
 
-  const RoleUserListScreen({super.key, required this.role, required this.title});
+  const RoleUserListScreen({
+    super.key,
+    required this.role,
+    required this.title,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -9184,9 +12153,14 @@ class RoleUserListScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    Text(title,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -9198,12 +12172,17 @@ class RoleUserListScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final users = snapshot.data!.docs;
                     if (users.isEmpty) {
                       return Center(
-                        child: Text('No $title found.', style: const TextStyle(color: Colors.white)),
+                        child: Text(
+                          'No $title found.',
+                          style: const TextStyle(color: Colors.white),
+                        ),
                       );
                     }
 
@@ -9214,7 +12193,9 @@ class RoleUserListScreen extends StatelessWidget {
                         final doc = users[index];
                         final data = doc.data() as Map<String, dynamic>;
                         final photoBase64 = data['photoBase64'] as String?;
-                        final roleColor = role == 'driver' ? Colors.purple : Colors.orange;
+                        final roleColor = role == 'driver'
+                            ? Colors.purple
+                            : Colors.orange;
 
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 10),
@@ -9224,10 +12205,13 @@ class RoleUserListScreen extends StatelessWidget {
                               child: Card(
                                 elevation: 1,
                                 shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(12)),
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                                 child: ListTile(
                                   leading: CircleAvatar(
-                                    backgroundColor: roleColor.withOpacity(0.15),
+                                    backgroundColor: roleColor.withOpacity(
+                                      0.15,
+                                    ),
                                     backgroundImage: photoBase64 != null
                                         ? MemoryImage(base64Decode(photoBase64))
                                         : null,
@@ -9235,8 +12219,12 @@ class RoleUserListScreen extends StatelessWidget {
                                         ? Icon(Icons.person, color: roleColor)
                                         : null,
                                   ),
-                                  title: Text(data['name'] ?? '',
-                                      style: const TextStyle(fontWeight: FontWeight.bold)),
+                                  title: Text(
+                                    data['name'] ?? '',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
                                   subtitle: Text(data['email'] ?? ''),
                                   trailing: const Icon(Icons.chevron_right),
                                   onTap: () {
@@ -9268,6 +12256,7 @@ class RoleUserListScreen extends StatelessWidget {
     );
   }
 }
+
 // ---------------- TRUCK: SELECT TRUCK ----------------
 class TruckTypeScreen extends StatelessWidget {
   final String name;
@@ -9286,9 +12275,14 @@ class TruckTypeScreen extends StatelessWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Select Truck',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    const Text(
+                      'Select Truck',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                     IconButton(
                       icon: const Icon(Icons.logout, color: Colors.white),
                       onPressed: () async {
@@ -9296,7 +12290,9 @@ class TruckTypeScreen extends StatelessWidget {
                         if (context.mounted) {
                           Navigator.pushReplacement(
                             context,
-                            MaterialPageRoute(builder: (_) => const LoginScreen()),
+                            MaterialPageRoute(
+                              builder: (_) => const LoginScreen(),
+                            ),
                           );
                         }
                       },
@@ -9306,16 +12302,22 @@ class TruckTypeScreen extends StatelessWidget {
               ),
               Expanded(
                 child: StreamBuilder<QuerySnapshot>(
-                  stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+                  stream: FirebaseFirestore.instance
+                      .collection('trucks')
+                      .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final trucks = snapshot.data!.docs;
                     if (trucks.isEmpty) {
                       return const Center(
-                        child: Text('No trucks registered yet. Contact Admin.',
-                            style: TextStyle(color: Colors.white)),
+                        child: Text(
+                          'No trucks registered yet. Contact Admin.',
+                          style: TextStyle(color: Colors.white),
+                        ),
                       );
                     }
 
@@ -9323,7 +12325,8 @@ class TruckTypeScreen extends StatelessWidget {
                       padding: const EdgeInsets.all(16),
                       itemCount: trucks.length,
                       itemBuilder: (context, index) {
-                        final data = trucks[index].data() as Map<String, dynamic>;
+                        final data =
+                            trucks[index].data() as Map<String, dynamic>;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: DashboardMenuCard(
@@ -9348,16 +12351,20 @@ class TruckTypeScreen extends StatelessWidget {
                               if (existing.docs.isNotEmpty) {
                                 sessionId = existing.docs.first.id;
                               } else {
-                                final docRef =
-                                    await FirebaseFirestore.instance.collection('truck_sessions').add({
-                                  'driverUid': FirebaseAuth.instance.currentUser!.uid,
-                                  'driverName': name,
-                                  'truckId': trucks[index].id,
-                                  'truckNumber': data['truckNumber'] ?? '',
-                                  'date': dateString,
-                                  'status': 'active',
-                                  'createdAt': FieldValue.serverTimestamp(),
-                                });
+                                final docRef = await FirebaseFirestore.instance
+                                    .collection('truck_sessions')
+                                    .add({
+                                      'driverUid': FirebaseAuth
+                                          .instance
+                                          .currentUser!
+                                          .uid,
+                                      'driverName': name,
+                                      'truckId': trucks[index].id,
+                                      'truckNumber': data['truckNumber'] ?? '',
+                                      'date': dateString,
+                                      'status': 'active',
+                                      'createdAt': FieldValue.serverTimestamp(),
+                                    });
                                 sessionId = docRef.id;
                               }
 
@@ -9415,14 +12422,16 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
 
   Future<void> _submit() async {
     if (_selectedSiteId == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a site.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please select a site.')));
       return;
     }
     if (_codeController.text.trim().length != 4) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter the 4-digit supervisor code.')),
+        const SnackBar(
+          content: Text('Please enter the 4-digit supervisor code.'),
+        ),
       );
       return;
     }
@@ -9446,7 +12455,9 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
       if (supervisorMatch.docs.isEmpty) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Invalid code. Check with your supervisor.')),
+            const SnackBar(
+              content: Text('Invalid code. Check with your supervisor.'),
+            ),
           );
           setState(() => _isLoading = false);
         }
@@ -9466,18 +12477,20 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
       if (existing.docs.isNotEmpty) {
         sessionId = existing.docs.first.id;
       } else {
-        final docRef = await FirebaseFirestore.instance.collection('truck_sessions').add({
-          'driverUid': FirebaseAuth.instance.currentUser!.uid,
-          'driverName': widget.name,
-          'truckId': widget.truckId,
-          'truckNumber': widget.truckNumber,
-          'siteId': _selectedSiteId,
-          'siteName': _selectedSiteName,
-          'supervisorSessionId': supervisorMatch.docs.first.id,
-          'date': dateString,
-          'status': 'active',
-          'createdAt': FieldValue.serverTimestamp(),
-        });
+        final docRef = await FirebaseFirestore.instance
+            .collection('truck_sessions')
+            .add({
+              'driverUid': FirebaseAuth.instance.currentUser!.uid,
+              'driverName': widget.name,
+              'truckId': widget.truckId,
+              'truckNumber': widget.truckNumber,
+              'siteId': _selectedSiteId,
+              'siteName': _selectedSiteName,
+              'supervisorSessionId': supervisorMatch.docs.first.id,
+              'date': dateString,
+              'status': 'active',
+              'createdAt': FieldValue.serverTimestamp(),
+            });
         sessionId = docRef.id;
       }
 
@@ -9495,7 +12508,9 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
         );
       }
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error: $e')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $e')));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -9517,9 +12532,14 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    Text(widget.truckNumber,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      widget.truckNumber,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -9530,14 +12550,23 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('Select Working Site',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text(
+                          'Select Working Site',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         StreamBuilder<QuerySnapshot>(
-                          stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+                          stream: FirebaseFirestore.instance
+                              .collection('sites')
+                              .snapshots(),
                           builder: (context, snapshot) {
                             if (!snapshot.hasData) {
-                              return const CircularProgressIndicator(color: Colors.white);
+                              return const CircularProgressIndicator(
+                                color: Colors.white,
+                              );
                             }
                             final sites = snapshot.data!.docs;
                             return DropdownButtonFormField<String>(
@@ -9546,26 +12575,39 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
                               style: const TextStyle(color: Colors.white),
                               decoration: InputDecoration(
                                 hintText: 'Choose a site',
-                                hintStyle: TextStyle(color: Colors.white.withOpacity(0.6)),
-                                prefixIcon:
-                                    Icon(Icons.location_on, color: Colors.white.withOpacity(0.7)),
+                                hintStyle: TextStyle(
+                                  color: Colors.white.withOpacity(0.6),
+                                ),
+                                prefixIcon: Icon(
+                                  Icons.location_on,
+                                  color: Colors.white.withOpacity(0.7),
+                                ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                                  borderSide: BorderSide(
+                                    color: Colors.white.withOpacity(0.3),
+                                  ),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: AppTheme.accent),
+                                  borderSide: const BorderSide(
+                                    color: AppTheme.accent,
+                                  ),
                                 ),
                               ),
                               items: sites.map((doc) {
                                 final data = doc.data() as Map<String, dynamic>;
                                 return DropdownMenuItem<String>(
-                                    value: doc.id, child: Text(data['name'] ?? ''));
+                                  value: doc.id,
+                                  child: Text(data['name'] ?? ''),
+                                );
                               }).toList(),
                               onChanged: (val) {
-                                final selected = sites.firstWhere((d) => d.id == val);
-                                final data = selected.data() as Map<String, dynamic>;
+                                final selected = sites.firstWhere(
+                                  (d) => d.id == val,
+                                );
+                                final data =
+                                    selected.data() as Map<String, dynamic>;
                                 setState(() {
                                   _selectedSiteId = val;
                                   _selectedSiteName = data['name'];
@@ -9575,34 +12617,57 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
                           },
                         ),
                         const SizedBox(height: 20),
-                        const Text('Supervisor Code',
-                            style: TextStyle(fontWeight: FontWeight.bold, color: Colors.white)),
+                        const Text(
+                          'Supervisor Code',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.white,
+                          ),
+                        ),
                         const SizedBox(height: 8),
                         TextField(
                           controller: _codeController,
                           keyboardType: TextInputType.number,
                           maxLength: 4,
                           style: const TextStyle(
-                              color: Colors.white, fontSize: 20, letterSpacing: 6),
-                          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                            color: Colors.white,
+                            fontSize: 20,
+                            letterSpacing: 6,
+                          ),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.digitsOnly,
+                          ],
                           decoration: InputDecoration(
                             counterText: '',
                             hintText: '••••',
-                            hintStyle: TextStyle(color: Colors.white.withOpacity(0.4)),
-                            prefixIcon: Icon(Icons.vpn_key, color: Colors.white.withOpacity(0.7)),
+                            hintStyle: TextStyle(
+                              color: Colors.white.withOpacity(0.4),
+                            ),
+                            prefixIcon: Icon(
+                              Icons.vpn_key,
+                              color: Colors.white.withOpacity(0.7),
+                            ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide(color: Colors.white.withOpacity(0.3)),
+                              borderSide: BorderSide(
+                                color: Colors.white.withOpacity(0.3),
+                              ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(color: AppTheme.accent),
+                              borderSide: const BorderSide(
+                                color: AppTheme.accent,
+                              ),
                             ),
                           ),
                         ),
                         const SizedBox(height: 24),
                         _isLoading
-                            ? const Center(child: CircularProgressIndicator(color: Colors.white))
+                            ? const Center(
+                                child: CircularProgressIndicator(
+                                  color: Colors.white,
+                                ),
+                              )
                             : GradientButton(
                                 label: 'SUBMIT',
                                 icon: Icons.check,
@@ -9620,6 +12685,7 @@ class _TruckSiteSelectScreenState extends State<TruckSiteSelectScreen> {
     );
   }
 }
+
 // ---------------- TRUCK: WORK AREA ----------------
 class TruckWorkAreaScreen extends StatefulWidget {
   final String sessionId;
@@ -9652,7 +12718,10 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
       .collection('trips');
 
   Future<bool> _hasOngoingTrip() async {
-    final snap = await _tripsRef.where('status', isEqualTo: 'ongoing').limit(1).get();
+    final snap = await _tripsRef
+        .where('status', isEqualTo: 'ongoing')
+        .limit(1)
+        .get();
     return snap.docs.isNotEmpty;
   }
 
@@ -9698,7 +12767,11 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
     if (ongoing) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Complete the current trip before starting a new one.')),
+          const SnackBar(
+            content: Text(
+              'Complete the current trip before starting a new one.',
+            ),
+          ),
         );
       }
       return;
@@ -9709,19 +12782,26 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
     showDialog(
       context: context,
       builder: (_) => NewTripDialog(
-        onSubmit: (startSiteName, endSiteId, endSiteName, billNumber, cubeCount) async {
-          Navigator.pop(context);
-          await _tripsRef.add({
-            'startSiteName': startSiteName,
-            'endSiteId': endSiteId,
-            'endSiteName': endSiteName,
-            'billNumber': billNumber,
-            'cubeCount': cubeCount,
-            'status': 'ongoing',
-            'startedAt': FieldValue.serverTimestamp(),
-            'endedAt': null,
-          });
-        },
+        onSubmit:
+            (
+              startSiteName,
+              endSiteId,
+              endSiteName,
+              billNumber,
+              cubeCount,
+            ) async {
+              Navigator.pop(context);
+              await _tripsRef.add({
+                'startSiteName': startSiteName,
+                'endSiteId': endSiteId,
+                'endSiteName': endSiteName,
+                'billNumber': billNumber,
+                'cubeCount': cubeCount,
+                'status': 'ongoing',
+                'startedAt': FieldValue.serverTimestamp(),
+                'endedAt': null,
+              });
+            },
       ),
     );
   }
@@ -9734,19 +12814,23 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
         title: const Text('End Day'),
         content: const Text('Are you sure you want to end your work day?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
-              final totalKm = await TruckLocationService.stopTrackingAndCalculateDistance();
+              final totalKm =
+                  await TruckLocationService.stopTrackingAndCalculateDistance();
 
               await FirebaseFirestore.instance
                   .collection('truck_sessions')
                   .doc(widget.sessionId)
                   .update({
-                'status': 'completed',
-                'completedAt': FieldValue.serverTimestamp(),
-                'totalKm': totalKm,
-              });
+                    'status': 'completed',
+                    'completedAt': FieldValue.serverTimestamp(),
+                    'totalKm': totalKm,
+                  });
 
               // Columns: Date, Truck Number, Type, Location, Distance So Far (KM), Time
               GoogleSheetsService.sendRow(
@@ -9818,7 +12902,9 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
           ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
-              stream: _tripsRef.orderBy('startedAt', descending: true).snapshots(),
+              stream: _tripsRef
+                  .orderBy('startedAt', descending: true)
+                  .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) {
                   return const Center(child: CircularProgressIndicator());
@@ -9826,8 +12912,11 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
                 final trips = snapshot.data!.docs;
                 if (trips.isEmpty) {
                   return const Center(
-                      child: Text('No trips yet.\nTap "+ NEW TASK" to begin.',
-                          textAlign: TextAlign.center));
+                    child: Text(
+                      'No trips yet.\nTap "+ NEW TASK" to begin.',
+                      textAlign: TextAlign.center,
+                    ),
+                  );
                 }
 
                 return ListView.builder(
@@ -9860,19 +12949,28 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
                                   child: Text(
                                     '${data['startSiteName']} → ${data['endSiteName']}',
                                     style: const TextStyle(
-                                        fontWeight: FontWeight.bold, fontSize: 15),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 15,
+                                    ),
                                   ),
                                 ),
                                 Container(
-                                  padding:
-                                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 4,
+                                  ),
                                   decoration: BoxDecoration(
-                                    color: isOngoing ? Colors.green : Colors.grey[400],
+                                    color: isOngoing
+                                        ? Colors.green
+                                        : Colors.grey[400],
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
                                     isOngoing ? 'ONGOING' : 'DONE',
-                                    style: const TextStyle(color: Colors.white, fontSize: 11),
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 11,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -9880,20 +12978,27 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
                             const SizedBox(height: 8),
                             TripTimerText(
                               isOngoing: isOngoing,
-                              startedAt: (data['startedAt'] as Timestamp?)?.toDate(),
-                              endedAt: (data['endedAt'] as Timestamp?)?.toDate(),
+                              startedAt: (data['startedAt'] as Timestamp?)
+                                  ?.toDate(),
+                              endedAt: (data['endedAt'] as Timestamp?)
+                                  ?.toDate(),
                             ),
                             if (data['billNumber'] != null &&
                                 data['billNumber'].toString().isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              Text('Bill Number: ${data['billNumber']}',
-                                  style: const TextStyle(fontSize: 13)),
+                              Text(
+                                'Bill Number: ${data['billNumber']}',
+                                style: const TextStyle(fontSize: 13),
+                              ),
                             ],
                             const SizedBox(height: 6),
                             Text(
                               'Started: ${_formatTime(data['startedAt'] as Timestamp?)}'
                               '${data['endedAt'] != null ? "  •  Ended: ${_formatTime(data['endedAt'] as Timestamp?)}" : ""}',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              style: const TextStyle(
+                                fontSize: 12,
+                                color: Colors.grey,
+                              ),
                             ),
                             if (isOngoing) ...[
                               const SizedBox(height: 10),
@@ -9901,11 +13006,17 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
                                 width: double.infinity,
                                 child: ElevatedButton.icon(
                                   onPressed: () => _completeTrip(doc.id),
-                                  icon: const Icon(Icons.check, color: Colors.white),
-                                  label: const Text('COMPLETE TASK',
-                                      style: TextStyle(color: Colors.white)),
-                                  style:
-                                      ElevatedButton.styleFrom(backgroundColor: Colors.green[700]),
+                                  icon: const Icon(
+                                    Icons.check,
+                                    color: Colors.white,
+                                  ),
+                                  label: const Text(
+                                    'COMPLETE TASK',
+                                    style: TextStyle(color: Colors.white),
+                                  ),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.green[700],
+                                  ),
                                 ),
                               ),
                             ],
@@ -9935,8 +13046,13 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
             child: ElevatedButton.icon(
               onPressed: _showEndDayDialog,
               icon: const Icon(Icons.flag, color: Colors.white),
-              label: const Text('END DAY',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+              label: const Text(
+                'END DAY',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               style: ElevatedButton.styleFrom(backgroundColor: Colors.red[700]),
             ),
           ),
@@ -9948,8 +13064,14 @@ class _TruckWorkAreaScreenState extends State<TruckWorkAreaScreen> {
 
 // ---------------- NEW TRIP DIALOG (Truck) ----------------
 class NewTripDialog extends StatefulWidget {
-  final Function(String? startSiteName, String? endSiteId, String? endSiteName,
-      String? billNumber, String? cubeCount) onSubmit;
+  final Function(
+    String? startSiteName,
+    String? endSiteId,
+    String? endSiteName,
+    String? billNumber,
+    String? cubeCount,
+  )
+  onSubmit;
 
   const NewTripDialog({super.key, required this.onSubmit});
 
@@ -9979,7 +13101,9 @@ class _NewTripDialogState extends State<NewTripDialog> {
       _selectedStartSiteName,
       _selectedEndSiteId,
       _selectedEndSiteName,
-      _billNumberController.text.trim().isEmpty ? null : _billNumberController.text.trim(),
+      _billNumberController.text.trim().isEmpty
+          ? null
+          : _billNumberController.text.trim(),
       _cubeController.text.trim().isEmpty ? null : _cubeController.text.trim(),
     );
   }
@@ -9994,10 +13118,15 @@ class _NewTripDialogState extends State<NewTripDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Start Site', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'Start Site',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('sites')
+                  .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const CircularProgressIndicator();
                 final sites = snapshot.data!.docs;
@@ -10005,11 +13134,16 @@ class _NewTripDialogState extends State<NewTripDialog> {
                   initialValue: _selectedStartSiteId,
                   decoration: InputDecoration(
                     hintText: 'Choose start site',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   items: sites.map((doc) {
                     final data = doc.data() as Map<String, dynamic>;
-                    return DropdownMenuItem<String>(value: doc.id, child: Text(data['name'] ?? ''));
+                    return DropdownMenuItem<String>(
+                      value: doc.id,
+                      child: Text(data['name'] ?? ''),
+                    );
                   }).toList(),
                   onChanged: (val) {
                     final selected = sites.firstWhere((d) => d.id == val);
@@ -10023,10 +13157,15 @@ class _NewTripDialogState extends State<NewTripDialog> {
               },
             ),
             const SizedBox(height: 16),
-            const Text('End Site', style: TextStyle(fontWeight: FontWeight.bold)),
+            const Text(
+              'End Site',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 8),
             StreamBuilder<QuerySnapshot>(
-              stream: FirebaseFirestore.instance.collection('sites').snapshots(),
+              stream: FirebaseFirestore.instance
+                  .collection('sites')
+                  .snapshots(),
               builder: (context, snapshot) {
                 if (!snapshot.hasData) return const CircularProgressIndicator();
                 final sites = snapshot.data!.docs;
@@ -10034,11 +13173,16 @@ class _NewTripDialogState extends State<NewTripDialog> {
                   initialValue: _selectedEndSiteId,
                   decoration: InputDecoration(
                     hintText: 'Choose end site',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
                   ),
                   items: sites.map((doc) {
                     final data = doc.data() as Map<String, dynamic>;
-                    return DropdownMenuItem<String>(value: doc.id, child: Text(data['name'] ?? ''));
+                    return DropdownMenuItem<String>(
+                      value: doc.id,
+                      child: Text(data['name'] ?? ''),
+                    );
                   }).toList(),
                   onChanged: (val) {
                     final selected = sites.firstWhere((d) => d.id == val);
@@ -10058,7 +13202,9 @@ class _NewTripDialogState extends State<NewTripDialog> {
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               decoration: InputDecoration(
                 labelText: 'Bill Number (optional)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -10067,27 +13213,38 @@ class _NewTripDialogState extends State<NewTripDialog> {
               keyboardType: TextInputType.number,
               decoration: InputDecoration(
                 labelText: 'Cube (Quantity)',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10)),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
               ),
             ),
             if (_errorText.isNotEmpty) ...[
               const SizedBox(height: 12),
-              Text(_errorText, style: const TextStyle(color: Colors.red, fontSize: 13)),
+              Text(
+                _errorText,
+                style: const TextStyle(color: Colors.red, fontSize: 13),
+              ),
             ],
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         ElevatedButton(
           onPressed: _handleSubmit,
-          style: ElevatedButton.styleFrom(backgroundColor: Colors.deepOrange[800]),
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Colors.deepOrange[800],
+          ),
           child: const Text('START', style: TextStyle(color: Colors.white)),
         ),
       ],
     );
   }
 }
+
 // ---------------- TRUCK MANAGEMENT SCREEN (Admin) ----------------
 class TruckManagementScreen extends StatefulWidget {
   const TruckManagementScreen({super.key});
@@ -10110,11 +13267,14 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
       return;
     }
 
-    final existingTrucks = await FirebaseFirestore.instance.collection('trucks').get();
+    final existingTrucks = await FirebaseFirestore.instance
+        .collection('trucks')
+        .get();
     final normalizedEntry = enteredTruckNumber.trim().toUpperCase();
     final isDuplicate = existingTrucks.docs.any((doc) {
       final data = doc.data();
-      final existingNumber = (data['truckNumber'] as String?)?.trim().toUpperCase() ?? '';
+      final existingNumber =
+          (data['truckNumber'] as String?)?.trim().toUpperCase() ?? '';
       return existingNumber == normalizedEntry;
     });
 
@@ -10173,7 +13333,9 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                   decoration: InputDecoration(
                     labelText: 'Truck Number / Plate',
                     prefixIcon: const Icon(Icons.local_shipping),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -10183,14 +13345,17 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                       .where('canDriveTruck', isEqualTo: true)
                       .snapshots(),
                   builder: (context, snapshot) {
-                    if (!snapshot.hasData) return const CircularProgressIndicator();
+                    if (!snapshot.hasData)
+                      return const CircularProgressIndicator();
                     final drivers = snapshot.data!.docs;
                     return DropdownButtonFormField<String>(
                       initialValue: _selectedDriverUid,
                       decoration: InputDecoration(
                         labelText: 'Assign Driver (optional)',
                         prefixIcon: const Icon(Icons.person),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
                       ),
                       items: drivers.map((doc) {
                         final data = doc.data() as Map<String, dynamic>;
@@ -10217,10 +13382,15 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                   child: ElevatedButton.icon(
                     onPressed: _addTruck,
                     icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text('ADD TRUCK', style: TextStyle(color: Colors.white)),
+                    label: const Text(
+                      'ADD TRUCK',
+                      style: TextStyle(color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepOrange[800],
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
@@ -10258,13 +13428,20 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                           margin: const EdgeInsets.only(bottom: 10),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                              child: const Icon(Icons.local_shipping, color: Colors.deepOrange),
+                              backgroundColor: Colors.deepOrange.withOpacity(
+                                0.15,
+                              ),
+                              child: const Icon(
+                                Icons.local_shipping,
+                                color: Colors.deepOrange,
+                              ),
                             ),
                             title: Text(data['truckNumber'] ?? ''),
-                            subtitle: Text(data['assignedDriverName'] != null
-                                ? 'Driver: ${data['assignedDriverName']}'
-                                : 'No driver assigned'),
+                            subtitle: Text(
+                              data['assignedDriverName'] != null
+                                  ? 'Driver: ${data['assignedDriverName']}'
+                                  : 'No driver assigned',
+                            ),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
                               onPressed: () => confirmDelete(
@@ -10298,15 +13475,18 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
     );
   }
 }
+
 // ---------------- FUEL STATION MANAGEMENT SCREEN ----------------
 class FuelStationManagementScreen extends StatefulWidget {
   const FuelStationManagementScreen({super.key});
 
   @override
-  State<FuelStationManagementScreen> createState() => _FuelStationManagementScreenState();
+  State<FuelStationManagementScreen> createState() =>
+      _FuelStationManagementScreenState();
 }
 
-class _FuelStationManagementScreenState extends State<FuelStationManagementScreen> {
+class _FuelStationManagementScreenState
+    extends State<FuelStationManagementScreen> {
   final _stationNameController = TextEditingController();
   final _stationLocationController = TextEditingController();
 
@@ -10320,12 +13500,14 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
     }
 
     try {
-      final existingStations =
-          await FirebaseFirestore.instance.collection('fuel_stations').get();
+      final existingStations = await FirebaseFirestore.instance
+          .collection('fuel_stations')
+          .get();
       final normalizedEntry = enteredName.toUpperCase();
       final isDuplicate = existingStations.docs.any((doc) {
         final data = doc.data();
-        final existingName = (data['name'] as String?)?.trim().toUpperCase() ?? '';
+        final existingName =
+            (data['name'] as String?)?.trim().toUpperCase() ?? '';
         return existingName == normalizedEntry;
       });
 
@@ -10365,7 +13547,10 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
   }
 
   Future<void> _deleteFuelStation(String docId) async {
-    await FirebaseFirestore.instance.collection('fuel_stations').doc(docId).delete();
+    await FirebaseFirestore.instance
+        .collection('fuel_stations')
+        .doc(docId)
+        .delete();
   }
 
   @override
@@ -10386,7 +13571,9 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
                   decoration: InputDecoration(
                     labelText: 'Station Name',
                     prefixIcon: const Icon(Icons.local_gas_station),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -10395,7 +13582,9 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
                   decoration: InputDecoration(
                     labelText: 'Location (optional)',
                     prefixIcon: const Icon(Icons.map),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -10405,10 +13594,15 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
                   child: ElevatedButton.icon(
                     onPressed: _addFuelStation,
                     icon: const Icon(Icons.add, color: Colors.white),
-                    label: const Text('ADD FUEL STATION', style: TextStyle(color: Colors.white)),
+                    label: const Text(
+                      'ADD FUEL STATION',
+                      style: TextStyle(color: Colors.white),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.deepOrange[800],
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
                     ),
                   ),
                 ),
@@ -10427,7 +13621,9 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
-                  return const Center(child: Text('No fuel stations added yet.'));
+                  return const Center(
+                    child: Text('No fuel stations added yet.'),
+                  );
                 }
 
                 final stations = snapshot.data!.docs;
@@ -10446,14 +13642,20 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
                           margin: const EdgeInsets.only(bottom: 10),
                           child: ListTile(
                             leading: CircleAvatar(
-                              backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                              child:
-                                  const Icon(Icons.local_gas_station, color: Colors.deepOrange),
+                              backgroundColor: Colors.deepOrange.withOpacity(
+                                0.15,
+                              ),
+                              child: const Icon(
+                                Icons.local_gas_station,
+                                color: Colors.deepOrange,
+                              ),
                             ),
                             title: Text(data['name'] ?? ''),
-                            subtitle: Text((data['location'] ?? '').toString().isEmpty
-                                ? 'No location set'
-                                : data['location']),
+                            subtitle: Text(
+                              (data['location'] ?? '').toString().isEmpty
+                                  ? 'No location set'
+                                  : data['location'],
+                            ),
                             trailing: IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
                               onPressed: () => confirmDelete(
@@ -10478,12 +13680,606 @@ class _FuelStationManagementScreenState extends State<FuelStationManagementScree
     );
   }
 }
+
+// ---------------- WEBSITE CONTENT MANAGEMENT SCREEN (web-only content, Admin) ----------------
+class WebsiteContentManagementScreen extends StatefulWidget {
+  const WebsiteContentManagementScreen({super.key});
+
+  @override
+  State<WebsiteContentManagementScreen> createState() =>
+      _WebsiteContentManagementScreenState();
+}
+
+class _WebsiteContentManagementScreenState
+    extends State<WebsiteContentManagementScreen> {
+  final _heroTitleController = TextEditingController();
+  final _heroSubtitleController = TextEditingController();
+  final _aboutTextController = TextEditingController();
+  final _whatsappController = TextEditingController();
+  bool _loadingContent = true;
+  bool _savingContent = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadContent();
+  }
+
+  @override
+  void dispose() {
+    _heroTitleController.dispose();
+    _heroSubtitleController.dispose();
+    _aboutTextController.dispose();
+    _whatsappController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadContent() async {
+    final doc = await FirebaseFirestore.instance
+        .collection('website_content')
+        .doc('main')
+        .get();
+    final data = doc.data();
+    if (data != null) {
+      _heroTitleController.text = data['heroTitle'] ?? '';
+      _heroSubtitleController.text = data['heroSubtitle'] ?? '';
+      _aboutTextController.text = data['aboutText'] ?? '';
+      _whatsappController.text = data['whatsappNumber'] ?? '';
+    }
+    if (mounted) setState(() => _loadingContent = false);
+  }
+
+  Future<void> _saveContent() async {
+    setState(() => _savingContent = true);
+    try {
+      await FirebaseFirestore.instance
+          .collection('website_content')
+          .doc('main')
+          .set({
+            'heroTitle': _heroTitleController.text.trim(),
+            'heroSubtitle': _heroSubtitleController.text.trim(),
+            'aboutText': _aboutTextController.text.trim(),
+            'whatsappNumber': _whatsappController.text.trim(),
+          }, SetOptions(merge: true));
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Website content saved.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to save: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _savingContent = false);
+    }
+  }
+
+  Future<void> _addGalleryPhoto() async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        maxWidth: 1200,
+        imageQuality: 70,
+      );
+      if (pickedFile == null) return;
+
+      final bytes = await pickedFile.readAsBytes();
+      final base64String = base64Encode(bytes);
+
+      // Firestore document limit is 1MB; keep a safety margin
+      if (base64String.length > 700000) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Image too large. Please choose a smaller photo.'),
+            ),
+          );
+        }
+        return;
+      }
+
+      final existing = await FirebaseFirestore.instance
+          .collection('website_gallery')
+          .get();
+      int maxOrder = -1;
+      for (final doc in existing.docs) {
+        final order = (doc.data()['order'] as num?)?.toInt() ?? -1;
+        if (order > maxOrder) maxOrder = order;
+      }
+
+      await FirebaseFirestore.instance.collection('website_gallery').add({
+        'imageBase64': base64String,
+        'caption': '',
+        'order': maxOrder + 1,
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Photo added.')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error adding photo: $e')));
+      }
+    }
+  }
+
+  Future<void> _editGalleryCaption(String docId, String currentCaption) async {
+    final controller = TextEditingController(text: currentCaption);
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Edit Caption'),
+        content: TextField(
+          controller: controller,
+          decoration: const InputDecoration(labelText: 'Caption'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+    if (result != null) {
+      await FirebaseFirestore.instance
+          .collection('website_gallery')
+          .doc(docId)
+          .update({'caption': result});
+    }
+  }
+
+  Future<void> _deleteGalleryPhoto(String docId) async {
+    await FirebaseFirestore.instance
+        .collection('website_gallery')
+        .doc(docId)
+        .delete();
+  }
+
+  void _showServiceDialog({String? docId, Map<String, dynamic>? existingData}) {
+    final titleController = TextEditingController(
+      text: existingData?['title'] ?? '',
+    );
+    final descController = TextEditingController(
+      text: existingData?['description'] ?? '',
+    );
+    String selectedIcon =
+        (existingData?['iconName'] as String?) ??
+        kWebsiteServiceIcons.keys.first;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          title: Text(docId == null ? 'Add Service' : 'Edit Service'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: titleController,
+                  decoration: const InputDecoration(labelText: 'Title'),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: descController,
+                  decoration: const InputDecoration(labelText: 'Description'),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String>(
+                  initialValue: selectedIcon,
+                  decoration: const InputDecoration(labelText: 'Icon'),
+                  items: kWebsiteServiceIcons.entries
+                      .map(
+                        (e) => DropdownMenuItem(
+                          value: e.key,
+                          child: Row(
+                            children: [
+                              Icon(e.value, size: 18),
+                              const SizedBox(width: 8),
+                              Text(e.key),
+                            ],
+                          ),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (val) =>
+                      setDialogState(() => selectedIcon = val ?? selectedIcon),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final title = titleController.text.trim();
+                final description = descController.text.trim();
+                if (title.isEmpty) return;
+
+                if (docId == null) {
+                  final existing = await FirebaseFirestore.instance
+                      .collection('website_services')
+                      .get();
+                  int maxOrder = -1;
+                  for (final doc in existing.docs) {
+                    final order = (doc.data()['order'] as num?)?.toInt() ?? -1;
+                    if (order > maxOrder) maxOrder = order;
+                  }
+                  await FirebaseFirestore.instance
+                      .collection('website_services')
+                      .add({
+                        'title': title,
+                        'description': description,
+                        'iconName': selectedIcon,
+                        'order': maxOrder + 1,
+                        'createdAt': FieldValue.serverTimestamp(),
+                      });
+                } else {
+                  await FirebaseFirestore.instance
+                      .collection('website_services')
+                      .doc(docId)
+                      .update({
+                        'title': title,
+                        'description': description,
+                        'iconName': selectedIcon,
+                      });
+                }
+                if (dialogContext.mounted) Navigator.pop(dialogContext);
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _deleteService(String docId) async {
+    await FirebaseFirestore.instance
+        .collection('website_services')
+        .doc(docId)
+        .delete();
+  }
+
+  Widget _buildHeroAboutTab() {
+    if (_loadingContent) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _heroTitleController,
+            decoration: InputDecoration(
+              labelText: 'Hero Title',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _heroSubtitleController,
+            maxLines: 2,
+            decoration: InputDecoration(
+              labelText: 'Hero Subtitle',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _aboutTextController,
+            maxLines: 5,
+            decoration: InputDecoration(
+              labelText: 'About Text',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _whatsappController,
+            decoration: InputDecoration(
+              labelText: 'WhatsApp Number',
+              hintText: 'e.g. 94XXXXXXXXX',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton(
+              onPressed: _savingContent ? null : _saveContent,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo[800],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                _savingContent ? 'Saving...' : 'SAVE CHANGES',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildGalleryTab() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: _addGalleryPhoto,
+              icon: const Icon(Icons.add_a_photo, color: Colors.white),
+              label: const Text(
+                'ADD PHOTO',
+                style: TextStyle(color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo[800],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('website_gallery')
+                .orderBy('order')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return const Center(child: Text('No photos added yet.'));
+              }
+              return GridView.builder(
+                padding: const EdgeInsets.all(16),
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  childAspectRatio: 0.85,
+                ),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final doc = docs[index];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final caption = (data['caption'] ?? '').toString();
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
+                        Expanded(
+                          child: Image.memory(
+                            base64Decode(data['imageBase64']),
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                          ),
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 4,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  caption.isEmpty ? 'No caption' : caption,
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: caption.isEmpty
+                                        ? Colors.grey
+                                        : Colors.black87,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                              InkWell(
+                                onTap: () =>
+                                    _editGalleryCaption(doc.id, caption),
+                                child: const Icon(
+                                  Icons.edit,
+                                  size: 16,
+                                  color: Colors.indigo,
+                                ),
+                              ),
+                              const SizedBox(width: 6),
+                              InkWell(
+                                onTap: () => confirmDelete(
+                                  context: context,
+                                  title: 'Delete Photo?',
+                                  message:
+                                      'Are you sure you want to delete this photo? This cannot be undone.',
+                                  onConfirm: () => _deleteGalleryPhoto(doc.id),
+                                ),
+                                child: const Icon(
+                                  Icons.delete,
+                                  size: 16,
+                                  color: Colors.red,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildServicesTab() {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(16),
+          child: SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () => _showServiceDialog(),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: const Text(
+                'ADD SERVICE',
+                style: TextStyle(color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.indigo[800],
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('website_services')
+                .orderBy('order')
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final docs = snapshot.data?.docs ?? [];
+              if (docs.isEmpty) {
+                return const Center(child: Text('No services added yet.'));
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: docs.length,
+                itemBuilder: (context, index) {
+                  final doc = docs[index];
+                  final data = doc.data() as Map<String, dynamic>;
+                  final iconName = (data['iconName'] ?? '').toString();
+                  final icon = kWebsiteServiceIcons[iconName] ?? Icons.build;
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.indigo.withOpacity(0.15),
+                        child: Icon(icon, color: Colors.indigo),
+                      ),
+                      title: Text(data['title'] ?? ''),
+                      subtitle: Text(data['description'] ?? ''),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.edit, color: Colors.indigo),
+                            onPressed: () => _showServiceDialog(
+                              docId: doc.id,
+                              existingData: data,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.delete, color: Colors.red),
+                            onPressed: () => confirmDelete(
+                              context: context,
+                              title: 'Delete Service?',
+                              message:
+                                  'Are you sure you want to delete this service? This cannot be undone.',
+                              onConfirm: () => _deleteService(doc.id),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('Website Content'),
+          backgroundColor: Colors.indigo[800],
+          bottom: const TabBar(
+            tabs: [
+              Tab(text: 'Hero & About'),
+              Tab(text: 'Gallery'),
+              Tab(text: 'Services'),
+            ],
+          ),
+        ),
+        body: TabBarView(
+          children: [
+            _buildHeroAboutTab(),
+            _buildGalleryTab(),
+            _buildServicesTab(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------- TRUCK PROFILE SCREEN (Admin/Owner) ----------------
 class TruckProfileScreen extends StatelessWidget {
   final String truckId;
   final String truckNumber;
 
-  const TruckProfileScreen({super.key, required this.truckId, required this.truckNumber});
+  const TruckProfileScreen({
+    super.key,
+    required this.truckId,
+    required this.truckNumber,
+  });
 
   void _showChangeDriverDialog(BuildContext context, String? currentDriverUid) {
     showDialog(
@@ -10524,15 +14320,23 @@ class TruckProfileScreen extends StatelessWidget {
                     return ListTile(
                       leading: CircleAvatar(
                         backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                        child: const Icon(Icons.person, color: Colors.deepOrange),
+                        child: const Icon(
+                          Icons.person,
+                          color: Colors.deepOrange,
+                        ),
                       ),
                       title: Text(data['name'] ?? ''),
-                      trailing: isSelected ? const Icon(Icons.check, color: Colors.deepOrange) : null,
+                      trailing: isSelected
+                          ? const Icon(Icons.check, color: Colors.deepOrange)
+                          : null,
                       onTap: () async {
-                        await FirebaseFirestore.instance.collection('trucks').doc(truckId).update({
-                          'assignedDriverUid': uid,
-                          'assignedDriverName': data['name'] ?? '',
-                        });
+                        await FirebaseFirestore.instance
+                            .collection('trucks')
+                            .doc(truckId)
+                            .update({
+                              'assignedDriverUid': uid,
+                              'assignedDriverName': data['name'] ?? '',
+                            });
                         if (context.mounted) Navigator.pop(context);
                       },
                     );
@@ -10564,7 +14368,11 @@ class TruckProfileScreen extends StatelessWidget {
   String _formatDateHeader(String dateString) {
     final parts = dateString.split('-');
     if (parts.length != 3) return dateString;
-    final date = DateTime(int.parse(parts[0]), int.parse(parts[1]), int.parse(parts[2]));
+    final date = DateTime(
+      int.parse(parts[0]),
+      int.parse(parts[1]),
+      int.parse(parts[2]),
+    );
     final today = DateTime.now();
     final todayStr =
         "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
@@ -10573,13 +14381,32 @@ class TruckProfileScreen extends StatelessWidget {
     final yestStr =
         "${yesterday.year}-${yesterday.month.toString().padLeft(2, '0')}-${yesterday.day.toString().padLeft(2, '0')}";
     if (dateString == yestStr) return 'Yesterday';
-    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
+    ];
     return '${date.day} ${months[date.month - 1]} ${date.year}';
   }
 
   static const List<Color> _dayColors = [
-    Color(0xFF3D9DE0), Color(0xFF4CAF7D), Color(0xFFE0A93D), Color(0xFF9B6BE0),
-    Color(0xFFE05C97), Color(0xFF3DBFC4), Color(0xFFEF6C57), Color(0xFF7D8CE0),
+    Color(0xFF3D9DE0),
+    Color(0xFF4CAF7D),
+    Color(0xFFE0A93D),
+    Color(0xFF9B6BE0),
+    Color(0xFFE05C97),
+    Color(0xFF3DBFC4),
+    Color(0xFFEF6C57),
+    Color(0xFF7D8CE0),
   ];
 
   @override
@@ -10598,9 +14425,14 @@ class TruckProfileScreen extends StatelessWidget {
                       icon: const Icon(Icons.arrow_back, color: Colors.white),
                       onPressed: () => Navigator.pop(context),
                     ),
-                    Text(truckNumber,
-                        style: const TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white)),
+                    Text(
+                      truckNumber,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -10612,7 +14444,9 @@ class TruckProfileScreen extends StatelessWidget {
                       .snapshots(),
                   builder: (context, snapshot) {
                     if (!snapshot.hasData) {
-                      return const Center(child: CircularProgressIndicator(color: Colors.white));
+                      return const Center(
+                        child: CircularProgressIndicator(color: Colors.white),
+                      );
                     }
                     final sessions = snapshot.data!.docs;
 
@@ -10637,9 +14471,13 @@ class TruckProfileScreen extends StatelessWidget {
                                 .doc(truckId)
                                 .snapshots(),
                             builder: (context, truckSnap) {
-                              final truckData = truckSnap.data?.data() as Map<String, dynamic>?;
-                              final assignedDriverName = truckData?['assignedDriverName'];
-                              final assignedDriverUid = truckData?['assignedDriverUid'];
+                              final truckData =
+                                  truckSnap.data?.data()
+                                      as Map<String, dynamic>?;
+                              final assignedDriverName =
+                                  truckData?['assignedDriverName'];
+                              final assignedDriverUid =
+                                  truckData?['assignedDriverUid'];
 
                               return GlassCard(
                                 child: Column(
@@ -10648,47 +14486,81 @@ class TruckProfileScreen extends StatelessWidget {
                                       activeSession != null
                                           ? Icons.play_circle_fill
                                           : Icons.pause_circle,
-                                      color: activeSession != null ? Colors.green : Colors.grey,
+                                      color: activeSession != null
+                                          ? Colors.green
+                                          : Colors.grey,
                                       size: 36,
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
-                                      activeSession != null ? 'Currently Active' : 'Not Working Now',
+                                      activeSession != null
+                                          ? 'Currently Active'
+                                          : 'Not Working Now',
                                       style: const TextStyle(
-                                          color: Colors.white,
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 16),
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 16,
+                                      ),
                                     ),
                                     if (activeSession != null) ...[
                                       const SizedBox(height: 8),
                                       Text(
                                         'Site: ${(activeSession.data() as Map)['siteName'] ?? '-'}',
-                                        style: const TextStyle(color: Colors.white, fontSize: 13),
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 13,
+                                        ),
                                       ),
                                     ],
-                                    const Divider(color: Colors.white24, height: 24),
+                                    const Divider(
+                                      color: Colors.white24,
+                                      height: 24,
+                                    ),
                                     Row(
-                                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
                                       children: [
                                         Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
                                           children: [
-                                            Text('Assigned Driver',
-                                                style: TextStyle(
-                                                    color: Colors.white.withOpacity(0.6), fontSize: 11)),
-                                            Text(assignedDriverName ?? 'Not assigned',
-                                                style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 14)),
+                                            Text(
+                                              'Assigned Driver',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.6,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            Text(
+                                              assignedDriverName ??
+                                                  'Not assigned',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
                                           ],
                                         ),
                                         TextButton.icon(
                                           onPressed: () =>
-                                              _showChangeDriverDialog(context, assignedDriverUid),
-                                          icon: const Icon(Icons.edit, size: 16, color: AppTheme.accent),
-                                          label: const Text('Change',
-                                              style: TextStyle(color: AppTheme.accent)),
+                                              _showChangeDriverDialog(
+                                                context,
+                                                assignedDriverUid,
+                                              ),
+                                          icon: const Icon(
+                                            Icons.edit,
+                                            size: 16,
+                                            color: AppTheme.accent,
+                                          ),
+                                          label: const Text(
+                                            'Change',
+                                            style: TextStyle(
+                                              color: AppTheme.accent,
+                                            ),
+                                          ),
                                         ),
                                       ],
                                     ),
@@ -10698,142 +14570,226 @@ class TruckProfileScreen extends StatelessWidget {
                             },
                           ),
                           const SizedBox(height: 20),
-                          const Text('History',
-                              style: TextStyle(
-                                  fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                          const Text(
+                            'History',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
+                          ),
                           const SizedBox(height: 12),
                           if (sessions.isEmpty)
-                            const Text('No history yet.', style: TextStyle(color: Colors.white))
+                            const Text(
+                              'No history yet.',
+                              style: TextStyle(color: Colors.white),
+                            )
                           else
-                            Builder(builder: (context) {
-                              final Map<String, List<QueryDocumentSnapshot>> grouped = {};
-                              for (final doc in sessions) {
-                                final data = doc.data() as Map<String, dynamic>;
-                                final date = data['date'] ?? 'unknown';
-                                grouped.putIfAbsent(date, () => []).add(doc);
-                              }
-                              final sortedDates = grouped.keys.toList()..sort((a, b) => b.compareTo(a));
+                            Builder(
+                              builder: (context) {
+                                final Map<String, List<QueryDocumentSnapshot>>
+                                grouped = {};
+                                for (final doc in sessions) {
+                                  final data =
+                                      doc.data() as Map<String, dynamic>;
+                                  final date = data['date'] ?? 'unknown';
+                                  grouped.putIfAbsent(date, () => []).add(doc);
+                                }
+                                final sortedDates = grouped.keys.toList()
+                                  ..sort((a, b) => b.compareTo(a));
 
-                              return Column(
-                                children: List.generate(sortedDates.length, (dateIndex) {
-                                  final date = sortedDates[dateIndex];
-                                  final dayColor = _dayColors[dateIndex % _dayColors.length];
-                                  final daySessions = grouped[date]!;
+                                return Column(
+                                  children: List.generate(sortedDates.length, (
+                                    dateIndex,
+                                  ) {
+                                    final date = sortedDates[dateIndex];
+                                    final dayColor =
+                                        _dayColors[dateIndex %
+                                            _dayColors.length];
+                                    final daySessions = grouped[date]!;
 
-                                  return Padding(
-                                    padding: const EdgeInsets.only(bottom: 20),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Row(
-                                          children: [
-                                            Container(
-                                              width: 10, height: 10,
-                                              decoration: BoxDecoration(
-                                                  color: dayColor, shape: BoxShape.circle),
-                                            ),
-                                            const SizedBox(width: 8),
-                                            Text(_formatDateHeader(date),
+                                    return Padding(
+                                      padding: const EdgeInsets.only(
+                                        bottom: 20,
+                                      ),
+                                      child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Row(
+                                            children: [
+                                              Container(
+                                                width: 10,
+                                                height: 10,
+                                                decoration: BoxDecoration(
+                                                  color: dayColor,
+                                                  shape: BoxShape.circle,
+                                                ),
+                                              ),
+                                              const SizedBox(width: 8),
+                                              Text(
+                                                _formatDateHeader(date),
                                                 style: const TextStyle(
-                                                    color: Colors.white,
-                                                    fontWeight: FontWeight.bold,
-                                                    fontSize: 15)),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 10),
-                                        ...daySessions.map((doc) {
-                                          final data = doc.data() as Map<String, dynamic>;
-                                          final isActive = data['status'] == 'active';
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontSize: 15,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                          const SizedBox(height: 10),
+                                          ...daySessions.map((doc) {
+                                            final data =
+                                                doc.data()
+                                                    as Map<String, dynamic>;
+                                            final isActive =
+                                                data['status'] == 'active';
 
-                                          return Padding(
-                                            padding: const EdgeInsets.only(bottom: 10, left: 18),
-                                            child: Container(
-                                              decoration: BoxDecoration(
-                                                color: Colors.white.withOpacity(0.1),
-                                                borderRadius: BorderRadius.circular(14),
-                                                border: Border(
-                                                    left: BorderSide(color: dayColor, width: 4)),
+                                            return Padding(
+                                              padding: const EdgeInsets.only(
+                                                bottom: 10,
+                                                left: 18,
                                               ),
-                                              padding: const EdgeInsets.all(14),
-                                              child: Column(
-                                                crossAxisAlignment: CrossAxisAlignment.start,
-                                                children: [
-                                                  Row(
-                                                    mainAxisAlignment:
-                                                        MainAxisAlignment.spaceBetween,
-                                                    children: [
-                                                      Expanded(
-                                                        child: Text(
-                                                          '${data['siteName'] ?? ''} • ${data['driverName'] ?? ''}',
-                                                          style: const TextStyle(
-                                                              color: Colors.white,
-                                                              fontWeight: FontWeight.bold,
-                                                              fontSize: 14),
-                                                        ),
-                                                      ),
-                                                      Container(
-                                                        padding: const EdgeInsets.symmetric(
-                                                            horizontal: 8, vertical: 3),
-                                                        decoration: BoxDecoration(
-                                                          color: isActive
-                                                              ? Colors.green
-                                                              : Colors.grey,
-                                                          borderRadius: BorderRadius.circular(20),
-                                                        ),
-                                                        child: Text(
-                                                          isActive ? 'ACTIVE' : 'DONE',
-                                                          style: const TextStyle(
-                                                              color: Colors.white, fontSize: 10),
-                                                        ),
-                                                      ),
-                                                    ],
+                                              child: Container(
+                                                decoration: BoxDecoration(
+                                                  color: Colors.white
+                                                      .withOpacity(0.1),
+                                                  borderRadius:
+                                                      BorderRadius.circular(14),
+                                                  border: Border(
+                                                    left: BorderSide(
+                                                      color: dayColor,
+                                                      width: 4,
+                                                    ),
                                                   ),
-                                                  const SizedBox(height: 4),
-                                                  Text(
-                                                    'Started: ${_formatTime(data['createdAt'] as Timestamp?)}'
-                                                    '${data['completedAt'] != null ? "  •  Ended: ${_formatTime(data['completedAt'] as Timestamp?)}" : ""}',
-                                                    style: TextStyle(
-                                                        color: Colors.white.withOpacity(0.6),
-                                                        fontSize: 11),
-                                                  ),
-                                                  const SizedBox(height: 8),
-                                                  StreamBuilder<QuerySnapshot>(
-                                                    stream: FirebaseFirestore.instance
-                                                        .collection('truck_sessions')
-                                                        .doc(doc.id)
-                                                        .collection('trips')
-                                                        .snapshots(),
-                                                    builder: (context, tripSnap) {
-                                                      if (!tripSnap.hasData) {
-                                                        return const SizedBox.shrink();
-                                                      }
-                                                      final tripCount = tripSnap.data!.docs.length;
-                                                      return Row(
-                                                        children: [
-                                                          Icon(Icons.route,
+                                                ),
+                                                padding: const EdgeInsets.all(
+                                                  14,
+                                                ),
+                                                child: Column(
+                                                  crossAxisAlignment:
+                                                      CrossAxisAlignment.start,
+                                                  children: [
+                                                    Row(
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .spaceBetween,
+                                                      children: [
+                                                        Expanded(
+                                                          child: Text(
+                                                            '${data['siteName'] ?? ''} • ${data['driverName'] ?? ''}',
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontWeight:
+                                                                      FontWeight
+                                                                          .bold,
+                                                                  fontSize: 14,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                        Container(
+                                                          padding:
+                                                              const EdgeInsets.symmetric(
+                                                                horizontal: 8,
+                                                                vertical: 3,
+                                                              ),
+                                                          decoration: BoxDecoration(
+                                                            color: isActive
+                                                                ? Colors.green
+                                                                : Colors.grey,
+                                                            borderRadius:
+                                                                BorderRadius.circular(
+                                                                  20,
+                                                                ),
+                                                          ),
+                                                          child: Text(
+                                                            isActive
+                                                                ? 'ACTIVE'
+                                                                : 'DONE',
+                                                            style:
+                                                                const TextStyle(
+                                                                  color: Colors
+                                                                      .white,
+                                                                  fontSize: 10,
+                                                                ),
+                                                          ),
+                                                        ),
+                                                      ],
+                                                    ),
+                                                    const SizedBox(height: 4),
+                                                    Text(
+                                                      'Started: ${_formatTime(data['createdAt'] as Timestamp?)}'
+                                                      '${data['completedAt'] != null ? "  •  Ended: ${_formatTime(data['completedAt'] as Timestamp?)}" : ""}',
+                                                      style: TextStyle(
+                                                        color: Colors.white
+                                                            .withOpacity(0.6),
+                                                        fontSize: 11,
+                                                      ),
+                                                    ),
+                                                    const SizedBox(height: 8),
+                                                    StreamBuilder<
+                                                      QuerySnapshot
+                                                    >(
+                                                      stream: FirebaseFirestore
+                                                          .instance
+                                                          .collection(
+                                                            'truck_sessions',
+                                                          )
+                                                          .doc(doc.id)
+                                                          .collection('trips')
+                                                          .snapshots(),
+                                                      builder: (context, tripSnap) {
+                                                        if (!tripSnap.hasData) {
+                                                          return const SizedBox.shrink();
+                                                        }
+                                                        final tripCount =
+                                                            tripSnap
+                                                                .data!
+                                                                .docs
+                                                                .length;
+                                                        return Row(
+                                                          children: [
+                                                            Icon(
+                                                              Icons.route,
                                                               size: 14,
-                                                              color: Colors.white.withOpacity(0.7)),
-                                                          const SizedBox(width: 4),
-                                                          Text('$tripCount trip(s)',
+                                                              color: Colors
+                                                                  .white
+                                                                  .withOpacity(
+                                                                    0.7,
+                                                                  ),
+                                                            ),
+                                                            const SizedBox(
+                                                              width: 4,
+                                                            ),
+                                                            Text(
+                                                              '$tripCount trip(s)',
                                                               style: TextStyle(
-                                                                  color:
-                                                                      Colors.white.withOpacity(0.8),
-                                                                  fontSize: 12)),
-                                                        ],
-                                                      );
-                                                    },
-                                                  ),
-                                                ],
+                                                                color: Colors
+                                                                    .white
+                                                                    .withOpacity(
+                                                                      0.8,
+                                                                    ),
+                                                                fontSize: 12,
+                                                              ),
+                                                            ),
+                                                          ],
+                                                        );
+                                                      },
+                                                    ),
+                                                  ],
+                                                ),
                                               ),
-                                            ),
-                                          );
-                                        }),
-                                      ],
-                                    ),
-                                  );
-                                }),
-                              );
-                            }),
+                                            );
+                                          }),
+                                        ],
+                                      ),
+                                    );
+                                  }),
+                                );
+                              },
+                            ),
                         ],
                       ),
                     );
@@ -10882,9 +14838,14 @@ class MachineProfileScreen extends StatelessWidget {
                       onPressed: () => Navigator.pop(context),
                     ),
                     Expanded(
-                      child: Text('$machineName ($machineNumber)',
-                          style: const TextStyle(
-                              fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white)),
+                      child: Text(
+                        '$machineName ($machineNumber)',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -10898,30 +14859,53 @@ class MachineProfileScreen extends StatelessWidget {
                       GlassCard(
                         child: Column(
                           children: [
-                            const Icon(Icons.precision_manufacturing,
-                                color: Colors.white, size: 36),
+                            const Icon(
+                              Icons.precision_manufacturing,
+                              color: Colors.white,
+                              size: 36,
+                            ),
                             const SizedBox(height: 8),
-                            Text(machineName,
-                                style: const TextStyle(
-                                    color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                            Text('$machineType • $machineNumber',
-                                style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13)),
+                            Text(
+                              machineName,
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            Text(
+                              '$machineType • $machineNumber',
+                              style: TextStyle(
+                                color: Colors.white.withOpacity(0.7),
+                                fontSize: 13,
+                              ),
+                            ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 20),
-                      const Text('Supervisor Sessions',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                      const Text(
+                        'Supervisor Sessions',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       _MachineSessionList(
                         collectionName: 'daily_sessions',
                         machineId: machineId,
                       ),
                       const SizedBox(height: 20),
-                      const Text('Operator Sessions',
-                          style: TextStyle(
-                              fontSize: 15, fontWeight: FontWeight.bold, color: Colors.white)),
+                      const Text(
+                        'Operator Sessions',
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
                       const SizedBox(height: 10),
                       _MachineSessionList(
                         collectionName: 'driver_sessions',
@@ -10943,7 +14927,10 @@ class _MachineSessionList extends StatelessWidget {
   final String collectionName;
   final String machineId;
 
-  const _MachineSessionList({required this.collectionName, required this.machineId});
+  const _MachineSessionList({
+    required this.collectionName,
+    required this.machineId,
+  });
 
   String _formatTime(Timestamp? ts) {
     if (ts == null) return '-';
@@ -10963,7 +14950,9 @@ class _MachineSessionList extends StatelessWidget {
           .snapshots(),
       builder: (context, snapshot) {
         if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: Colors.white));
+          return const Center(
+            child: CircularProgressIndicator(color: Colors.white),
+          );
         }
         final sessions = snapshot.data!.docs
           ..sort((a, b) {
@@ -10975,7 +14964,10 @@ class _MachineSessionList extends StatelessWidget {
         if (sessions.isEmpty) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 10),
-            child: Text('No sessions yet.', style: TextStyle(color: Colors.white.withOpacity(0.7))),
+            child: Text(
+              'No sessions yet.',
+              style: TextStyle(color: Colors.white.withOpacity(0.7)),
+            ),
           );
         }
 
@@ -10983,7 +14975,8 @@ class _MachineSessionList extends StatelessWidget {
           children: sessions.map((doc) {
             final data = doc.data() as Map<String, dynamic>;
             final isActive = data['status'] == 'active';
-            final personName = data['supervisorName'] ?? data['driverName'] ?? '-';
+            final personName =
+                data['supervisorName'] ?? data['driverName'] ?? '-';
 
             return Padding(
               padding: const EdgeInsets.only(bottom: 10),
@@ -11000,28 +14993,49 @@ class _MachineSessionList extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Expanded(
-                          child: Text('${data['date']} • ${data['siteName'] ?? ''}',
-                              style: const TextStyle(
-                                  color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13)),
+                          child: Text(
+                            '${data['date']} • ${data['siteName'] ?? ''}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
                         ),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
                           decoration: BoxDecoration(
                             color: isActive ? Colors.green : Colors.grey,
                             borderRadius: BorderRadius.circular(20),
                           ),
-                          child: Text(isActive ? 'ACTIVE' : 'DONE',
-                              style: const TextStyle(color: Colors.white, fontSize: 10)),
+                          child: Text(
+                            isActive ? 'ACTIVE' : 'DONE',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 10,
+                            ),
+                          ),
                         ),
                       ],
                     ),
                     const SizedBox(height: 4),
-                    Text('By: $personName',
-                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12)),
+                    Text(
+                      'By: $personName',
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.7),
+                        fontSize: 12,
+                      ),
+                    ),
                     Text(
                       'Started: ${_formatTime(data['createdAt'] as Timestamp?)}'
                       '${data['completedAt'] != null ? "  •  Ended: ${_formatTime(data['completedAt'] as Timestamp?)}" : ""}',
-                      style: TextStyle(color: Colors.white.withOpacity(0.5), fontSize: 11),
+                      style: TextStyle(
+                        color: Colors.white.withOpacity(0.5),
+                        fontSize: 11,
+                      ),
                     ),
                   ],
                 ),
@@ -11033,6 +15047,7 @@ class _MachineSessionList extends StatelessWidget {
     );
   }
 }
+
 // ---------------- TRIP TIMER TEXT (live duration for truck trips) ----------------
 class TripTimerText extends StatefulWidget {
   final bool isOngoing;
@@ -11085,7 +15100,11 @@ class _TripTimerTextState extends State<TripTimerText> {
 
     return Row(
       children: [
-        Icon(Icons.timer, size: 16, color: widget.isOngoing ? Colors.green[700] : Colors.grey[600]),
+        Icon(
+          Icons.timer,
+          size: 16,
+          color: widget.isOngoing ? Colors.green[700] : Colors.grey[600],
+        ),
         const SizedBox(width: 6),
         Text(
           _formatDuration(duration),
@@ -11100,6 +15119,7 @@ class _TripTimerTextState extends State<TripTimerText> {
     );
   }
 }
+
 // ---------------- TRUCK LOCATION TRACKING SERVICE ----------------
 class TruckLocationService {
   static StreamSubscription<Position>? _positionStream;
@@ -11128,7 +15148,10 @@ class TruckLocationService {
     return true;
   }
 
-  static Future<void> startTracking(String sessionId, String truckNumber) async {
+  static Future<void> startTracking(
+    String sessionId,
+    String truckNumber,
+  ) async {
     final hasPermission = await requestPermission();
     if (!hasPermission) return;
 
@@ -11153,13 +15176,12 @@ class TruckLocationService {
       distanceFilter: 300, // meters - only record when moved 300m+
     );
 
-    _positionStream = Geolocator.getPositionStream(locationSettings: settings).listen(
-      (Position position) async {
-        if (_isDuplicateOfLastRecorded(position)) return;
-        await _recordPoint(position, isStart: false);
-        _lastRecordedPosition = position;
-      },
-    );
+    _positionStream = Geolocator.getPositionStream(locationSettings: settings)
+        .listen((Position position) async {
+          if (_isDuplicateOfLastRecorded(position)) return;
+          await _recordPoint(position, isStart: false);
+          _lastRecordedPosition = position;
+        });
   }
 
   // Rounds to 5 decimal places (~1.1m precision) so GPS jitter doesn't
@@ -11174,7 +15196,10 @@ class TruckLocationService {
         _roundCoord(position.longitude) == _roundCoord(last.longitude);
   }
 
-  static Future<void> _recordPoint(Position position, {required bool isStart}) async {
+  static Future<void> _recordPoint(
+    Position position, {
+    required bool isStart,
+  }) async {
     if (_activeSessionId == null) return;
 
     // Accumulate distance from the previously recorded point (still held in
@@ -11183,7 +15208,8 @@ class TruckLocationService {
     // a no-op and the running total correctly starts at 0.
     final previous = _lastRecordedPosition;
     if (previous != null) {
-      _cumulativeDistanceKm += Geolocator.distanceBetween(
+      _cumulativeDistanceKm +=
+          Geolocator.distanceBetween(
             previous.latitude,
             previous.longitude,
             position.latitude,
@@ -11197,29 +15223,36 @@ class TruckLocationService {
         .doc(_activeSessionId)
         .collection('location_points')
         .add({
-      'lat': position.latitude,
-      'lng': position.longitude,
-      'timestamp': FieldValue.serverTimestamp(),
-      'isStart': isStart,
-    });
+          'lat': position.latitude,
+          'lng': position.longitude,
+          'timestamp': FieldValue.serverTimestamp(),
+          'isStart': isStart,
+        });
 
     // Update the "latest location" field on the session for live tracking
-    await FirebaseFirestore.instance.collection('truck_sessions').doc(_activeSessionId).update({
-      'lastLat': position.latitude,
-      'lastLng': position.longitude,
-      'lastLocationAt': FieldValue.serverTimestamp(),
-    });
+    await FirebaseFirestore.instance
+        .collection('truck_sessions')
+        .doc(_activeSessionId)
+        .update({
+          'lastLat': position.latitude,
+          'lastLng': position.longitude,
+          'lastLocationAt': FieldValue.serverTimestamp(),
+        });
 
     // Sync this stop to Google Sheets in real time (reverse geocoded)
     try {
-      List<Placemark> placemarks =
-          await Geocoding().placemarkFromCoordinates(position.latitude, position.longitude);
+      List<Placemark> placemarks = await Geocoding().placemarkFromCoordinates(
+        position.latitude,
+        position.longitude,
+      );
       String placeName = 'Unknown location';
       if (placemarks.isNotEmpty) {
         final p = placemarks.first;
-        placeName = [p.locality, p.subAdministrativeArea, p.administrativeArea]
-            .where((s) => s != null && s.isNotEmpty)
-            .join(', ');
+        placeName = [
+          p.locality,
+          p.subAdministrativeArea,
+          p.administrativeArea,
+        ].where((s) => s != null && s.isNotEmpty).join(', ');
         if (placeName.isEmpty) placeName = 'Unknown location';
       }
 
@@ -11262,7 +15295,8 @@ class TruckLocationService {
       final lng = data['lng'] as double;
 
       if (previous != null) {
-        totalKm += Geolocator.distanceBetween(
+        totalKm +=
+            Geolocator.distanceBetween(
               previous.latitude,
               previous.longitude,
               lat,
@@ -11281,12 +15315,17 @@ class TruckLocationService {
     return totalKm;
   }
 }
+
 // ---------------- LOGIN FORM CARD (opaque white, for readable form fields) ----------------
 class LoginFormCard extends StatelessWidget {
   final Widget child;
   final EdgeInsets padding;
 
-  const LoginFormCard({super.key, required this.child, this.padding = const EdgeInsets.all(16)});
+  const LoginFormCard({
+    super.key,
+    required this.child,
+    this.padding = const EdgeInsets.all(16),
+  });
 
   @override
   Widget build(BuildContext context) {

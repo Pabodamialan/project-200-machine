@@ -28,6 +28,14 @@ service cloud.firestore {
       return isSignedIn() && myRole() == 'management';
     }
 
+    // Management's report-editing permission (ManagementSiteReportsScreen /
+    // ManagementFuelReportsScreen "Actions" column), set per-account via
+    // ManageUsersScreen's canEditReports toggle.
+    function canManagementEditReports() {
+      return isManagement() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canEditReports == true;
+    }
+
     // ---- users ----
     // Read is broad (not owner/admin-restricted): supervisors query other
     // users' profiles for pickers/dropdowns in several places (Machine
@@ -62,6 +70,24 @@ service cloud.firestore {
       allow write: if isAdminOrOwner();
     }
 
+    // ---- website_content, website_gallery, website_services ----
+    // Public marketing site content (PublicWebsiteScreen). Read is
+    // unauthenticated on purpose — anonymous visitors load the public
+    // website without ever signing in. Only admin/owner can edit it, via
+    // WebsiteContentManagementScreen.
+    match /website_content/{docId} {
+      allow read: if true;
+      allow write: if isAdminOrOwner();
+    }
+    match /website_gallery/{photoId} {
+      allow read: if true;
+      allow write: if isAdminOrOwner();
+    }
+    match /website_services/{serviceId} {
+      allow read: if true;
+      allow write: if isAdminOrOwner();
+    }
+
     // ---- daily_sessions (supervisor work days) ----
     match /daily_sessions/{sessionId} {
       // Read is broad (not owner-restricted): _startDay looks up whether a
@@ -78,12 +104,14 @@ service cloud.firestore {
       // work_records subcollection: read is broad because supervisors pull
       // truckDriverName suggestions across ALL sessions via a
       // collectionGroup('work_records') query (see NewWorkDialog). Writes
-      // stay scoped to the owning session's supervisor, or admin/owner.
+      // stay scoped to the owning session's supervisor, admin/owner, or a
+      // management account with canEditReports (ManagementSiteReportsScreen's
+      // Edit action).
       match /work_records/{recordId} {
         allow read: if isSignedIn();
         allow write: if isSignedIn() &&
           (get(/databases/$(database)/documents/daily_sessions/$(sessionId)).data.supervisorUid
-            == request.auth.uid || isAdminOrOwner());
+            == request.auth.uid || isAdminOrOwner() || canManagementEditReports());
       }
     }
 
@@ -113,13 +141,18 @@ service cloud.firestore {
     // ---- fuel_entries (supervisor fuel logging, FuelEntryScreen) ----
     // Owner-scoped like daily_sessions: a supervisor only needs to create
     // and read their own entries; admin/owner/management get oversight
-    // read access (ManagementFuelReportsScreen shows every entry).
+    // read access (ManagementFuelReportsScreen shows every entry). Update
+    // also allows a management account with canEditReports
+    // (ManagementFuelReportsScreen's Edit action).
     match /fuel_entries/{entryId} {
       allow read: if isSignedIn() &&
         (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner() || isManagement());
       allow create: if isSignedIn() &&
         request.resource.data.supervisorUid == request.auth.uid;
-      allow update, delete: if isSignedIn() &&
+      allow update: if isSignedIn() &&
+        (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner() ||
+          canManagementEditReports());
+      allow delete: if isSignedIn() &&
         (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner());
     }
 
