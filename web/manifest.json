@@ -1,11 +1,11 @@
 {
-    "name": "project_200_machine",
-    "short_name": "project_200_machine",
+    "name": "NODA Civimech Engineering",
+    "short_name": "NODA Civimech",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",
     "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "description": "NODA Civimech Engineering (PVT) Ltd. — construction and fleet management.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
