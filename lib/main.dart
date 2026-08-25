@@ -16,9 +16,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as xls;
-import 'download_stub.dart'
-    if (dart.library.html) 'download_web.dart'
-    as downloader;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -1379,6 +1376,25 @@ class AdminDashboard extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 10,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.summarize,
+              title: 'Transport Summary',
+              subtitle: 'Filterable report and Excel export',
+              color: Colors.indigo,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TransportSummaryScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -1472,6 +1488,24 @@ class AdminDashboard extends StatelessWidget {
               FadeSlideRoute(page: const ManagementFuelReportsScreen()),
             ),
           ),
+          // Admin/Owner always see these — no canAccessTransportRecords
+          // check, that field only gates Management-role accounts.
+          WebSidebarItem(
+            icon: Icons.summarize,
+            label: 'Transport Summary',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const TransportSummaryScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.local_shipping,
+            label: 'Transport Records',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const TransportRecordsScreen()),
+            ),
+          ),
         ],
         child: bodyContent,
       ),
@@ -1526,6 +1560,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
   bool _obscurePassword = true;
   bool _canAccessFuel = false;
   bool _canEditReports = false;
+  bool _canAccessTransportRecords = false;
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -1667,6 +1702,9 @@ class _AddUserScreenState extends State<AddUserScreen> {
             'canEditReports': _selectedRole == 'management'
                 ? _canEditReports
                 : false,
+            'canAccessTransportRecords': _selectedRole == 'management'
+                ? _canAccessTransportRecords
+                : false,
             'photoBase64': _photoBase64,
             'createdAt': FieldValue.serverTimestamp(),
           });
@@ -1801,6 +1839,16 @@ class _AddUserScreenState extends State<AddUserScreen> {
                     controlAffinity: ListTileControlAffinity.leading,
                     onChanged: (val) =>
                         setState(() => _canEditReports = val ?? false),
+                  ),
+                if (_selectedRole == 'management')
+                  CheckboxListTile(
+                    title: const Text('Transport Records Access'),
+                    value: _canAccessTransportRecords,
+                    contentPadding: EdgeInsets.zero,
+                    controlAffinity: ListTileControlAffinity.leading,
+                    onChanged: (val) => setState(
+                      () => _canAccessTransportRecords = val ?? false,
+                    ),
                   ),
                 if (_selectedRole == 'field_worker')
                   Padding(
@@ -2124,6 +2172,68 @@ class ManageUsersScreen extends StatelessWidget {
                                                   newValue
                                                       ? 'Report edit access granted'
                                                       : 'Report edit access revoked',
+                                                ),
+                                              ),
+                                            );
+                                          }
+                                        },
+                                        child: const Text('CONFIRM'),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              },
+                            ),
+                          if (role == 'management')
+                            IconButton(
+                              icon: Icon(
+                                Icons.local_shipping,
+                                color: data['canAccessTransportRecords'] == true
+                                    ? Colors.green
+                                    : Colors.grey,
+                              ),
+                              onPressed: () {
+                                final currentlyHasAccess =
+                                    data['canAccessTransportRecords'] == true;
+                                final newValue = !currentlyHasAccess;
+                                final userName = data['name'] ?? 'this user';
+                                showDialog(
+                                  context: context,
+                                  builder: (_) => AlertDialog(
+                                    title: Text(
+                                      currentlyHasAccess
+                                          ? 'Revoke Transport Records Access?'
+                                          : 'Grant Transport Records Access?',
+                                    ),
+                                    content: Text(
+                                      currentlyHasAccess
+                                          ? 'Remove transport records access from $userName?'
+                                          : 'Allow $userName to access transport records?',
+                                    ),
+                                    actions: [
+                                      TextButton(
+                                        onPressed: () => Navigator.pop(context),
+                                        child: const Text('Cancel'),
+                                      ),
+                                      ElevatedButton(
+                                        onPressed: () async {
+                                          await FirebaseFirestore.instance
+                                              .collection('users')
+                                              .doc(userId)
+                                              .update({
+                                                'canAccessTransportRecords':
+                                                    newValue,
+                                              });
+                                          if (context.mounted) {
+                                            Navigator.pop(context);
+                                            ScaffoldMessenger.of(
+                                              context,
+                                            ).showSnackBar(
+                                              SnackBar(
+                                                content: Text(
+                                                  newValue
+                                                      ? 'Transport records access granted'
+                                                      : 'Transport records access revoked',
                                                 ),
                                               ),
                                             );
@@ -2469,6 +2579,91 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     await FirebaseFirestore.instance.collection('sites').doc(docId).delete();
   }
 
+  // Renaming only updates the sites/{docId} doc — existing work_records/
+  // fuel_entries keep whatever siteName string they already have (they're
+  // historical snapshots, not live references), and everything that reads
+  // the site name live (kSiteSheetMap lookups use the CURRENT record's
+  // siteName so are unaffected by a rename going forward, the Working Site
+  // search picker, Unloading Site autocomplete) queries this doc directly,
+  // so they pick up the new name automatically with no code change needed.
+  Future<void> _showEditSiteNameDialog(String docId, String currentName) {
+    final nameController = TextEditingController(text: currentName);
+    return showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Rename Site'),
+        content: TextField(
+          controller: nameController,
+          autofocus: true,
+          decoration: const InputDecoration(labelText: 'Site Name'),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final newName = nameController.text.trim();
+              if (newName.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(content: Text('Please enter a site name.')),
+                );
+                return;
+              }
+
+              // Same trim/uppercase duplicate-check pattern as _addSite,
+              // excluding this site's own doc so saving an unchanged name
+              // (or just a case/whitespace tweak of it) doesn't falsely
+              // flag itself as a duplicate.
+              final existingSites = await FirebaseFirestore.instance
+                  .collection('sites')
+                  .get();
+              final normalizedEntry = newName.toUpperCase();
+              final isDuplicate = existingSites.docs.any((doc) {
+                if (doc.id == docId) return false;
+                final existingName =
+                    (doc.data()['name'] as String?)?.trim().toUpperCase() ?? '';
+                return existingName == normalizedEntry;
+              });
+
+              if (isDuplicate) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  const SnackBar(
+                    content: Text('This name is already used by another site.'),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                return;
+              }
+
+              try {
+                await FirebaseFirestore.instance
+                    .collection('sites')
+                    .doc(docId)
+                    .update({'name': newName});
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Site name updated')),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Failed to update site: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2702,15 +2897,27 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                       '🚫 Not a Working Site',
                   ].where((s) => s.isNotEmpty).join('  •  '),
                 ),
-                trailing: IconButton(
-                  icon: const Icon(Icons.delete, color: Colors.red),
-                  onPressed: () => confirmDelete(
-                    context: context,
-                    title: 'Delete Site?',
-                    message:
-                        'Are you sure you want to delete this site? This cannot be undone.',
-                    onConfirm: () => _deleteSite(docId),
-                  ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
+                      onPressed: () => _showEditSiteNameDialog(
+                        docId,
+                        (data['name'] ?? '').toString(),
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.delete, color: Colors.red),
+                      onPressed: () => confirmDelete(
+                        context: context,
+                        title: 'Delete Site?',
+                        message:
+                            'Are you sure you want to delete this site? This cannot be undone.',
+                        onConfirm: () => _deleteSite(docId),
+                      ),
+                    ),
+                  ],
                 ),
                 onTap: () => pushWebAware(
                   context,
@@ -3627,6 +3834,24 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     FadeSlideRoute(page: const ManagementFuelReportsScreen()),
                   ),
                 ),
+                // Admin/Owner always see these — no canAccessTransportRecords
+                // check, that field only gates Management-role accounts.
+                WebSidebarItem(
+                  icon: Icons.summarize,
+                  label: 'Transport Summary',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const TransportSummaryScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.local_shipping,
+                  label: 'Transport Records',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const TransportRecordsScreen()),
+                  ),
+                ),
               ],
               child: webBody,
             ),
@@ -3665,6 +3890,46 @@ class ManagementDashboard extends StatefulWidget {
 }
 
 class _ManagementDashboardState extends State<ManagementDashboard> {
+  // Gates the Transport Records sidebar item — fetched once on mount rather
+  // than blocking the whole dashboard body behind a FutureBuilder, so the
+  // item just appears a moment after load for eligible users instead of
+  // delaying everything else.
+  bool _canAccessTransportRecords = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadTransportRecordsAccess();
+  }
+
+  // ManagementDashboard is only ever reached by role == 'management'
+  // accounts (Admin/Owner have their own dashboards with an unconditional
+  // Transport Records item), so the isAdminOrOwner branch here is a no-op
+  // in practice — kept explicit anyway so this matches the same
+  // isAdminOrOwner || (isManagement && canAccessTransportRecords) pattern
+  // used by TransportSummaryScreen's route guard and TransportRecordsScreen's.
+  Future<void> _loadTransportRecordsAccess() async {
+    try {
+      final doc = await FirebaseFirestore.instance
+          .collection('users')
+          .doc(FirebaseAuth.instance.currentUser!.uid)
+          .get();
+      final data = doc.data();
+      final role = data?['role'] as String?;
+      final isAdminOrOwner = role == 'admin' || role == 'owner';
+      final isManagement = role == 'management';
+      if (mounted) {
+        setState(() {
+          _canAccessTransportRecords =
+              isAdminOrOwner ||
+              (isManagement && data?['canAccessTransportRecords'] == true);
+        });
+      }
+    } catch (_) {
+      // Leave the item hidden if this fails.
+    }
+  }
+
   Future<void> _logout() async {
     await FirebaseAuth.instance.signOut();
     if (mounted) {
@@ -3729,6 +3994,15 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
                     FadeSlideRoute(page: const ManagementSiteReportsScreen()),
                   ),
                 ),
+                if (_canAccessTransportRecords)
+                  WebSidebarItem(
+                    icon: Icons.local_shipping,
+                    label: 'Transport Records',
+                    onTap: () => Navigator.push(
+                      context,
+                      FadeSlideRoute(page: const TransportRecordsScreen()),
+                    ),
+                  ),
               ],
               child: bodyContent,
             ),
@@ -3737,6 +4011,4825 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
       ),
     );
   }
+}
+
+// ---------------- TRANSPORT RECORDS ----------------
+// Landing page for the Transport Records area — a simple ManagementDashboard-
+// style page (heading + description, no sidebar of its own since it's
+// already reached through ManagementDashboard's/AdminDashboard's/
+// OwnerDashboard's sidebar) offering two reports. Route-guarded the same
+// way as TransportSummaryScreen: isAdminOrOwner || (isManagement &&
+// canAccessTransportRecords) — see ManageUsersScreen's grant/revoke
+// toggle for how that field gets set. Transport Summary has real
+// functionality; Transport Record is still a placeholder pending future
+// requirements.
+class TransportRecordsScreen extends StatefulWidget {
+  const TransportRecordsScreen({super.key});
+
+  @override
+  State<TransportRecordsScreen> createState() => _TransportRecordsScreenState();
+}
+
+class _TransportRecordsScreenState extends State<TransportRecordsScreen> {
+  late final Future<DocumentSnapshot> _currentUserFuture = FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
+      .get();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Transport Records'),
+        backgroundColor: Colors.teal[800],
+      ),
+      body: FutureBuilder<DocumentSnapshot>(
+        future: _currentUserFuture,
+        builder: (context, userSnap) {
+          if (userSnap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final role = userData?['role'] as String?;
+          final isAdminOrOwner = role == 'admin' || role == 'owner';
+          final isManagement = role == 'management';
+          final canAccess =
+              isAdminOrOwner ||
+              (isManagement && userData?['canAccessTransportRecords'] == true);
+
+          if (!canAccess) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  "You don't have access to Transport Records.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            );
+          }
+
+          return Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Transport Records',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Choose a report to view.',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+                ),
+                const SizedBox(height: 24),
+                Wrap(
+                  spacing: 16,
+                  runSpacing: 16,
+                  children: [
+                    _TransportOptionCard(
+                      icon: Icons.summarize,
+                      label: 'Transport Summary',
+                      onTap: () => Navigator.push(
+                        context,
+                        FadeSlideRoute(page: const TransportSummaryScreen()),
+                      ),
+                    ),
+                    _TransportOptionCard(
+                      icon: Icons.receipt_long,
+                      label: 'Transport Record',
+                      onTap: () => Navigator.push(
+                        context,
+                        FadeSlideRoute(page: const TransportRecordScreen()),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _TransportOptionCard extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  const _TransportOptionCard({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      borderRadius: BorderRadius.circular(16),
+      onTap: onTap,
+      child: Container(
+        width: 220,
+        height: 140,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey[300]!),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              blurRadius: 8,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(icon, size: 32, color: Colors.teal[800]),
+            const Spacer(),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------- TRANSPORT RECORD REPORT (global rate + full report) ----------------
+// Full duplicate of TransportSummaryScreen's structure (filters, striping,
+// chronological/header-click sort, "+ Add Report"/Edit/Delete, styled Excel
+// export) plus a Calculation Basis (Cube-wise/Load-wise) toggle and a
+// "Loading Amount (Rs.)" column priced off transport_rate_settings/main's
+// live cubeRate/loadRate fields (both always stored together, so switching
+// basis never loses the other rate — see _calculationBasis/_rateStream).
+class TransportRecordScreen extends StatefulWidget {
+  const TransportRecordScreen({super.key});
+
+  @override
+  State<TransportRecordScreen> createState() => _TransportRecordScreenState();
+}
+
+class _TransportRecordScreenState extends State<TransportRecordScreen> {
+  static const List<String> _columns = [
+    'Date',
+    'Truck Number',
+    'Bill Number',
+    'Cube',
+    'Site',
+    'Unloading Site',
+    'Distance KM',
+    'Loading Amount (Rs.)',
+    'Category',
+    'Machine Operator',
+    'Truck Driver',
+    'Machine',
+    'Supervisor',
+  ];
+
+  DateTimeRange? _dateRange;
+  String? _selectedSiteName;
+  String? _selectedMachineName;
+  final _truckNumberController = TextEditingController();
+  String _truckNumberFilter = '';
+  Timer? _debounce;
+  String? _selectedOperatorName;
+  String? _selectedUnloadingSite;
+  final _billNumberController = TextEditingController();
+  String _billNumberFilter = '';
+  Timer? _billNumberDebounce;
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
+
+  // "Sort By" filters-row dropdown — a top-level sort preference, separate
+  // from (and applied before) the column-header-click sort below. One of
+  // 'date' (default, chronological), 'truckNumber', 'billNumber'.
+  String _selectedSortBy = 'date';
+
+  // Which rate the "Loading Amount" column and the rate display bar use —
+  // 'Cube-wise' (cubeCount * cubeRate) or 'Load-wise' (flat loadRate per
+  // row). Both rates are always fetched together (see _rateStream) so
+  // switching this never loses the other basis's rate.
+  String _calculationBasis = 'Cube-wise';
+
+  final DocumentReference _rateDocRef = FirebaseFirestore.instance
+      .collection('transport_rate_settings')
+      .doc('main');
+
+  late final Stream<DocumentSnapshot> _rateStream = _rateDocRef.snapshots();
+
+  // Same late-final-stream pattern as ManagementSiteReportsScreen — see its
+  // comment on _workRecordsStream for why these must not be rebuilt inline.
+  late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore
+      .instance
+      .collectionGroup('work_records')
+      .where('isLoadingCategory', isEqualTo: true)
+      .where('isCompleted', isEqualTo: true)
+      .snapshots();
+
+  late final Stream<QuerySnapshot> _manualSiteReportsStream = FirebaseFirestore
+      .instance
+      .collection('manual_site_reports')
+      .snapshots();
+
+  late final Stream<QuerySnapshot> _sitesStream = FirebaseFirestore.instance
+      .collection('sites')
+      .snapshots();
+  late final Stream<QuerySnapshot> _machinesStream = FirebaseFirestore.instance
+      .collection('machines')
+      .snapshots();
+  late final Stream<QuerySnapshot> _operatorsStream = FirebaseFirestore.instance
+      .collection('users')
+      .where('canOperateMachine', isEqualTo: true)
+      .snapshots();
+
+  // Route guard: gates the whole report behind canAccessTransportRecords
+  // (admin/owner always pass, matching every other permission-field check
+  // in this app). Also used to derive canEdit (canEditReports) below, so
+  // Edit/Delete/+Add Report/Verified-toggle share the same single fetch.
+  late final Future<DocumentSnapshot> _currentUserFuture = FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
+      .get();
+
+  final Map<String, Future<DocumentSnapshot>> _sessionDocCache = {};
+
+  QuerySnapshot? _lastSnapshot;
+  Future<List<Map<String, dynamic>>>? _enrichedFuture;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _truckNumberController.dispose();
+    _billNumberDebounce?.cancel();
+    _billNumberController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+    }
+  }
+
+  void _clearFilters() {
+    _debounce?.cancel();
+    _billNumberDebounce?.cancel();
+    setState(() {
+      _dateRange = null;
+      _selectedSiteName = null;
+      _selectedMachineName = null;
+      _truckNumberController.clear();
+      _truckNumberFilter = '';
+      _selectedOperatorName = null;
+      _selectedUnloadingSite = null;
+      _billNumberController.clear();
+      _billNumberFilter = '';
+      _selectedSortBy = 'date';
+    });
+  }
+
+  void _forceUppercase(TextEditingController controller, String value) {
+    final upper = value.toUpperCase();
+    if (upper == value) return;
+    controller.value = controller.value.copyWith(
+      text: upper,
+      selection: TextSelection.collapsed(offset: upper.length),
+    );
+  }
+
+  bool _matchesFilters(Map<String, dynamic> data) {
+    if (_dateRange != null) {
+      final dateStr = data['date'] as String?;
+      if (dateStr == null) return false;
+      final parts = dateStr.split('-');
+      if (parts.length != 3) return false;
+      final recordDate = DateTime(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+      final startDate = DateTime(
+        _dateRange!.start.year,
+        _dateRange!.start.month,
+        _dateRange!.start.day,
+      );
+      final endDate = DateTime(
+        _dateRange!.end.year,
+        _dateRange!.end.month,
+        _dateRange!.end.day,
+      );
+      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate))
+        return false;
+    }
+    if (_selectedSiteName != null && data['siteName'] != _selectedSiteName)
+      return false;
+    if (_selectedMachineName != null &&
+        data['machineName'] != _selectedMachineName)
+      return false;
+    final truckQuery = _truckNumberFilter.trim().toLowerCase();
+    if (truckQuery.isNotEmpty) {
+      final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
+      if (!truckNumber.contains(truckQuery)) return false;
+    }
+    if (_selectedOperatorName != null &&
+        data['machineOperatorName'] != _selectedOperatorName) {
+      return false;
+    }
+    if (_selectedUnloadingSite != null &&
+        data['unloadingSiteName'] != _selectedUnloadingSite) {
+      return false;
+    }
+    final billQuery = _billNumberFilter.trim().toLowerCase();
+    if (billQuery.isNotEmpty) {
+      final billNumber = (data['billNumber'] ?? '').toString().toLowerCase();
+      if (!billNumber.contains(billQuery)) return false;
+    }
+    return true;
+  }
+
+  // Cube's stored as a string (matches how the Add Report / Edit dialogs and
+  // the real work-session flow all save it), so it's parsed here rather
+  // than assumed numeric.
+  double _loadingAmountFor(
+    Map<String, dynamic> data,
+    double cubeRate,
+    double loadRate,
+  ) {
+    if (_calculationBasis == 'Cube-wise') {
+      final cube = double.tryParse((data['cubeCount'] ?? '').toString()) ?? 0;
+      return cube * cubeRate;
+    }
+    return loadRate;
+  }
+
+  List<String> _rowValues(
+    Map<String, dynamic> data,
+    double cubeRate,
+    double loadRate,
+  ) {
+    return [
+      (data['date'] ?? '').toString(),
+      (data['truckNumber'] ?? '').toString().toUpperCase(),
+      (data['billNumber'] ?? '').toString(),
+      (data['cubeCount'] ?? '').toString(),
+      (data['siteName'] ?? '').toString(),
+      (data['unloadingSiteName'] ?? '').toString(),
+      data['distanceKm']?.toString() ?? '',
+      'Rs. ${_loadingAmountFor(data, cubeRate, loadRate).toStringAsFixed(2)}',
+      (data['category'] ?? '').toString(),
+      (data['machineOperatorName'] ?? '').toString(),
+      (data['truckDriverName'] ?? '').toString(),
+      (data['machineName'] ?? '').toString(),
+      (data['supervisorName'] ?? '').toString(),
+    ];
+  }
+
+  // PART C: professional Excel export — styled header (navy background,
+  // white bold text), '#' + the named columns (no Verified — that's a
+  // web-only status icon; Loading Amount IS included, same as it shows in
+  // the table), a blank separator row, then a bold "Total Loads: N" /
+  // "Total Loading Amount: Rs. X" summary row.
+  Future<void> _exportToExcel(
+    List<Map<String, dynamic>> records,
+    double cubeRate,
+    double loadRate,
+  ) async {
+    final excelFile = xls.Excel.createExcel();
+    final defaultSheetName = excelFile.getDefaultSheet() ?? 'Sheet1';
+    excelFile.rename(defaultSheetName, 'Transport Record');
+    final sheet = excelFile['Transport Record'];
+
+    final headers = ['#', ..._columns];
+    final headerStyle = xls.CellStyle(
+      bold: true,
+      fontColorHex: xls.ExcelColor.white,
+      backgroundColorHex: xls.ExcelColor.blue900,
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+    for (var col = 0; col < headers.length; col++) {
+      final cell = sheet.cell(
+        xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0),
+      );
+      cell.value = xls.TextCellValue(headers[col]);
+      cell.cellStyle = headerStyle;
+    }
+
+    // Duplicate detection — Truck Number and Bill Number are checked
+    // independently (a row's Truck Number cell can be highlighted without
+    // its Bill Number cell being, and vice versa), and blank values are
+    // never counted as duplicates of each other.
+    final truckNumberCounts = <String, int>{};
+    final billNumberCounts = <String, int>{};
+    for (final r in records) {
+      final truckNumber = (r['truckNumber'] ?? '').toString().toUpperCase();
+      if (truckNumber.isNotEmpty) {
+        truckNumberCounts[truckNumber] =
+            (truckNumberCounts[truckNumber] ?? 0) + 1;
+      }
+      final billNumber = (r['billNumber'] ?? '').toString();
+      if (billNumber.isNotEmpty) {
+        billNumberCounts[billNumber] = (billNumberCounts[billNumber] ?? 0) + 1;
+      }
+    }
+    final duplicateTruckNumbers = {
+      for (final e in truckNumberCounts.entries)
+        if (e.value > 1) e.key,
+    };
+    final duplicateBillNumbers = {
+      for (final e in billNumberCounts.entries)
+        if (e.value > 1) e.key,
+    };
+    final truckNumberColIndex = 1 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 1 + _columns.indexOf('Bill Number');
+
+    final normalDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+    final duplicateDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+      backgroundColorHex: xls.ExcelColor.amber100,
+    );
+
+    // '#'/Cube/Distance KM/Loading Amount/Bill Number need real numeric
+    // cells (see _numericCellValue) so Excel doesn't flag them as "Number
+    // stored as text" — every other column stays plain text.
+    // _numericCellValue strips the "Rs. " prefix off the already-formatted
+    // Loading Amount string before parsing, and falls back to a blank cell
+    // for any Bill Number that isn't purely numeric (alphanumeric bill
+    // numbers are display-only in the table, unaffected by this).
+    const numericColumns = {
+      '#',
+      'Cube',
+      'Distance KM',
+      'Loading Amount (Rs.)',
+      'Bill Number',
+    };
+
+    double totalLoadingAmount = 0;
+    for (var i = 0; i < records.length; i++) {
+      final rowValues = [
+        (i + 1).toString(),
+        ..._rowValues(records[i], cubeRate, loadRate),
+      ];
+      totalLoadingAmount += _loadingAmountFor(records[i], cubeRate, loadRate);
+      for (var col = 0; col < rowValues.length; col++) {
+        final isDuplicateCell =
+            (col == truckNumberColIndex &&
+                duplicateTruckNumbers.contains(rowValues[col])) ||
+            (col == billNumberColIndex &&
+                duplicateBillNumbers.contains(rowValues[col]));
+        final cell = sheet.cell(
+          xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1),
+        );
+        cell.value = numericColumns.contains(headers[col])
+            ? _numericCellValue(rowValues[col])
+            : xls.TextCellValue(rowValues[col]);
+        cell.cellStyle = isDuplicateCell ? duplicateDataStyle : normalDataStyle;
+      }
+    }
+
+    // Blank separator row, then the bold total-count / total-amount row.
+    final totalRowStyle = xls.CellStyle(
+      bold: true,
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+    final totalLoadsCell = sheet.cell(
+      xls.CellIndex.indexByColumnRow(
+        columnIndex: 0,
+        rowIndex: records.length + 2,
+      ),
+    );
+    totalLoadsCell.value = xls.TextCellValue('Total Loads: ${records.length}');
+    totalLoadsCell.cellStyle = totalRowStyle;
+    final totalAmountCell = sheet.cell(
+      xls.CellIndex.indexByColumnRow(
+        columnIndex: 1,
+        rowIndex: records.length + 2,
+      ),
+    );
+    totalAmountCell.value = xls.TextCellValue(
+      'Total Loading Amount: Rs. ${totalLoadingAmount.toStringAsFixed(2)}',
+    );
+    totalAmountCell.cellStyle = totalRowStyle;
+
+    for (var col = 0; col < headers.length; col++) {
+      sheet.setColumnAutoFit(col);
+    }
+
+    // Same single-download reasoning as ManagementSiteReportsScreen's
+    // export — excel.save() on web already triggers its own browser
+    // download, so no separate downloader call here.
+    final filename =
+        'Transport_Record_${DateTime.now().toIso8601String()}.xlsx';
+    final bytes = excelFile.save(fileName: filename);
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to generate Excel file.')),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Report exported.')));
+    }
+  }
+
+  // Both rates always live on the same document and are edited together,
+  // so switching _calculationBasis never loses whichever rate isn't
+  // currently active.
+  void _showEditRateDialog(
+    double currentCubeRate,
+    double currentLoadRate,
+    String currentUserName,
+  ) {
+    final cubeRateController = TextEditingController(
+      text: currentCubeRate == 0 ? '' : currentCubeRate.toString(),
+    );
+    final loadRateController = TextEditingController(
+      text: currentLoadRate == 0 ? '' : currentLoadRate.toString(),
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Edit Transport Rates'),
+        content: SizedBox(
+          width: 320,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: cubeRateController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Cube Rate (Rs.)'),
+              ),
+              const SizedBox(height: 10),
+              TextField(
+                controller: loadRateController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(labelText: 'Load Rate (Rs.)'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final cubeRate =
+                  double.tryParse(cubeRateController.text.trim()) ?? 0;
+              final loadRate =
+                  double.tryParse(loadRateController.text.trim()) ?? 0;
+              try {
+                await _rateDocRef.set({
+                  'cubeRate': cubeRate,
+                  'loadRate': loadRate,
+                  'updatedBy': currentUserName,
+                  'updatedAt': FieldValue.serverTimestamp(),
+                }, SetOptions(merge: true));
+                if (dialogContext.mounted) {
+                  Navigator.pop(dialogContext);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Transport rates updated.')),
+                  );
+                }
+              } catch (e) {
+                if (dialogContext.mounted) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    SnackBar(content: Text('Failed to update rates: $e')),
+                  );
+                }
+              }
+            },
+            child: const Text('SAVE'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Small chip + edit icon shown next to the filters row — StreamBuilder-fed
+  // (see _rateStream in build()), so a rate change from this dialog is
+  // reflected here live without any extra plumbing.
+  Widget _buildRateBar(
+    double cubeRate,
+    double loadRate,
+    bool canEdit,
+    String currentUserName,
+  ) {
+    final activeRate = _calculationBasis == 'Cube-wise' ? cubeRate : loadRate;
+    final unitLabel = _calculationBasis == 'Cube-wise' ? 'Cube' : 'Load';
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Chip(
+          label: Text(
+            'Rate: Rs. ${activeRate.toStringAsFixed(2)} per $unitLabel',
+          ),
+          backgroundColor: Colors.teal[50],
+        ),
+        if (canEdit)
+          IconButton(
+            icon: const Icon(Icons.edit, size: 18),
+            tooltip: 'Edit Rate',
+            onPressed: () =>
+                _showEditRateDialog(cubeRate, loadRate, currentUserName),
+          ),
+      ],
+    );
+  }
+
+  // Search-bottom-sheet pattern, same as ManagementSiteReportsScreen's
+  // _showUnloadingSiteSearchSheet: a search TextField over a scrollable
+  // filtered list, tap to select. Options come from the already-fetched
+  // records' distinct unloadingSiteName values (passed in from
+  // _buildFiltersRow), not a fresh Firestore query.
+  Future<void> _showUnloadingSiteSearchSheet(List<String> options) async {
+    // Real unloading site names are always non-empty (see the
+    // .where((name) => name.isNotEmpty) filter that builds `options`), so
+    // '' is a safe sentinel for "explicitly picked All Unloading Sites" —
+    // distinct from a plain dismiss (tap outside / back), which resolves
+    // this Future with null and must leave the current filter unchanged.
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final filtered = options
+                .where(
+                  (name) =>
+                      name.toLowerCase().contains(searchText.toLowerCase()),
+                )
+                .toList();
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search unloading site',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            leading: const Icon(
+                              Icons.clear_all,
+                              color: Colors.teal,
+                            ),
+                            title: const Text('All Unloading Sites'),
+                            onTap: () => Navigator.pop(sheetContext, ''),
+                          ),
+                          if (filtered.isEmpty && searchText.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('No matching unloading sites.'),
+                            ),
+                          for (final name in filtered)
+                            ListTile(
+                              leading: const Icon(
+                                Icons.location_on,
+                                color: Colors.teal,
+                              ),
+                              title: Text(name),
+                              onTap: () => Navigator.pop(sheetContext, name),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected == null) return; // dismissed without choosing — no change
+    setState(() => _selectedUnloadingSite = selected.isEmpty ? null : selected);
+  }
+
+  // Search-bottom-sheet pattern for a *field value* (Edit Record's and Add
+  // Report's Unloading Site fields) — distinct from
+  // _showUnloadingSiteSearchSheet above, which drives the filters-row
+  // dropdown off already-loaded record values only. This one mirrors
+  // NewWorkDialog._showUnloadingSitePicker exactly: queries the `sites`
+  // collection live, filters by canBeUnloadingSite, and offers a "use as
+  // new unloading site" option so a not-yet-registered site can still be
+  // entered. Returns null if dismissed without choosing.
+  Future<Map<String, String?>?> _showUnloadingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String?>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search or type a new site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final trimmedSearch = searchText.trim();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeUnloadingSite'] == false)
+                              return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              trimmedSearch.toLowerCase(),
+                            );
+                          }).toList();
+                          final hasExactMatch = filtered.any(
+                            (doc) =>
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString()
+                                    .toLowerCase() ==
+                                trimmedSearch.toLowerCase(),
+                          );
+                          return ListView(
+                            children: [
+                              if (trimmedSearch.isNotEmpty && !hasExactMatch)
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.add_circle,
+                                    color: AppTheme.accent,
+                                  ),
+                                  title: Text(
+                                    "Use '$trimmedSearch' as new unloading site",
+                                  ),
+                                  onTap: () => Navigator.pop(sheetContext, {
+                                    'id': null,
+                                    'name': trimmedSearch,
+                                  }),
+                                ),
+                              for (final doc in filtered)
+                                Builder(
+                                  builder: (context) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.location_on,
+                                        color: Colors.teal,
+                                      ),
+                                      title: Text(data['name'] ?? ''),
+                                      subtitle: Text(data['location'] ?? ''),
+                                      onTap: () => Navigator.pop(sheetContext, {
+                                        'id': doc.id,
+                                        'name': (data['name'] ?? '').toString(),
+                                      }),
+                                    );
+                                  },
+                                ),
+                              if (filtered.isEmpty && trimmedSearch.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text(
+                                    'No sites yet — start typing to add one.',
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Select-only registered-site picker for Add Report's Site field — mirrors
+  // SupervisorScreen._showSiteSearchPicker (canBeLoadingSite filter, no "add
+  // new" option, since this Site must be a real registered site). Returns
+  // null if dismissed without choosing.
+  Future<Map<String, String>?> _showWorkingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeLoadingSite'] == false) return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              searchText.toLowerCase(),
+                            );
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text('No matching sites.'),
+                            );
+                          }
+                          return ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final doc = filtered[index];
+                              final data = doc.data() as Map<String, dynamic>;
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.teal,
+                                ),
+                                title: Text(data['name'] ?? ''),
+                                subtitle: Text(data['location'] ?? ''),
+                                onTap: () => Navigator.pop(sheetContext, {
+                                  'id': doc.id,
+                                  'name': (data['name'] ?? '').toString(),
+                                }),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFiltersRow(List<Map<String, dynamic>> allRecords) {
+    // Unloading sites aren't a managed reference collection (unlike
+    // sites/machines/operators below) — they're free-text entered per load —
+    // so the dropdown's options come from whatever distinct values actually
+    // appear in the fetched records, not a Firestore stream.
+    final unloadingSites =
+        allRecords
+            .map((r) => (r['unloadingSiteName'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 230,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _pickDateRange,
+            icon: const Icon(Icons.date_range),
+            label: Text(
+              _dateRange == null
+                  ? 'All Time'
+                  : '${GoogleSheetsService.formatDate(_dateRange!.start)} - '
+                        '${GoogleSheetsService.formatDate(_dateRange!.end)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _sitesStream,
+            builder: (context, snapshot) {
+              final sites = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedSiteName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Site',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Sites'),
+                  ),
+                  ...sites.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedSiteName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _machinesStream,
+            builder: (context, snapshot) {
+              final machines = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedMachineName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Machines'),
+                  ),
+                  ...machines.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedMachineName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _truckNumberController,
+            onChanged: (value) {
+              _forceUppercase(_truckNumberController, value);
+              final upper = _truckNumberController.text;
+              _debounce?.cancel();
+              _debounce = Timer(const Duration(milliseconds: 400), () {
+                setState(() => _truckNumberFilter = upper);
+              });
+            },
+            decoration: InputDecoration(
+              labelText: 'Truck Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _showUnloadingSiteSearchSheet(unloadingSites),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Unloading Site',
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                suffixIcon: const Icon(Icons.search, size: 18),
+              ),
+              child: Text(
+                _selectedUnloadingSite ?? 'All Unloading Sites',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _operatorsStream,
+            builder: (context, snapshot) {
+              final operators = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedOperatorName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine Operator',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Operators'),
+                  ),
+                  ...operators.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedOperatorName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _billNumberController,
+            onChanged: (value) {
+              _billNumberDebounce?.cancel();
+              _billNumberDebounce = Timer(
+                const Duration(milliseconds: 400),
+                () {
+                  setState(() => _billNumberFilter = value);
+                },
+              );
+            },
+            decoration: InputDecoration(
+              labelText: 'Bill Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: DropdownButtonFormField<String>(
+            initialValue: _selectedSortBy,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Sort By',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            items: const [
+              DropdownMenuItem<String>(
+                value: 'date',
+                child: Text('Default (Date Order)'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'truckNumber',
+                child: Text('Truck Number'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'billNumber',
+                child: Text('Bill Number'),
+              ),
+            ],
+            onChanged: (val) => setState(() => _selectedSortBy = val ?? 'date'),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: DropdownButtonFormField<String>(
+            initialValue: _calculationBasis,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Calculation Basis',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            items: const [
+              DropdownMenuItem<String>(
+                value: 'Cube-wise',
+                child: Text('Cube-wise'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'Load-wise',
+                child: Text('Load-wise'),
+              ),
+            ],
+            onChanged: (val) =>
+                setState(() => _calculationBasis = val ?? 'Cube-wise'),
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _clearFilters,
+            icon: const Icon(Icons.clear),
+            label: const Text('Clear Filters'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Firestore-only edit — deliberately does not call
+  // GoogleSheetsService.sendRow anywhere in this method, so it can never
+  // trigger a Sheets sync.
+  // Matches _WorkSessionScreenState's _formatDuration exactly, so an edit's
+  // resynced Duration column looks identical to one written at task-complete
+  // time.
+  String _formatSyncDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  void _showEditRecordDialog(DocumentReference ref, Map<String, dynamic> data) {
+    final siteNameController = TextEditingController(
+      text: (data['siteName'] ?? '').toString(),
+    );
+    final machineNameController = TextEditingController(
+      text: (data['machineName'] ?? '').toString(),
+    );
+    final supervisorNameController = TextEditingController(
+      text: (data['supervisorName'] ?? '').toString(),
+    );
+    final categoryController = TextEditingController(
+      text: (data['category'] ?? '').toString(),
+    );
+    final truckNumberController = TextEditingController(
+      text: (data['truckNumber'] ?? '').toString(),
+    );
+    final billNumberController = TextEditingController(
+      text: (data['billNumber'] ?? '').toString(),
+    );
+    String unloadingSiteName = (data['unloadingSiteName'] ?? '').toString();
+    final distanceController = TextEditingController(
+      text: data['distanceKm']?.toString() ?? '',
+    );
+    final startMeterController = TextEditingController(
+      text: data['startMeter']?.toString() ?? '',
+    );
+    final endMeterController = TextEditingController(
+      text: data['endMeter']?.toString() ?? '',
+    );
+    final cubeController = TextEditingController(
+      text: data['cubeCount']?.toString() ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Edit Record'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: siteNameController,
+                    decoration: const InputDecoration(labelText: 'Site Name'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: machineNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Machine Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: supervisorNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Supervisor Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: truckNumberController,
+                    onChanged: (value) =>
+                        _forceUppercase(truckNumberController, value),
+                    decoration: const InputDecoration(
+                      labelText: 'Truck Number',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: billNumberController,
+                    decoration: const InputDecoration(labelText: 'Bill Number'),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () async {
+                      final selected = await _showUnloadingSiteFieldPicker();
+                      if (selected != null) {
+                        setDialogState(
+                          () => unloadingSiteName = selected['name'] ?? '',
+                        );
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Unloading Site',
+                        suffixIcon: Icon(Icons.search, size: 18),
+                      ),
+                      child: Text(
+                        unloadingSiteName.isEmpty
+                            ? 'Search or type unloading site name'
+                            : unloadingSiteName,
+                        style: TextStyle(
+                          color: unloadingSiteName.isEmpty
+                              ? Colors.grey[600]
+                              : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: distanceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Distance KM'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: startMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Start Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: endMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'End Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: cubeController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Cube'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await ref.update({
+                    'siteName': siteNameController.text.trim(),
+                    'machineName': machineNameController.text.trim(),
+                    'supervisorName': supervisorNameController.text.trim(),
+                    'category': categoryController.text.trim(),
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': unloadingSiteName.trim(),
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'startMeter': double.tryParse(
+                      startMeterController.text.trim(),
+                    ),
+                    'endMeter': double.tryParse(endMeterController.text.trim()),
+                    // Kept as a string — matches how NewWorkDialog/_startNewWork
+                    // save it, not a number field.
+                    'cubeCount': cubeController.text.trim(),
+                  });
+
+                  // Sync the edit back to the same Sheet row (update-in-place
+                  // via recordId) instead of appending a duplicate. Column
+                  // order matches _completeLoadingRecord's original 17-column
+                  // Supervisor_Loads row exactly — this is deliberately NOT
+                  // _rowValues()'s table/export order, which substitutes a
+                  // computed "Meter Run" for the real Duration column at the
+                  // same index; sending that here would silently corrupt the
+                  // sheet's Duration column.
+                  final merged = {
+                    ...data,
+                    ...{
+                      'siteName': siteNameController.text.trim(),
+                      'machineName': machineNameController.text.trim(),
+                      'supervisorName': supervisorNameController.text.trim(),
+                      'category': categoryController.text.trim(),
+                      'truckNumber': truckNumberController.text.trim(),
+                      'billNumber': billNumberController.text.trim(),
+                      'unloadingSiteName': unloadingSiteName.trim(),
+                      'distanceKm': double.tryParse(
+                        distanceController.text.trim(),
+                      ),
+                      'startMeter': double.tryParse(
+                        startMeterController.text.trim(),
+                      ),
+                      'endMeter': double.tryParse(
+                        endMeterController.text.trim(),
+                      ),
+                      'cubeCount': cubeController.text.trim(),
+                    },
+                  };
+                  final syncRow = [
+                    (merged['date'] ?? '').toString(),
+                    (merged['machineName'] ?? '').toString(),
+                    (merged['siteName'] ?? '').toString(),
+                    (merged['supervisorName'] ?? '').toString(),
+                    (merged['category'] ?? '').toString(),
+                    (merged['truckNumber'] ?? '').toString(),
+                    (merged['billNumber'] ?? '').toString(),
+                    (merged['unloadingSiteName'] ?? '').toString(),
+                    merged['distanceKm']?.toString() ?? '',
+                    merged['startMeter']?.toString() ?? '',
+                    merged['endMeter']?.toString() ?? '',
+                    _formatSyncDuration(
+                      (merged['totalDurationSeconds'] ?? 0) as int,
+                    ),
+                    GoogleSheetsService.formatTime(merged['loadStartedAt']),
+                    GoogleSheetsService.formatTime(merged['loadCompletedAt']),
+                    (merged['truckDriverName'] ?? '').toString(),
+                    (merged['cubeCount'] ?? '').toString(),
+                    (merged['machineOperatorName'] ?? '').toString(),
+                  ];
+                  GoogleSheetsService.sendRow(
+                    sheetName: 'Supervisor_Loads',
+                    row: syncRow,
+                    recordId: ref.id,
+                  );
+
+                  // Mirror _completeLoadingRecord's Plant_Loads / site-specific
+                  // sheet sync so an edit updates those tabs in place too, not
+                  // just Supervisor_Loads. Uses the (possibly just-edited) site
+                  // name to look up the site doc, since work_records only store
+                  // siteName, not siteId.
+                  final editedSiteName = siteNameController.text.trim();
+                  final siteQuery = await FirebaseFirestore.instance
+                      .collection('sites')
+                      .where('name', isEqualTo: editedSiteName)
+                      .limit(1)
+                      .get();
+                  final editIsPlantSite =
+                      siteQuery.docs.isNotEmpty &&
+                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteSpecificMatch =
+                      kSiteSheetMap[normalizeSiteNameForSheetLookup(
+                        editedSiteName,
+                      )];
+                  if (editIsPlantSite) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: 'Plant_Loads',
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+                  if (editSiteSpecificMatch != null) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: editSiteSpecificMatch,
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Record updated.')),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Failed to update record: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Manual admin/management entry — writes to the SEPARATE
+  // manual_site_reports collection (not work_records, which lives under a
+  // supervisor's daily_sessions and is written by the actual work-session
+  // flow), for historical/paper records that never went through that flow.
+  // build() merges this collection into the same filtered/sorted list as
+  // _workRecordsStream, so once saved this shows up in the table immediately
+  // with no extra plumbing.
+  // Field widgets/patterns below are deliberately kept identical to
+  // NewWorkDialog's (Supervisor's "Start New Work" dialog) — Site/Machine/
+  // Supervisor/Category/Machine Operator as live Firestore dropdowns, Truck
+  // Number/Truck Driver Name as Autocompletes, Unloading Site as the
+  // search-or-add-new picker — so a manual report is built from the same
+  // registered data a real work session would be. No Start Meter / End
+  // Meter here: a manual report has no timer session behind it, so those
+  // fields (and the startMeter/endMeter keys in the saved document) are
+  // intentionally omitted rather than saved as null.
+  void _showAddReportDialog(String currentUserName) {
+    DateTime selectedDate = DateTime.now();
+    String? selectedSiteName;
+    String? selectedMachineName;
+    String? selectedSupervisorName;
+    String? selectedCategory;
+    final truckNumberController = TextEditingController();
+    final billNumberController = TextEditingController();
+    String? selectedUnloadingSiteName;
+    final distanceController = TextEditingController();
+    final durationController = TextEditingController();
+    final truckDriverController = TextEditingController();
+    final cubeController = TextEditingController();
+    String? selectedMachineOperatorName;
+    String errorText = '';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: selectedDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now().add(const Duration(days: 1)),
+            );
+            if (picked != null) {
+              setDialogState(() => selectedDate = picked);
+            }
+          }
+
+          Future<void> save() async {
+            if (isSubmitting) return;
+            if (selectedMachineName == null || selectedSiteName == null) {
+              setDialogState(
+                () => errorText = 'Please enter at least Machine and Site.',
+              );
+              return;
+            }
+
+            setDialogState(() {
+              errorText = '';
+              isSubmitting = true;
+            });
+
+            try {
+              await FirebaseFirestore.instance
+                  .collection('manual_site_reports')
+                  .add({
+                    'date': GoogleSheetsService.formatDate(selectedDate),
+                    'machineName': selectedMachineName,
+                    'siteName': selectedSiteName,
+                    'supervisorName': selectedSupervisorName ?? '',
+                    'category': selectedCategory ?? '',
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': selectedUnloadingSiteName ?? '',
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'duration': durationController.text.trim(),
+                    'truckDriverName': truckDriverController.text.trim(),
+                    'cubeCount': cubeController.text.trim(),
+                    'machineOperatorName': selectedMachineOperatorName ?? '',
+                    'isVerified': false,
+                    'addedByName': currentUserName,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'isManualEntry': true,
+                  });
+
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Report added.')));
+              }
+            } catch (e) {
+              setDialogState(() {
+                isSubmitting = false;
+                errorText = 'Failed to save report: $e';
+              });
+            }
+          }
+
+          Widget field(
+            TextEditingController c,
+            String label, {
+            bool number = false,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: TextField(
+                controller: c,
+                keyboardType: number
+                    ? TextInputType.number
+                    : TextInputType.text,
+                decoration: InputDecoration(labelText: label),
+              ),
+            );
+          }
+
+          Widget sectionLabel(String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          );
+
+          final categories = [...kLoadingCategories, ...kOtherCategories];
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text('Add Report'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: pickDate,
+                      icon: const Icon(Icons.date_range),
+                      label: Text(GoogleSheetsService.formatDate(selectedDate)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showWorkingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedSiteName ?? 'Search site name',
+                          style: TextStyle(
+                            color: selectedSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Machine'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('machines')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final machines = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a machine',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: machines.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final name = (data['name'] ?? '').toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text('$name (${data['type'] ?? ''})'),
+                            );
+                          }).toList(),
+                          onChanged: (val) =>
+                              setDialogState(() => selectedMachineName = val),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Supervisor'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('role', isEqualTo: 'supervisor')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final supervisors = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedSupervisorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a supervisor',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: supervisors.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedSupervisorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Category'),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: 1.6,
+                          ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final c = categories[index];
+                        return TaskButton(
+                          label: c,
+                          selected: selectedCategory == c,
+                          onTap: () =>
+                              setDialogState(() => selectedCategory = c),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('trucks')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> truckNumbers = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final number =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckNumber'];
+                            if (number != null &&
+                                number.toString().isNotEmpty) {
+                              truckNumbers.add(number.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return truckNumbers.where(
+                              (number) => number.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckNumberController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckNumberController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) {
+                                    _forceUppercase(controller, val);
+                                    truckNumberController.text =
+                                        controller.text;
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Number',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(billNumberController, 'Bill Number', number: true),
+
+                    sectionLabel('Unloading Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showUnloadingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedUnloadingSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedUnloadingSiteName ??
+                              'Search or type unloading site name',
+                          style: TextStyle(
+                            color: selectedUnloadingSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    field(distanceController, 'Distance KM', number: true),
+                    field(durationController, 'Duration (HH:MM:SS)'),
+
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collectionGroup('work_records')
+                          .where('truckDriverName', isNotEqualTo: null)
+                          .limit(50)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> pastNames = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final name =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckDriverName'];
+                            if (name != null && name.toString().isNotEmpty) {
+                              pastNames.add(name.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return pastNames.where(
+                              (name) => name.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckDriverController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckDriverController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) =>
+                                      truckDriverController.text = val,
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Driver Name',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(cubeController, 'Cube (Quantity)', number: true),
+                    const SizedBox(height: 2),
+
+                    sectionLabel('Machine Operator'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('canOperateMachine', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final operators = snapshot.data!.docs;
+                        if (operators.isEmpty) {
+                          return const Text(
+                            'No operators registered.',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          );
+                        }
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineOperatorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose operator',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: operators.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedMachineOperatorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    if (errorText.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting ? null : save,
+                child: Text(isSubmitting ? 'Saving...' : 'SAVE'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Internal QC flag only — never triggers GoogleSheetsService.sendRow, the
+  // Sheets sync is unrelated to this. Same tick-vs-untick confirmation
+  // wording as ManagementSiteReportsScreen's version, kept in sync.
+  Future<void> _toggleVerification(
+    DocumentReference ref,
+    bool currentlyVerified,
+    String currentUserName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          currentlyVerified ? 'Remove Verification?' : 'Mark as Verified?',
+        ),
+        content: Text(
+          currentlyVerified
+              ? 'This will mark the report as unverified. Continue?'
+              : 'Confirm this report is correct and verified?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('CONFIRM'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final nowVerified = !currentlyVerified;
+      await ref.update({
+        'isVerified': nowVerified,
+        'verifiedBy': nowVerified ? currentUserName : null,
+        'verifiedAt': nowVerified ? FieldValue.serverTimestamp() : null,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nowVerified ? 'Marked as verified.' : 'Verification removed.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+      }
+    }
+  }
+
+  // Firestore-only delete — deliberately never touches Google Sheets (no
+  // GoogleSheetsService call anywhere here), so removing a row from the
+  // synced sheet is left to manual cleanup if that's ever needed. Works
+  // uniformly for either source a record can come from — a top-level
+  // manual_site_reports doc, or a nested
+  // daily_sessions/{id}/work_records/{id} doc — since `ref` is always the
+  // record's own correct DocumentReference (see _enrichRecords and the
+  // manual-records mapping in build(), both of which set data['_ref'] to
+  // doc.reference). Both source streams are live .snapshots(), so deleting
+  // the doc removes it from the table automatically on the next snapshot —
+  // no manual refetch needed.
+  Future<void> _deleteRecord(DocumentReference ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Report?'),
+        content: const Text(
+          'Are you sure you want to permanently delete this report record? '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.delete();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Report deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete report: $e')));
+      }
+    }
+  }
+
+  Widget _buildTable(
+    List<Map<String, dynamic>> records,
+    bool canEdit,
+    String currentUserName,
+    double cubeRate,
+    double loadRate,
+  ) {
+    final truckNumberColIndex = 2 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 2 + _columns.indexOf('Bill Number');
+    final siteColIndex = 2 + _columns.indexOf('Site');
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        sortColumnIndex: _sortColumnIndex,
+        sortAscending: _sortAscending,
+        columns: [
+          const DataColumn(
+            label: Text('#', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          // Always shown (not canEdit-gated) — see class doc comment. Only
+          // its DataCell's interactivity depends on canEdit, not whether
+          // this column exists.
+          const DataColumn(
+            label: Text(
+              'Verified',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          ..._columns.asMap().entries.map((entry) {
+            final colIndex = entry.key + 2;
+            final sortable =
+                colIndex == truckNumberColIndex ||
+                colIndex == billNumberColIndex;
+            return DataColumn(
+              label: Text(
+                entry.value,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onSort: sortable
+                  ? (i, ascending) => setState(() {
+                      _sortColumnIndex = i;
+                      _sortAscending = ascending;
+                    })
+                  : null,
+            );
+          }),
+          if (canEdit)
+            const DataColumn(
+              label: Text(
+                'Actions',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+        rows: records.asMap().entries.map((rowEntry) {
+          final rowIndex = rowEntry.key;
+          final data = rowEntry.value;
+          final values = _rowValues(data, cubeRate, loadRate);
+          final isVerified = data['isVerified'] == true;
+          final isManual = data['isManualEntry'] == true;
+          return DataRow(
+            color: _rowStripeColor(rowIndex),
+            cells: [
+              DataCell(Text('${rowIndex + 1}')),
+              DataCell(
+                IconButton(
+                  icon: Icon(
+                    isVerified
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    color: isVerified ? Colors.green : Colors.grey,
+                  ),
+                  onPressed: canEdit
+                      ? () => _toggleVerification(
+                          data['_ref'] as DocumentReference,
+                          isVerified,
+                          currentUserName,
+                        )
+                      : null,
+                ),
+              ),
+              ...values.asMap().entries.map((v) {
+                final colIndex = v.key + 2;
+                final text = (colIndex == siteColIndex && isManual)
+                    ? '${v.value} (Manual)'
+                    : v.value;
+                return DataCell(Text(text));
+              }),
+              if (canEdit)
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: AppTheme.primaryMid,
+                        ),
+                        onPressed: () => _showEditRecordDialog(
+                          data['_ref'] as DocumentReference,
+                          data,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () =>
+                            _deleteRecord(data['_ref'] as DocumentReference),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // Same enrichment logic as ManagementSiteReportsScreen._enrichRecords —
+  // backfills date/machineName/siteName/supervisorName from the parent
+  // daily_sessions doc for older records missing the denormalized fields.
+  Future<List<Map<String, dynamic>>> _enrichRecords(
+    List<QueryDocumentSnapshot> docs,
+  ) async {
+    final results = <Map<String, dynamic>>[];
+
+    for (final doc in docs) {
+      final data = Map<String, dynamic>.from(
+        doc.data() as Map<String, dynamic>,
+      );
+      data['_ref'] = doc.reference;
+      final missingDenormalized =
+          data['date'] == null ||
+          data['machineName'] == null ||
+          data['siteName'] == null ||
+          data['supervisorName'] == null;
+
+      if (missingDenormalized) {
+        final sessionRef = doc.reference.parent.parent;
+        if (sessionRef != null) {
+          try {
+            final sessionDoc = await _sessionDocCache.putIfAbsent(
+              sessionRef.id,
+              () => sessionRef.get(),
+            );
+            final sessionData = sessionDoc.data() as Map<String, dynamic>?;
+            if (sessionData != null) {
+              data['date'] ??= sessionData['date'];
+              data['machineName'] ??= sessionData['machineName'];
+              data['siteName'] ??= sessionData['siteName'];
+              data['supervisorName'] ??= sessionData['supervisorName'];
+            }
+          } catch (_) {
+            // Leave fields missing if the parent session can't be read.
+          }
+        }
+      }
+
+      results.add(data);
+    }
+
+    return results;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Transport Record'),
+        backgroundColor: Colors.teal[800],
+      ),
+      body: FutureBuilder<DocumentSnapshot>(
+        future: _currentUserFuture,
+        builder: (context, userSnap) {
+          if (userSnap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final role = userData?['role'] as String?;
+          final isAdminOrOwner = role == 'admin' || role == 'owner';
+          final isManagement = role == 'management';
+          final canAccess =
+              isAdminOrOwner ||
+              (isManagement && userData?['canAccessTransportRecords'] == true);
+          // Separate from canAccess (which gates the whole screen): reuses
+          // the same canEditReports pattern ManagementSiteReportsScreen
+          // uses to gate Edit/Delete/+Add Report/the Verified toggle.
+          final canEdit =
+              isAdminOrOwner ||
+              (isManagement && userData?['canEditReports'] == true);
+
+          if (!canAccess) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  "You don't have access to Transport Records.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            );
+          }
+
+          final currentUserName = (userData?['name'] ?? '').toString();
+
+          // Both rates always come from this one live document, so
+          // switching the Calculation Basis dropdown never loses whichever
+          // rate isn't currently active — see _calculationBasis.
+          return StreamBuilder<DocumentSnapshot>(
+            stream: _rateStream,
+            builder: (context, rateSnap) {
+              final rateData = rateSnap.data?.data() as Map<String, dynamic>?;
+              final cubeRate = (rateData?['cubeRate'] as num?)?.toDouble() ?? 0;
+              final loadRate = (rateData?['loadRate'] as num?)?.toDouble() ?? 0;
+
+              return StreamBuilder<QuerySnapshot>(
+                stream: _workRecordsStream,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  if (snapshot.hasError) {
+                    return Center(
+                      child: Text('Error loading records: ${snapshot.error}'),
+                    );
+                  }
+
+                  if (!identical(snapshot.data, _lastSnapshot)) {
+                    _lastSnapshot = snapshot.data;
+                    _enrichedFuture = _enrichRecords(snapshot.data?.docs ?? []);
+                  }
+
+                  return FutureBuilder<List<Map<String, dynamic>>>(
+                    future: _enrichedFuture,
+                    builder: (context, enrichSnap) {
+                      if (!enrichSnap.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+
+                      final workRecords = enrichSnap.data!;
+
+                      // Manual "+ Add Report" entries merged client-side, same
+                      // as ManagementSiteReportsScreen.
+                      return StreamBuilder<QuerySnapshot>(
+                        stream: _manualSiteReportsStream,
+                        builder: (context, manualSnap) {
+                          final manualRecords = (manualSnap.data?.docs ?? [])
+                              .map((d) {
+                                final data = Map<String, dynamic>.from(
+                                  d.data() as Map<String, dynamic>,
+                                );
+                                data['_ref'] = d.reference;
+                                return data;
+                              })
+                              .toList();
+
+                          final allRecords = [...workRecords, ...manualRecords];
+                          final filtered = allRecords
+                              .where(_matchesFilters)
+                              .toList();
+                          if (_selectedSortBy == 'truckNumber') {
+                            filtered.sort(
+                              (a, b) => _naturalCompare(
+                                (a['truckNumber'] ?? '').toString(),
+                                (b['truckNumber'] ?? '').toString(),
+                              ),
+                            );
+                          } else if (_selectedSortBy == 'billNumber') {
+                            filtered.sort(
+                              (a, b) => _naturalCompare(
+                                (a['billNumber'] ?? '').toString(),
+                                (b['billNumber'] ?? '').toString(),
+                              ),
+                            );
+                          } else {
+                            // Default: date ascending, then same-day records by
+                            // when the load actually started (falling back to
+                            // createdAt if that's missing) — oldest first,
+                            // matching ManagementSiteReportsScreen's default
+                            // order.
+                            filtered.sort((a, b) {
+                              final dateCompare = (a['date'] ?? '')
+                                  .toString()
+                                  .compareTo((b['date'] ?? '').toString());
+                              if (dateCompare != 0) return dateCompare;
+
+                              final aTime =
+                                  (a['loadStartedAt'] as Timestamp?) ??
+                                  (a['createdAt'] as Timestamp?);
+                              final bTime =
+                                  (b['loadStartedAt'] as Timestamp?) ??
+                                  (b['createdAt'] as Timestamp?);
+                              if (aTime == null && bTime == null) return 0;
+                              if (aTime == null) return -1;
+                              if (bTime == null) return 1;
+                              return aTime.compareTo(bTime);
+                            });
+                          }
+
+                          // Truck Number / Bill Number header-click sort —
+                          // applied after the chronological default sort above,
+                          // only when the user has actually clicked one of
+                          // those headers. Offset by 2 (not 1, as in
+                          // ManagementSiteReportsScreen) because Verified always
+                          // occupies column 1 here, unlike there where it's
+                          // canEdit-gated.
+                          if (_sortColumnIndex != null) {
+                            final sortField =
+                                _sortColumnIndex ==
+                                    2 + _columns.indexOf('Truck Number')
+                                ? 'truckNumber'
+                                : _sortColumnIndex ==
+                                      2 + _columns.indexOf('Bill Number')
+                                ? 'billNumber'
+                                : null;
+                            if (sortField != null) {
+                              filtered.sort((a, b) {
+                                final cmp = _naturalCompare(
+                                  (a[sortField] ?? '').toString(),
+                                  (b[sortField] ?? '').toString(),
+                                );
+                                return _sortAscending ? cmp : -cmp;
+                              });
+                            }
+                          }
+
+                          return SingleChildScrollView(
+                            padding: const EdgeInsets.all(16),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                _buildFiltersRow(allRecords),
+                                const SizedBox(height: 12),
+                                _buildRateBar(
+                                  cubeRate,
+                                  loadRate,
+                                  canEdit,
+                                  currentUserName,
+                                ),
+                                const SizedBox(height: 20),
+                                if (canEdit) ...[
+                                  SizedBox(
+                                    width: 200,
+                                    child: GradientButton(
+                                      label: '+ Add Report',
+                                      icon: Icons.add,
+                                      height: 44,
+                                      onTap: () =>
+                                          _showAddReportDialog(currentUserName),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                ],
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      '${filtered.length} records',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                    SizedBox(
+                                      width: 200,
+                                      child: GradientButton(
+                                        label: 'Export to Excel',
+                                        icon: Icons.download,
+                                        height: 44,
+                                        onTap: filtered.isEmpty
+                                            ? () {}
+                                            : () => _exportToExcel(
+                                                filtered,
+                                                cubeRate,
+                                                loadRate,
+                                              ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 16),
+                                _buildTable(
+                                  filtered,
+                                  canEdit,
+                                  currentUserName,
+                                  cubeRate,
+                                  loadRate,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------- TRANSPORT SUMMARY REPORT (web-only) ----------------
+// Full feature parity with ManagementSiteReportsScreen — same
+// data-fetching / stream-stability / debounce / chronological-sort logic,
+// same filters row, same "+ Add Report" / Edit / Delete dialogs (see that
+// class's comments for why the streams are `late final` fields —
+// StreamBuilder resubscribes and blanks the whole body if handed a fresh
+// Stream instance on every rebuild — and why the enrichment Future is
+// memoized against the snapshot), copied rather than re-derived and
+// re-debugged here. Same underlying data source: work_records
+// collectionGroup + manual_site_reports, merged and enriched the same way,
+// so a manual report or an edit made from either screen is visible from
+// both.
+//
+// Deliberately different from that screen: the column set is trimmed (no
+// Started At / Completed At / Duration — see _columns) and Verified always
+// occupies column 2 (right after '#') rather than being canEdit-gated,
+// per this screen's own fixed column order. It's interactive (tap to
+// toggle) only when canEdit is true, same as Edit/Delete/+Add Report.
+// Export to Excel is this screen's own styled version (Times New Roman,
+// duplicate highlighting, navy header, Total Loads row) — not
+// ManagementSiteReportsScreen's plain export.
+class TransportSummaryScreen extends StatefulWidget {
+  const TransportSummaryScreen({super.key});
+
+  @override
+  State<TransportSummaryScreen> createState() => _TransportSummaryScreenState();
+}
+
+class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
+  static const List<String> _columns = [
+    'Date',
+    'Truck Number',
+    'Bill Number',
+    'Cube',
+    'Site',
+    'Unloading Site',
+    'Distance KM',
+    'Category',
+    'Machine Operator',
+    'Truck Driver',
+    'Machine',
+    'Supervisor',
+  ];
+
+  DateTimeRange? _dateRange;
+  String? _selectedSiteName;
+  String? _selectedMachineName;
+  final _truckNumberController = TextEditingController();
+  String _truckNumberFilter = '';
+  Timer? _debounce;
+  String? _selectedOperatorName;
+  String? _selectedUnloadingSite;
+  final _billNumberController = TextEditingController();
+  String _billNumberFilter = '';
+  Timer? _billNumberDebounce;
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
+
+  // "Sort By" filters-row dropdown — a top-level sort preference, separate
+  // from (and applied before) the column-header-click sort below. One of
+  // 'date' (default, chronological), 'truckNumber', 'billNumber'.
+  String _selectedSortBy = 'date';
+
+  // Same late-final-stream pattern as ManagementSiteReportsScreen — see its
+  // comment on _workRecordsStream for why these must not be rebuilt inline.
+  late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore
+      .instance
+      .collectionGroup('work_records')
+      .where('isLoadingCategory', isEqualTo: true)
+      .where('isCompleted', isEqualTo: true)
+      .snapshots();
+
+  late final Stream<QuerySnapshot> _manualSiteReportsStream = FirebaseFirestore
+      .instance
+      .collection('manual_site_reports')
+      .snapshots();
+
+  late final Stream<QuerySnapshot> _sitesStream = FirebaseFirestore.instance
+      .collection('sites')
+      .snapshots();
+  late final Stream<QuerySnapshot> _machinesStream = FirebaseFirestore.instance
+      .collection('machines')
+      .snapshots();
+  late final Stream<QuerySnapshot> _operatorsStream = FirebaseFirestore.instance
+      .collection('users')
+      .where('canOperateMachine', isEqualTo: true)
+      .snapshots();
+
+  // Route guard: gates the whole report behind canAccessTransportRecords
+  // (admin/owner always pass, matching every other permission-field check
+  // in this app). Also used to derive canEdit (canEditReports) below, so
+  // Edit/Delete/+Add Report/Verified-toggle share the same single fetch.
+  late final Future<DocumentSnapshot> _currentUserFuture = FirebaseFirestore
+      .instance
+      .collection('users')
+      .doc(FirebaseAuth.instance.currentUser!.uid)
+      .get();
+
+  final Map<String, Future<DocumentSnapshot>> _sessionDocCache = {};
+
+  QuerySnapshot? _lastSnapshot;
+  Future<List<Map<String, dynamic>>>? _enrichedFuture;
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _truckNumberController.dispose();
+    _billNumberDebounce?.cancel();
+    _billNumberController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDateRange() async {
+    final picked = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(2020),
+      lastDate: DateTime.now().add(const Duration(days: 1)),
+      initialDateRange: _dateRange,
+    );
+    if (picked != null) {
+      setState(() => _dateRange = picked);
+    }
+  }
+
+  void _clearFilters() {
+    _debounce?.cancel();
+    _billNumberDebounce?.cancel();
+    setState(() {
+      _dateRange = null;
+      _selectedSiteName = null;
+      _selectedMachineName = null;
+      _truckNumberController.clear();
+      _truckNumberFilter = '';
+      _selectedOperatorName = null;
+      _selectedUnloadingSite = null;
+      _billNumberController.clear();
+      _billNumberFilter = '';
+      _selectedSortBy = 'date';
+    });
+  }
+
+  void _forceUppercase(TextEditingController controller, String value) {
+    final upper = value.toUpperCase();
+    if (upper == value) return;
+    controller.value = controller.value.copyWith(
+      text: upper,
+      selection: TextSelection.collapsed(offset: upper.length),
+    );
+  }
+
+  bool _matchesFilters(Map<String, dynamic> data) {
+    if (_dateRange != null) {
+      final dateStr = data['date'] as String?;
+      if (dateStr == null) return false;
+      final parts = dateStr.split('-');
+      if (parts.length != 3) return false;
+      final recordDate = DateTime(
+        int.parse(parts[0]),
+        int.parse(parts[1]),
+        int.parse(parts[2]),
+      );
+      final startDate = DateTime(
+        _dateRange!.start.year,
+        _dateRange!.start.month,
+        _dateRange!.start.day,
+      );
+      final endDate = DateTime(
+        _dateRange!.end.year,
+        _dateRange!.end.month,
+        _dateRange!.end.day,
+      );
+      if (recordDate.isBefore(startDate) || recordDate.isAfter(endDate))
+        return false;
+    }
+    if (_selectedSiteName != null && data['siteName'] != _selectedSiteName)
+      return false;
+    if (_selectedMachineName != null &&
+        data['machineName'] != _selectedMachineName)
+      return false;
+    final truckQuery = _truckNumberFilter.trim().toLowerCase();
+    if (truckQuery.isNotEmpty) {
+      final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
+      if (!truckNumber.contains(truckQuery)) return false;
+    }
+    if (_selectedOperatorName != null &&
+        data['machineOperatorName'] != _selectedOperatorName) {
+      return false;
+    }
+    if (_selectedUnloadingSite != null &&
+        data['unloadingSiteName'] != _selectedUnloadingSite) {
+      return false;
+    }
+    final billQuery = _billNumberFilter.trim().toLowerCase();
+    if (billQuery.isNotEmpty) {
+      final billNumber = (data['billNumber'] ?? '').toString().toLowerCase();
+      if (!billNumber.contains(billQuery)) return false;
+    }
+    return true;
+  }
+
+  List<String> _rowValues(Map<String, dynamic> data) {
+    return [
+      (data['date'] ?? '').toString(),
+      (data['truckNumber'] ?? '').toString().toUpperCase(),
+      (data['billNumber'] ?? '').toString(),
+      (data['cubeCount'] ?? '').toString(),
+      (data['siteName'] ?? '').toString(),
+      (data['unloadingSiteName'] ?? '').toString(),
+      data['distanceKm']?.toString() ?? '',
+      (data['category'] ?? '').toString(),
+      (data['machineOperatorName'] ?? '').toString(),
+      (data['truckDriverName'] ?? '').toString(),
+      (data['machineName'] ?? '').toString(),
+      (data['supervisorName'] ?? '').toString(),
+    ];
+  }
+
+  // PART C: professional Excel export — styled header (navy background,
+  // white bold text), '#' + the 12 named columns (no Verified — that's a
+  // web-only status icon), a blank separator row, then a bold
+  // "Total Loads: N" summary row.
+  Future<void> _exportToExcel(List<Map<String, dynamic>> records) async {
+    final excelFile = xls.Excel.createExcel();
+    final defaultSheetName = excelFile.getDefaultSheet() ?? 'Sheet1';
+    excelFile.rename(defaultSheetName, 'Transport Summary');
+    final sheet = excelFile['Transport Summary'];
+
+    final headers = ['#', ..._columns];
+    final headerStyle = xls.CellStyle(
+      bold: true,
+      fontColorHex: xls.ExcelColor.white,
+      backgroundColorHex: xls.ExcelColor.blue900,
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+    for (var col = 0; col < headers.length; col++) {
+      final cell = sheet.cell(
+        xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: 0),
+      );
+      cell.value = xls.TextCellValue(headers[col]);
+      cell.cellStyle = headerStyle;
+    }
+
+    // Duplicate detection — Truck Number and Bill Number are checked
+    // independently (a row's Truck Number cell can be highlighted without
+    // its Bill Number cell being, and vice versa), and blank values are
+    // never counted as duplicates of each other.
+    final truckNumberCounts = <String, int>{};
+    final billNumberCounts = <String, int>{};
+    for (final r in records) {
+      final truckNumber = (r['truckNumber'] ?? '').toString().toUpperCase();
+      if (truckNumber.isNotEmpty) {
+        truckNumberCounts[truckNumber] =
+            (truckNumberCounts[truckNumber] ?? 0) + 1;
+      }
+      final billNumber = (r['billNumber'] ?? '').toString();
+      if (billNumber.isNotEmpty) {
+        billNumberCounts[billNumber] = (billNumberCounts[billNumber] ?? 0) + 1;
+      }
+    }
+    final duplicateTruckNumbers = {
+      for (final e in truckNumberCounts.entries)
+        if (e.value > 1) e.key,
+    };
+    final duplicateBillNumbers = {
+      for (final e in billNumberCounts.entries)
+        if (e.value > 1) e.key,
+    };
+    final truckNumberColIndex = 1 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 1 + _columns.indexOf('Bill Number');
+
+    final normalDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+    final duplicateDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+      backgroundColorHex: xls.ExcelColor.amber100,
+    );
+
+    // '#'/Cube/Distance KM/Bill Number need real numeric cells (see
+    // _numericCellValue) so Excel doesn't flag them as "Number stored as
+    // text" — every other column stays plain text.
+    const numericColumns = {'#', 'Cube', 'Distance KM', 'Bill Number'};
+
+    for (var i = 0; i < records.length; i++) {
+      final rowValues = [(i + 1).toString(), ..._rowValues(records[i])];
+      for (var col = 0; col < rowValues.length; col++) {
+        final isDuplicateCell =
+            (col == truckNumberColIndex &&
+                duplicateTruckNumbers.contains(rowValues[col])) ||
+            (col == billNumberColIndex &&
+                duplicateBillNumbers.contains(rowValues[col]));
+        final cell = sheet.cell(
+          xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: i + 1),
+        );
+        cell.value = numericColumns.contains(headers[col])
+            ? _numericCellValue(rowValues[col])
+            : xls.TextCellValue(rowValues[col]);
+        cell.cellStyle = isDuplicateCell ? duplicateDataStyle : normalDataStyle;
+      }
+    }
+
+    // Blank separator row, then the bold total-count row.
+    final totalCell = sheet.cell(
+      xls.CellIndex.indexByColumnRow(
+        columnIndex: 0,
+        rowIndex: records.length + 2,
+      ),
+    );
+    totalCell.value = xls.TextCellValue('Total Loads: ${records.length}');
+    totalCell.cellStyle = xls.CellStyle(
+      bold: true,
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+    );
+
+    for (var col = 0; col < headers.length; col++) {
+      sheet.setColumnAutoFit(col);
+    }
+
+    // Same single-download reasoning as ManagementSiteReportsScreen's
+    // export — excel.save() on web already triggers its own browser
+    // download, so no separate downloader call here.
+    final filename =
+        'Transport_Summary_${DateTime.now().toIso8601String()}.xlsx';
+    final bytes = excelFile.save(fileName: filename);
+    if (bytes == null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to generate Excel file.')),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Report exported.')));
+    }
+  }
+
+  // Search-bottom-sheet pattern, same as ManagementSiteReportsScreen's
+  // _showUnloadingSiteSearchSheet: a search TextField over a scrollable
+  // filtered list, tap to select. Options come from the already-fetched
+  // records' distinct unloadingSiteName values (passed in from
+  // _buildFiltersRow), not a fresh Firestore query.
+  Future<void> _showUnloadingSiteSearchSheet(List<String> options) async {
+    // Real unloading site names are always non-empty (see the
+    // .where((name) => name.isNotEmpty) filter that builds `options`), so
+    // '' is a safe sentinel for "explicitly picked All Unloading Sites" —
+    // distinct from a plain dismiss (tap outside / back), which resolves
+    // this Future with null and must leave the current filter unchanged.
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final filtered = options
+                .where(
+                  (name) =>
+                      name.toLowerCase().contains(searchText.toLowerCase()),
+                )
+                .toList();
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search unloading site',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            leading: const Icon(
+                              Icons.clear_all,
+                              color: Colors.teal,
+                            ),
+                            title: const Text('All Unloading Sites'),
+                            onTap: () => Navigator.pop(sheetContext, ''),
+                          ),
+                          if (filtered.isEmpty && searchText.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('No matching unloading sites.'),
+                            ),
+                          for (final name in filtered)
+                            ListTile(
+                              leading: const Icon(
+                                Icons.location_on,
+                                color: Colors.teal,
+                              ),
+                              title: Text(name),
+                              onTap: () => Navigator.pop(sheetContext, name),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected == null) return; // dismissed without choosing — no change
+    setState(() => _selectedUnloadingSite = selected.isEmpty ? null : selected);
+  }
+
+  // Search-bottom-sheet pattern for a *field value* (Edit Record's and Add
+  // Report's Unloading Site fields) — distinct from
+  // _showUnloadingSiteSearchSheet above, which drives the filters-row
+  // dropdown off already-loaded record values only. This one mirrors
+  // NewWorkDialog._showUnloadingSitePicker exactly: queries the `sites`
+  // collection live, filters by canBeUnloadingSite, and offers a "use as
+  // new unloading site" option so a not-yet-registered site can still be
+  // entered. Returns null if dismissed without choosing.
+  Future<Map<String, String?>?> _showUnloadingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String?>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search or type a new site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final trimmedSearch = searchText.trim();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeUnloadingSite'] == false)
+                              return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              trimmedSearch.toLowerCase(),
+                            );
+                          }).toList();
+                          final hasExactMatch = filtered.any(
+                            (doc) =>
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString()
+                                    .toLowerCase() ==
+                                trimmedSearch.toLowerCase(),
+                          );
+                          return ListView(
+                            children: [
+                              if (trimmedSearch.isNotEmpty && !hasExactMatch)
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.add_circle,
+                                    color: AppTheme.accent,
+                                  ),
+                                  title: Text(
+                                    "Use '$trimmedSearch' as new unloading site",
+                                  ),
+                                  onTap: () => Navigator.pop(sheetContext, {
+                                    'id': null,
+                                    'name': trimmedSearch,
+                                  }),
+                                ),
+                              for (final doc in filtered)
+                                Builder(
+                                  builder: (context) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.location_on,
+                                        color: Colors.teal,
+                                      ),
+                                      title: Text(data['name'] ?? ''),
+                                      subtitle: Text(data['location'] ?? ''),
+                                      onTap: () => Navigator.pop(sheetContext, {
+                                        'id': doc.id,
+                                        'name': (data['name'] ?? '').toString(),
+                                      }),
+                                    );
+                                  },
+                                ),
+                              if (filtered.isEmpty && trimmedSearch.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text(
+                                    'No sites yet — start typing to add one.',
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Select-only registered-site picker for Add Report's Site field — mirrors
+  // SupervisorScreen._showSiteSearchPicker (canBeLoadingSite filter, no "add
+  // new" option, since this Site must be a real registered site). Returns
+  // null if dismissed without choosing.
+  Future<Map<String, String>?> _showWorkingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeLoadingSite'] == false) return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              searchText.toLowerCase(),
+                            );
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text('No matching sites.'),
+                            );
+                          }
+                          return ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final doc = filtered[index];
+                              final data = doc.data() as Map<String, dynamic>;
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.teal,
+                                ),
+                                title: Text(data['name'] ?? ''),
+                                subtitle: Text(data['location'] ?? ''),
+                                onTap: () => Navigator.pop(sheetContext, {
+                                  'id': doc.id,
+                                  'name': (data['name'] ?? '').toString(),
+                                }),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFiltersRow(List<Map<String, dynamic>> allRecords) {
+    // Unloading sites aren't a managed reference collection (unlike
+    // sites/machines/operators below) — they're free-text entered per load —
+    // so the dropdown's options come from whatever distinct values actually
+    // appear in the fetched records, not a Firestore stream.
+    final unloadingSites =
+        allRecords
+            .map((r) => (r['unloadingSiteName'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
+    return Wrap(
+      spacing: 12,
+      runSpacing: 12,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        SizedBox(
+          width: 230,
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _pickDateRange,
+            icon: const Icon(Icons.date_range),
+            label: Text(
+              _dateRange == null
+                  ? 'All Time'
+                  : '${GoogleSheetsService.formatDate(_dateRange!.start)} - '
+                        '${GoogleSheetsService.formatDate(_dateRange!.end)}',
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _sitesStream,
+            builder: (context, snapshot) {
+              final sites = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedSiteName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Site',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Sites'),
+                  ),
+                  ...sites.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedSiteName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _machinesStream,
+            builder: (context, snapshot) {
+              final machines = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedMachineName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Machines'),
+                  ),
+                  ...machines.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedMachineName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _truckNumberController,
+            onChanged: (value) {
+              _forceUppercase(_truckNumberController, value);
+              final upper = _truckNumberController.text;
+              _debounce?.cancel();
+              _debounce = Timer(const Duration(milliseconds: 400), () {
+                setState(() => _truckNumberFilter = upper);
+              });
+            },
+            decoration: InputDecoration(
+              labelText: 'Truck Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _showUnloadingSiteSearchSheet(unloadingSites),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Unloading Site',
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                suffixIcon: const Icon(Icons.search, size: 18),
+              ),
+              child: Text(
+                _selectedUnloadingSite ?? 'All Unloading Sites',
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: _operatorsStream,
+            builder: (context, snapshot) {
+              final operators = snapshot.data?.docs ?? [];
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedOperatorName,
+                isExpanded: true,
+                decoration: InputDecoration(
+                  labelText: 'Machine Operator',
+                  isDense: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All Operators'),
+                  ),
+                  ...operators.map((doc) {
+                    final name =
+                        ((doc.data() as Map<String, dynamic>)['name'] ?? '')
+                            .toString();
+                    return DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    );
+                  }),
+                ],
+                onChanged: (val) => setState(() => _selectedOperatorName = val),
+              );
+            },
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _billNumberController,
+            onChanged: (value) {
+              _billNumberDebounce?.cancel();
+              _billNumberDebounce = Timer(
+                const Duration(milliseconds: 400),
+                () {
+                  setState(() => _billNumberFilter = value);
+                },
+              );
+            },
+            decoration: InputDecoration(
+              labelText: 'Bill Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: DropdownButtonFormField<String>(
+            initialValue: _selectedSortBy,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Sort By',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            items: const [
+              DropdownMenuItem<String>(
+                value: 'date',
+                child: Text('Default (Date Order)'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'truckNumber',
+                child: Text('Truck Number'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'billNumber',
+                child: Text('Bill Number'),
+              ),
+            ],
+            onChanged: (val) => setState(() => _selectedSortBy = val ?? 'date'),
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _clearFilters,
+            icon: const Icon(Icons.clear),
+            label: const Text('Clear Filters'),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Firestore-only edit — deliberately does not call
+  // GoogleSheetsService.sendRow anywhere in this method, so it can never
+  // trigger a Sheets sync.
+  // Matches _WorkSessionScreenState's _formatDuration exactly, so an edit's
+  // resynced Duration column looks identical to one written at task-complete
+  // time.
+  String _formatSyncDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
+
+  void _showEditRecordDialog(DocumentReference ref, Map<String, dynamic> data) {
+    final siteNameController = TextEditingController(
+      text: (data['siteName'] ?? '').toString(),
+    );
+    final machineNameController = TextEditingController(
+      text: (data['machineName'] ?? '').toString(),
+    );
+    final supervisorNameController = TextEditingController(
+      text: (data['supervisorName'] ?? '').toString(),
+    );
+    final categoryController = TextEditingController(
+      text: (data['category'] ?? '').toString(),
+    );
+    final truckNumberController = TextEditingController(
+      text: (data['truckNumber'] ?? '').toString(),
+    );
+    final billNumberController = TextEditingController(
+      text: (data['billNumber'] ?? '').toString(),
+    );
+    String unloadingSiteName = (data['unloadingSiteName'] ?? '').toString();
+    final distanceController = TextEditingController(
+      text: data['distanceKm']?.toString() ?? '',
+    );
+    final startMeterController = TextEditingController(
+      text: data['startMeter']?.toString() ?? '',
+    );
+    final endMeterController = TextEditingController(
+      text: data['endMeter']?.toString() ?? '',
+    );
+    final cubeController = TextEditingController(
+      text: data['cubeCount']?.toString() ?? '',
+    );
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Edit Record'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: siteNameController,
+                    decoration: const InputDecoration(labelText: 'Site Name'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: machineNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Machine Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: supervisorNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Supervisor Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: truckNumberController,
+                    onChanged: (value) =>
+                        _forceUppercase(truckNumberController, value),
+                    decoration: const InputDecoration(
+                      labelText: 'Truck Number',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: billNumberController,
+                    decoration: const InputDecoration(labelText: 'Bill Number'),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () async {
+                      final selected = await _showUnloadingSiteFieldPicker();
+                      if (selected != null) {
+                        setDialogState(
+                          () => unloadingSiteName = selected['name'] ?? '',
+                        );
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Unloading Site',
+                        suffixIcon: Icon(Icons.search, size: 18),
+                      ),
+                      child: Text(
+                        unloadingSiteName.isEmpty
+                            ? 'Search or type unloading site name'
+                            : unloadingSiteName,
+                        style: TextStyle(
+                          color: unloadingSiteName.isEmpty
+                              ? Colors.grey[600]
+                              : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: distanceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Distance KM'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: startMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Start Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: endMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'End Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: cubeController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Cube'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await ref.update({
+                    'siteName': siteNameController.text.trim(),
+                    'machineName': machineNameController.text.trim(),
+                    'supervisorName': supervisorNameController.text.trim(),
+                    'category': categoryController.text.trim(),
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': unloadingSiteName.trim(),
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'startMeter': double.tryParse(
+                      startMeterController.text.trim(),
+                    ),
+                    'endMeter': double.tryParse(endMeterController.text.trim()),
+                    // Kept as a string — matches how NewWorkDialog/_startNewWork
+                    // save it, not a number field.
+                    'cubeCount': cubeController.text.trim(),
+                  });
+
+                  // Sync the edit back to the same Sheet row (update-in-place
+                  // via recordId) instead of appending a duplicate. Column
+                  // order matches _completeLoadingRecord's original 17-column
+                  // Supervisor_Loads row exactly — this is deliberately NOT
+                  // _rowValues()'s table/export order, which substitutes a
+                  // computed "Meter Run" for the real Duration column at the
+                  // same index; sending that here would silently corrupt the
+                  // sheet's Duration column.
+                  final merged = {
+                    ...data,
+                    ...{
+                      'siteName': siteNameController.text.trim(),
+                      'machineName': machineNameController.text.trim(),
+                      'supervisorName': supervisorNameController.text.trim(),
+                      'category': categoryController.text.trim(),
+                      'truckNumber': truckNumberController.text.trim(),
+                      'billNumber': billNumberController.text.trim(),
+                      'unloadingSiteName': unloadingSiteName.trim(),
+                      'distanceKm': double.tryParse(
+                        distanceController.text.trim(),
+                      ),
+                      'startMeter': double.tryParse(
+                        startMeterController.text.trim(),
+                      ),
+                      'endMeter': double.tryParse(
+                        endMeterController.text.trim(),
+                      ),
+                      'cubeCount': cubeController.text.trim(),
+                    },
+                  };
+                  final syncRow = [
+                    (merged['date'] ?? '').toString(),
+                    (merged['machineName'] ?? '').toString(),
+                    (merged['siteName'] ?? '').toString(),
+                    (merged['supervisorName'] ?? '').toString(),
+                    (merged['category'] ?? '').toString(),
+                    (merged['truckNumber'] ?? '').toString(),
+                    (merged['billNumber'] ?? '').toString(),
+                    (merged['unloadingSiteName'] ?? '').toString(),
+                    merged['distanceKm']?.toString() ?? '',
+                    merged['startMeter']?.toString() ?? '',
+                    merged['endMeter']?.toString() ?? '',
+                    _formatSyncDuration(
+                      (merged['totalDurationSeconds'] ?? 0) as int,
+                    ),
+                    GoogleSheetsService.formatTime(merged['loadStartedAt']),
+                    GoogleSheetsService.formatTime(merged['loadCompletedAt']),
+                    (merged['truckDriverName'] ?? '').toString(),
+                    (merged['cubeCount'] ?? '').toString(),
+                    (merged['machineOperatorName'] ?? '').toString(),
+                  ];
+                  GoogleSheetsService.sendRow(
+                    sheetName: 'Supervisor_Loads',
+                    row: syncRow,
+                    recordId: ref.id,
+                  );
+
+                  // Mirror _completeLoadingRecord's Plant_Loads / site-specific
+                  // sheet sync so an edit updates those tabs in place too, not
+                  // just Supervisor_Loads. Uses the (possibly just-edited) site
+                  // name to look up the site doc, since work_records only store
+                  // siteName, not siteId.
+                  final editedSiteName = siteNameController.text.trim();
+                  final siteQuery = await FirebaseFirestore.instance
+                      .collection('sites')
+                      .where('name', isEqualTo: editedSiteName)
+                      .limit(1)
+                      .get();
+                  final editIsPlantSite =
+                      siteQuery.docs.isNotEmpty &&
+                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteSpecificMatch =
+                      kSiteSheetMap[normalizeSiteNameForSheetLookup(
+                        editedSiteName,
+                      )];
+                  if (editIsPlantSite) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: 'Plant_Loads',
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+                  if (editSiteSpecificMatch != null) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: editSiteSpecificMatch,
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Record updated.')),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Failed to update record: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Manual admin/management entry — writes to the SEPARATE
+  // manual_site_reports collection (not work_records, which lives under a
+  // supervisor's daily_sessions and is written by the actual work-session
+  // flow), for historical/paper records that never went through that flow.
+  // build() merges this collection into the same filtered/sorted list as
+  // _workRecordsStream, so once saved this shows up in the table immediately
+  // with no extra plumbing.
+  // Field widgets/patterns below are deliberately kept identical to
+  // NewWorkDialog's (Supervisor's "Start New Work" dialog) — Site/Machine/
+  // Supervisor/Category/Machine Operator as live Firestore dropdowns, Truck
+  // Number/Truck Driver Name as Autocompletes, Unloading Site as the
+  // search-or-add-new picker — so a manual report is built from the same
+  // registered data a real work session would be. No Start Meter / End
+  // Meter here: a manual report has no timer session behind it, so those
+  // fields (and the startMeter/endMeter keys in the saved document) are
+  // intentionally omitted rather than saved as null.
+  void _showAddReportDialog(String currentUserName) {
+    DateTime selectedDate = DateTime.now();
+    String? selectedSiteName;
+    String? selectedMachineName;
+    String? selectedSupervisorName;
+    String? selectedCategory;
+    final truckNumberController = TextEditingController();
+    final billNumberController = TextEditingController();
+    String? selectedUnloadingSiteName;
+    final distanceController = TextEditingController();
+    final durationController = TextEditingController();
+    final truckDriverController = TextEditingController();
+    final cubeController = TextEditingController();
+    String? selectedMachineOperatorName;
+    String errorText = '';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: selectedDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now().add(const Duration(days: 1)),
+            );
+            if (picked != null) {
+              setDialogState(() => selectedDate = picked);
+            }
+          }
+
+          Future<void> save() async {
+            if (isSubmitting) return;
+            if (selectedMachineName == null || selectedSiteName == null) {
+              setDialogState(
+                () => errorText = 'Please enter at least Machine and Site.',
+              );
+              return;
+            }
+
+            setDialogState(() {
+              errorText = '';
+              isSubmitting = true;
+            });
+
+            try {
+              await FirebaseFirestore.instance
+                  .collection('manual_site_reports')
+                  .add({
+                    'date': GoogleSheetsService.formatDate(selectedDate),
+                    'machineName': selectedMachineName,
+                    'siteName': selectedSiteName,
+                    'supervisorName': selectedSupervisorName ?? '',
+                    'category': selectedCategory ?? '',
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': selectedUnloadingSiteName ?? '',
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'duration': durationController.text.trim(),
+                    'truckDriverName': truckDriverController.text.trim(),
+                    'cubeCount': cubeController.text.trim(),
+                    'machineOperatorName': selectedMachineOperatorName ?? '',
+                    'isVerified': false,
+                    'addedByName': currentUserName,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'isManualEntry': true,
+                  });
+
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Report added.')));
+              }
+            } catch (e) {
+              setDialogState(() {
+                isSubmitting = false;
+                errorText = 'Failed to save report: $e';
+              });
+            }
+          }
+
+          Widget field(
+            TextEditingController c,
+            String label, {
+            bool number = false,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: TextField(
+                controller: c,
+                keyboardType: number
+                    ? TextInputType.number
+                    : TextInputType.text,
+                decoration: InputDecoration(labelText: label),
+              ),
+            );
+          }
+
+          Widget sectionLabel(String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          );
+
+          final categories = [...kLoadingCategories, ...kOtherCategories];
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text('Add Report'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: pickDate,
+                      icon: const Icon(Icons.date_range),
+                      label: Text(GoogleSheetsService.formatDate(selectedDate)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showWorkingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedSiteName ?? 'Search site name',
+                          style: TextStyle(
+                            color: selectedSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Machine'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('machines')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final machines = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a machine',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: machines.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final name = (data['name'] ?? '').toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text('$name (${data['type'] ?? ''})'),
+                            );
+                          }).toList(),
+                          onChanged: (val) =>
+                              setDialogState(() => selectedMachineName = val),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Supervisor'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('role', isEqualTo: 'supervisor')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final supervisors = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedSupervisorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a supervisor',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: supervisors.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedSupervisorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    sectionLabel('Category'),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: 1.6,
+                          ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final c = categories[index];
+                        return TaskButton(
+                          label: c,
+                          selected: selectedCategory == c,
+                          onTap: () =>
+                              setDialogState(() => selectedCategory = c),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('trucks')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> truckNumbers = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final number =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckNumber'];
+                            if (number != null &&
+                                number.toString().isNotEmpty) {
+                              truckNumbers.add(number.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return truckNumbers.where(
+                              (number) => number.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckNumberController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckNumberController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) {
+                                    _forceUppercase(controller, val);
+                                    truckNumberController.text =
+                                        controller.text;
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Number',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(billNumberController, 'Bill Number', number: true),
+
+                    sectionLabel('Unloading Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showUnloadingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedUnloadingSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedUnloadingSiteName ??
+                              'Search or type unloading site name',
+                          style: TextStyle(
+                            color: selectedUnloadingSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    field(distanceController, 'Distance KM', number: true),
+                    field(durationController, 'Duration (HH:MM:SS)'),
+
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collectionGroup('work_records')
+                          .where('truckDriverName', isNotEqualTo: null)
+                          .limit(50)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> pastNames = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final name =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckDriverName'];
+                            if (name != null && name.toString().isNotEmpty) {
+                              pastNames.add(name.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return pastNames.where(
+                              (name) => name.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckDriverController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckDriverController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) =>
+                                      truckDriverController.text = val,
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Driver Name',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(cubeController, 'Cube (Quantity)', number: true),
+                    const SizedBox(height: 2),
+
+                    sectionLabel('Machine Operator'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('canOperateMachine', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final operators = snapshot.data!.docs;
+                        if (operators.isEmpty) {
+                          return const Text(
+                            'No operators registered.',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          );
+                        }
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineOperatorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose operator',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: operators.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedMachineOperatorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    if (errorText.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting ? null : save,
+                child: Text(isSubmitting ? 'Saving...' : 'SAVE'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Internal QC flag only — never triggers GoogleSheetsService.sendRow, the
+  // Sheets sync is unrelated to this. Same tick-vs-untick confirmation
+  // wording as ManagementSiteReportsScreen's version, kept in sync.
+  Future<void> _toggleVerification(
+    DocumentReference ref,
+    bool currentlyVerified,
+    String currentUserName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          currentlyVerified ? 'Remove Verification?' : 'Mark as Verified?',
+        ),
+        content: Text(
+          currentlyVerified
+              ? 'This will mark the report as unverified. Continue?'
+              : 'Confirm this report is correct and verified?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('CONFIRM'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final nowVerified = !currentlyVerified;
+      await ref.update({
+        'isVerified': nowVerified,
+        'verifiedBy': nowVerified ? currentUserName : null,
+        'verifiedAt': nowVerified ? FieldValue.serverTimestamp() : null,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nowVerified ? 'Marked as verified.' : 'Verification removed.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+      }
+    }
+  }
+
+  // Firestore-only delete — deliberately never touches Google Sheets (no
+  // GoogleSheetsService call anywhere here), so removing a row from the
+  // synced sheet is left to manual cleanup if that's ever needed. Works
+  // uniformly for either source a record can come from — a top-level
+  // manual_site_reports doc, or a nested
+  // daily_sessions/{id}/work_records/{id} doc — since `ref` is always the
+  // record's own correct DocumentReference (see _enrichRecords and the
+  // manual-records mapping in build(), both of which set data['_ref'] to
+  // doc.reference). Both source streams are live .snapshots(), so deleting
+  // the doc removes it from the table automatically on the next snapshot —
+  // no manual refetch needed.
+  Future<void> _deleteRecord(DocumentReference ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Report?'),
+        content: const Text(
+          'Are you sure you want to permanently delete this report record? '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.delete();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Report deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete report: $e')));
+      }
+    }
+  }
+
+  Widget _buildTable(
+    List<Map<String, dynamic>> records,
+    bool canEdit,
+    String currentUserName,
+  ) {
+    final truckNumberColIndex = 2 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 2 + _columns.indexOf('Bill Number');
+    final siteColIndex = 2 + _columns.indexOf('Site');
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: DataTable(
+        sortColumnIndex: _sortColumnIndex,
+        sortAscending: _sortAscending,
+        columns: [
+          const DataColumn(
+            label: Text('#', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          // Always shown (not canEdit-gated) — see class doc comment. Only
+          // its DataCell's interactivity depends on canEdit, not whether
+          // this column exists.
+          const DataColumn(
+            label: Text(
+              'Verified',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ),
+          ..._columns.asMap().entries.map((entry) {
+            final colIndex = entry.key + 2;
+            final sortable =
+                colIndex == truckNumberColIndex ||
+                colIndex == billNumberColIndex;
+            return DataColumn(
+              label: Text(
+                entry.value,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onSort: sortable
+                  ? (i, ascending) => setState(() {
+                      _sortColumnIndex = i;
+                      _sortAscending = ascending;
+                    })
+                  : null,
+            );
+          }),
+          if (canEdit)
+            const DataColumn(
+              label: Text(
+                'Actions',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+        ],
+        rows: records.asMap().entries.map((rowEntry) {
+          final rowIndex = rowEntry.key;
+          final data = rowEntry.value;
+          final values = _rowValues(data);
+          final isVerified = data['isVerified'] == true;
+          final isManual = data['isManualEntry'] == true;
+          return DataRow(
+            color: _rowStripeColor(rowIndex),
+            cells: [
+              DataCell(Text('${rowIndex + 1}')),
+              DataCell(
+                IconButton(
+                  icon: Icon(
+                    isVerified
+                        ? Icons.check_circle
+                        : Icons.radio_button_unchecked,
+                    color: isVerified ? Colors.green : Colors.grey,
+                  ),
+                  onPressed: canEdit
+                      ? () => _toggleVerification(
+                          data['_ref'] as DocumentReference,
+                          isVerified,
+                          currentUserName,
+                        )
+                      : null,
+                ),
+              ),
+              ...values.asMap().entries.map((v) {
+                final colIndex = v.key + 2;
+                final text = (colIndex == siteColIndex && isManual)
+                    ? '${v.value} (Manual)'
+                    : v.value;
+                return DataCell(Text(text));
+              }),
+              if (canEdit)
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: AppTheme.primaryMid,
+                        ),
+                        onPressed: () => _showEditRecordDialog(
+                          data['_ref'] as DocumentReference,
+                          data,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () =>
+                            _deleteRecord(data['_ref'] as DocumentReference),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        }).toList(),
+      ),
+    );
+  }
+
+  // Same enrichment logic as ManagementSiteReportsScreen._enrichRecords —
+  // backfills date/machineName/siteName/supervisorName from the parent
+  // daily_sessions doc for older records missing the denormalized fields.
+  Future<List<Map<String, dynamic>>> _enrichRecords(
+    List<QueryDocumentSnapshot> docs,
+  ) async {
+    final results = <Map<String, dynamic>>[];
+
+    for (final doc in docs) {
+      final data = Map<String, dynamic>.from(
+        doc.data() as Map<String, dynamic>,
+      );
+      data['_ref'] = doc.reference;
+      final missingDenormalized =
+          data['date'] == null ||
+          data['machineName'] == null ||
+          data['siteName'] == null ||
+          data['supervisorName'] == null;
+
+      if (missingDenormalized) {
+        final sessionRef = doc.reference.parent.parent;
+        if (sessionRef != null) {
+          try {
+            final sessionDoc = await _sessionDocCache.putIfAbsent(
+              sessionRef.id,
+              () => sessionRef.get(),
+            );
+            final sessionData = sessionDoc.data() as Map<String, dynamic>?;
+            if (sessionData != null) {
+              data['date'] ??= sessionData['date'];
+              data['machineName'] ??= sessionData['machineName'];
+              data['siteName'] ??= sessionData['siteName'];
+              data['supervisorName'] ??= sessionData['supervisorName'];
+            }
+          } catch (_) {
+            // Leave fields missing if the parent session can't be read.
+          }
+        }
+      }
+
+      results.add(data);
+    }
+
+    return results;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Transport Summary'),
+        backgroundColor: Colors.teal[800],
+      ),
+      body: FutureBuilder<DocumentSnapshot>(
+        future: _currentUserFuture,
+        builder: (context, userSnap) {
+          if (userSnap.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final userData = userSnap.data?.data() as Map<String, dynamic>?;
+          final role = userData?['role'] as String?;
+          final isAdminOrOwner = role == 'admin' || role == 'owner';
+          final isManagement = role == 'management';
+          final canAccess =
+              isAdminOrOwner ||
+              (isManagement && userData?['canAccessTransportRecords'] == true);
+          // Separate from canAccess (which gates the whole screen): reuses
+          // the same canEditReports pattern ManagementSiteReportsScreen
+          // uses to gate Edit/Delete/+Add Report/the Verified toggle.
+          final canEdit =
+              isAdminOrOwner ||
+              (isManagement && userData?['canEditReports'] == true);
+
+          if (!canAccess) {
+            return const Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  "You don't have access to Transport Records.",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 16),
+                ),
+              ),
+            );
+          }
+
+          return StreamBuilder<QuerySnapshot>(
+            stream: _workRecordsStream,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return Center(
+                  child: Text('Error loading records: ${snapshot.error}'),
+                );
+              }
+
+              if (!identical(snapshot.data, _lastSnapshot)) {
+                _lastSnapshot = snapshot.data;
+                _enrichedFuture = _enrichRecords(snapshot.data?.docs ?? []);
+              }
+
+              return FutureBuilder<List<Map<String, dynamic>>>(
+                future: _enrichedFuture,
+                builder: (context, enrichSnap) {
+                  if (!enrichSnap.hasData) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final workRecords = enrichSnap.data!;
+
+                  // Manual "+ Add Report" entries merged client-side, same
+                  // as ManagementSiteReportsScreen.
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: _manualSiteReportsStream,
+                    builder: (context, manualSnap) {
+                      final manualRecords = (manualSnap.data?.docs ?? []).map((
+                        d,
+                      ) {
+                        final data = Map<String, dynamic>.from(
+                          d.data() as Map<String, dynamic>,
+                        );
+                        data['_ref'] = d.reference;
+                        return data;
+                      }).toList();
+
+                      final allRecords = [...workRecords, ...manualRecords];
+                      final filtered = allRecords
+                          .where(_matchesFilters)
+                          .toList();
+                      if (_selectedSortBy == 'truckNumber') {
+                        filtered.sort(
+                          (a, b) => _naturalCompare(
+                            (a['truckNumber'] ?? '').toString(),
+                            (b['truckNumber'] ?? '').toString(),
+                          ),
+                        );
+                      } else if (_selectedSortBy == 'billNumber') {
+                        filtered.sort(
+                          (a, b) => _naturalCompare(
+                            (a['billNumber'] ?? '').toString(),
+                            (b['billNumber'] ?? '').toString(),
+                          ),
+                        );
+                      } else {
+                        // Default: date ascending, then same-day records by
+                        // when the load actually started (falling back to
+                        // createdAt if that's missing) — oldest first,
+                        // matching ManagementSiteReportsScreen's default
+                        // order.
+                        filtered.sort((a, b) {
+                          final dateCompare = (a['date'] ?? '')
+                              .toString()
+                              .compareTo((b['date'] ?? '').toString());
+                          if (dateCompare != 0) return dateCompare;
+
+                          final aTime =
+                              (a['loadStartedAt'] as Timestamp?) ??
+                              (a['createdAt'] as Timestamp?);
+                          final bTime =
+                              (b['loadStartedAt'] as Timestamp?) ??
+                              (b['createdAt'] as Timestamp?);
+                          if (aTime == null && bTime == null) return 0;
+                          if (aTime == null) return -1;
+                          if (bTime == null) return 1;
+                          return aTime.compareTo(bTime);
+                        });
+                      }
+
+                      // Truck Number / Bill Number header-click sort —
+                      // applied after the chronological default sort above,
+                      // only when the user has actually clicked one of
+                      // those headers. Offset by 2 (not 1, as in
+                      // ManagementSiteReportsScreen) because Verified always
+                      // occupies column 1 here, unlike there where it's
+                      // canEdit-gated.
+                      if (_sortColumnIndex != null) {
+                        final sortField =
+                            _sortColumnIndex ==
+                                2 + _columns.indexOf('Truck Number')
+                            ? 'truckNumber'
+                            : _sortColumnIndex ==
+                                  2 + _columns.indexOf('Bill Number')
+                            ? 'billNumber'
+                            : null;
+                        if (sortField != null) {
+                          filtered.sort((a, b) {
+                            final cmp = _naturalCompare(
+                              (a[sortField] ?? '').toString(),
+                              (b[sortField] ?? '').toString(),
+                            );
+                            return _sortAscending ? cmp : -cmp;
+                          });
+                        }
+                      }
+
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            _buildFiltersRow(allRecords),
+                            const SizedBox(height: 20),
+                            if (canEdit) ...[
+                              SizedBox(
+                                width: 200,
+                                child: GradientButton(
+                                  label: '+ Add Report',
+                                  icon: Icons.add,
+                                  height: 44,
+                                  onTap: () => _showAddReportDialog(
+                                    (userData?['name'] ?? '').toString(),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                            ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${filtered.length} records',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 200,
+                                  child: GradientButton(
+                                    label: 'Export to Excel',
+                                    icon: Icons.download,
+                                    height: 44,
+                                    onTap: filtered.isEmpty
+                                        ? () {}
+                                        : () => _exportToExcel(filtered),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 16),
+                            _buildTable(
+                              filtered,
+                              canEdit,
+                              (userData?['name'] ?? '').toString(),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------- SHARED REPORT-TABLE HELPERS ----------------
+// Used by both ManagementSiteReportsScreen and ManagementFuelReportsScreen's
+// sortable Truck Number / Bill Number columns and row-striped DataRows.
+
+// Splits each string into alternating digit/non-digit runs and compares
+// digit runs numerically (so "TRK-9" sorts before "TRK-10"), falling back to
+// plain string comparison for non-numeric runs. Good enough for plate/bill
+// numbers without pulling in a natural-sort package for two columns.
+int _naturalCompare(String a, String b) {
+  final chunkPattern = RegExp(r'\d+|\D+');
+  final aChunks = chunkPattern.allMatches(a).map((m) => m.group(0)!).toList();
+  final bChunks = chunkPattern.allMatches(b).map((m) => m.group(0)!).toList();
+  final len = aChunks.length < bChunks.length ? aChunks.length : bChunks.length;
+  for (var i = 0; i < len; i++) {
+    final aChunk = aChunks[i];
+    final bChunk = bChunks[i];
+    final aNum = int.tryParse(aChunk);
+    final bNum = int.tryParse(bChunk);
+    final cmp = (aNum != null && bNum != null)
+        ? aNum.compareTo(bNum)
+        : aChunk.compareTo(bChunk);
+    if (cmp != 0) return cmp;
+  }
+  return aChunks.length.compareTo(bChunks.length);
+}
+
+// Row-based 3-color cycle (replaces the earlier column-based striping) —
+// every DataRow's `color` gets this, keyed by row index so three visually
+// distinct bands repeat down the table instead of alternating columns.
+const List<Color> _rowStripeColors = [
+  Color(0xFFF8F9FA), // light grey
+  Color(0xFFFFFFFF), // white
+  Color(0xFFEEF3F8), // light blue-grey
+];
+
+WidgetStateProperty<Color?> _rowStripeColor(int rowIndex) {
+  return WidgetStateProperty.all(_rowStripeColors[rowIndex % 3]);
+}
+
+// Used by every report screen's Excel export (Site/Fuel/Transport Record/
+// Transport Summary) for numeric columns (Distance KM, Cube, Liters, Amount,
+// Loading Amount, etc.) — sending a number through as TextCellValue is what
+// triggers Excel's "Number stored as text" warning triangle, so numeric
+// columns need an actual DoubleCellValue instead. Strips anything that
+// isn't a digit/dot/minus first (so an already-formatted display string
+// like "Rs. 123.45" still parses cleanly), and falls back to a blank text
+// cell — not the original text — when nothing numeric comes out (an empty
+// cell, or genuinely non-numeric content like an HH:MM:SS duration string).
+xls.CellValue _numericCellValue(String value) {
+  final cleaned = value.replaceAll(RegExp(r'[^0-9.\-]'), '');
+  final parsed = double.tryParse(cleaned);
+  if (parsed == null) return xls.TextCellValue('');
+  return xls.DoubleCellValue(parsed);
 }
 
 // ---------------- MANAGEMENT FUEL REPORTS SCREEN (web-only) ----------------
@@ -3769,6 +8862,11 @@ class _ManagementFuelReportsScreenState
   final _truckNumberController = TextEditingController();
   String _truckNumberFilter = '';
   Timer? _debounce;
+  final _billNumberController = TextEditingController();
+  String _billNumberFilter = '';
+  Timer? _billNumberDebounce;
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
 
   // Created once, not inline in build() — see ManagementSiteReportsScreen's
   // _workRecordsStream for why: Query.snapshots() returns a new Stream
@@ -3801,6 +8899,8 @@ class _ManagementFuelReportsScreenState
   void dispose() {
     _debounce?.cancel();
     _truckNumberController.dispose();
+    _billNumberDebounce?.cancel();
+    _billNumberController.dispose();
     super.dispose();
   }
 
@@ -3818,12 +8918,15 @@ class _ManagementFuelReportsScreenState
 
   void _clearFilters() {
     _debounce?.cancel();
+    _billNumberDebounce?.cancel();
     setState(() {
       _dateRange = null;
       _selectedStationName = null;
       _selectedSupervisorName = null;
       _truckNumberController.clear();
       _truckNumberFilter = '';
+      _billNumberController.clear();
+      _billNumberFilter = '';
     });
   }
 
@@ -3864,6 +8967,11 @@ class _ManagementFuelReportsScreenState
       final truckNumber = (data['truckNumber'] ?? '').toString().toLowerCase();
       if (!truckNumber.contains(truckQuery)) return false;
     }
+    final billQuery = _billNumberFilter.trim().toLowerCase();
+    if (billQuery.isNotEmpty) {
+      final billNumber = (data['billNumber'] ?? '').toString().toLowerCase();
+      if (!billNumber.contains(billQuery)) return false;
+    }
     return true;
   }
 
@@ -3898,14 +9006,31 @@ class _ManagementFuelReportsScreenState
     excelFile.rename(defaultSheetName, 'Fuel Report');
     final sheet = excelFile['Fuel Report'];
 
+    // Liters/Amount/Bill Number need real numeric cells (see
+    // _numericCellValue) so Excel doesn't flag them as "Number stored as
+    // text" — every other column stays plain text.
+    const numericColumns = {'Liters', 'Amount', 'Bill Number'};
+
     sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
     for (final data in records) {
-      sheet.appendRow(
-        _rowValues(data).map((v) => xls.TextCellValue(v)).toList(),
-      );
+      final rowValues = _rowValues(data);
+      sheet.appendRow([
+        for (var i = 0; i < rowValues.length; i++)
+          numericColumns.contains(_columns[i])
+              ? _numericCellValue(rowValues[i])
+              : xls.TextCellValue(rowValues[i]),
+      ]);
     }
 
-    final bytes = excelFile.save();
+    // Excel.save() on web already triggers its own browser download
+    // internally (see the excel package's SavingHelper) — calling
+    // downloader.downloadBytes afterward fired a *second* download per
+    // click, which trips Chrome's "site is trying to download multiple
+    // files" flood-block after the first export and silently blocks every
+    // export after that. Passing our real filename straight into save()
+    // and not calling downloadBytes keeps it to exactly one download.
+    final filename = 'Fuel_Report_${DateTime.now().toIso8601String()}.xlsx';
+    final bytes = excelFile.save(fileName: filename);
     if (bytes == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -3914,9 +9039,6 @@ class _ManagementFuelReportsScreenState
       }
       return;
     }
-
-    final filename = 'Fuel_Report_${DateTime.now().toIso8601String()}.xlsx';
-    downloader.downloadBytes(bytes, filename);
 
     if (mounted) {
       ScaffoldMessenger.of(
@@ -4030,6 +9152,28 @@ class _ManagementFuelReportsScreenState
             },
             decoration: InputDecoration(
               labelText: 'Truck Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _billNumberController,
+            onChanged: (value) {
+              _billNumberDebounce?.cancel();
+              _billNumberDebounce = Timer(
+                const Duration(milliseconds: 400),
+                () {
+                  setState(() => _billNumberFilter = value);
+                },
+              );
+            },
+            decoration: InputDecoration(
+              labelText: 'Bill Number',
               isDense: true,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -4256,19 +9400,409 @@ class _ManagementFuelReportsScreenState
     );
   }
 
-  Widget _buildTable(List<Map<String, dynamic>> records, bool canEdit) {
+  // Manual admin/management entry (Part F) — writes to the SAME fuel_entries
+  // collection FuelEntryScreen uses, plus isManualEntry: true, so it shows up
+  // in this table automatically with no separate merge-stream needed (unlike
+  // Site Reports' manual_site_reports, which is a different collection).
+  // Bill Photo is optional here ONLY — FuelEntryScreen's own camera-only
+  // mandatory requirement is untouched.
+  void _showAddFuelRecordDialog(String currentUserName) {
+    DateTime selectedDate = DateTime.now();
+    String? selectedStationId;
+    String? selectedStationName;
+    String? selectedSupervisorName;
+    final truckNumberController = TextEditingController();
+    final litersController = TextEditingController();
+    final amountController = TextEditingController();
+    final billNumberController = TextEditingController();
+    final supervisorController = TextEditingController();
+    String? billPhotoBase64;
+    String errorText = '';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: selectedDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now().add(const Duration(days: 1)),
+            );
+            if (picked != null) {
+              setDialogState(() => selectedDate = picked);
+            }
+          }
+
+          Future<void> capturePhoto() async {
+            try {
+              final picker = ImagePicker();
+              final pickedFile = await picker.pickImage(
+                source: ImageSource.camera,
+                maxWidth: 800,
+                imageQuality: 60,
+              );
+              if (pickedFile == null) return;
+              final bytes = await pickedFile.readAsBytes();
+              final base64String = base64Encode(bytes);
+              if (base64String.length > 700000) {
+                setDialogState(
+                  () => errorText = 'Photo too large. Please retake.',
+                );
+                return;
+              }
+              setDialogState(() {
+                billPhotoBase64 = base64String;
+                errorText = '';
+              });
+            } catch (e) {
+              setDialogState(() => errorText = 'Error capturing photo: $e');
+            }
+          }
+
+          Future<void> save() async {
+            if (isSubmitting) return;
+            if (selectedStationId == null || selectedStationName == null) {
+              setDialogState(() => errorText = 'Please select a fuel station.');
+              return;
+            }
+            if (truckNumberController.text.trim().isEmpty) {
+              setDialogState(() => errorText = 'Please enter a truck number.');
+              return;
+            }
+            final liters = double.tryParse(litersController.text.trim());
+            if (liters == null) {
+              setDialogState(
+                () => errorText = 'Please enter a valid fuel amount (liters).',
+              );
+              return;
+            }
+            final amount = double.tryParse(amountController.text.trim());
+            if (amount == null) {
+              setDialogState(
+                () => errorText = 'Please enter a valid amount (Rs.).',
+              );
+              return;
+            }
+            final supervisorName =
+                selectedSupervisorName ?? supervisorController.text.trim();
+            if (supervisorName.isEmpty) {
+              setDialogState(
+                () => errorText = 'Please enter a supervisor name.',
+              );
+              return;
+            }
+
+            setDialogState(() {
+              errorText = '';
+              isSubmitting = true;
+            });
+
+            try {
+              final billNumber = billNumberController.text.trim();
+              await FirebaseFirestore.instance.collection('fuel_entries').add({
+                'supervisorUid': FirebaseAuth.instance.currentUser!.uid,
+                'supervisorName': supervisorName,
+                'fuelStationId': selectedStationId,
+                'fuelStationName': selectedStationName,
+                'truckNumber': truckNumberController.text.trim(),
+                'liters': liters,
+                'amount': amount,
+                'billNumber': billNumber.isEmpty ? null : billNumber,
+                'billPhotoBase64': billPhotoBase64,
+                'createdAt': FieldValue.serverTimestamp(),
+                'date': GoogleSheetsService.formatDate(selectedDate),
+                'isManualEntry': true,
+                'addedByName': currentUserName,
+              });
+
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Fuel record added.')),
+                );
+              }
+            } catch (e) {
+              setDialogState(() {
+                isSubmitting = false;
+                errorText = 'Failed to save record: $e';
+              });
+            }
+          }
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text('Add Fuel Record'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: pickDate,
+                      icon: const Icon(Icons.date_range),
+                      label: Text(GoogleSheetsService.formatDate(selectedDate)),
+                    ),
+                    const SizedBox(height: 10),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: _fuelStationsStream,
+                      builder: (context, snapshot) {
+                        final stations = snapshot.data?.docs ?? [];
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedStationId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Fuel Station',
+                          ),
+                          items: stations.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: doc.id,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(() {
+                            selectedStationId = val;
+                            selectedStationName = val == null
+                                ? null
+                                : ((stations
+                                                  .firstWhere(
+                                                    (d) => d.id == val,
+                                                  )
+                                                  .data()
+                                              as Map<
+                                                String,
+                                                dynamic
+                                              >)['name'] ??
+                                          '')
+                                      .toString();
+                          }),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: truckNumberController,
+                      decoration: const InputDecoration(
+                        labelText: 'Truck Number',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: litersController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Liters'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: amountController,
+                      keyboardType: TextInputType.number,
+                      decoration: const InputDecoration(labelText: 'Amount'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: billNumberController,
+                      decoration: const InputDecoration(
+                        labelText: 'Bill Number',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: _supervisorsStream,
+                      builder: (context, snapshot) {
+                        final supervisors = snapshot.data?.docs ?? [];
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedSupervisorName,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Supervisor Name (or type below)',
+                          ),
+                          items: supervisors.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedSupervisorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: supervisorController,
+                      decoration: const InputDecoration(
+                        labelText: 'Supervisor Name (type if not listed above)',
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Bill Photo (optional)',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: Colors.grey[700],
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: capturePhoto,
+                          icon: const Icon(Icons.camera_alt),
+                          label: Text(
+                            billPhotoBase64 == null
+                                ? 'Capture Photo'
+                                : 'Retake',
+                          ),
+                        ),
+                        if (billPhotoBase64 != null) ...[
+                          const SizedBox(width: 10),
+                          const Icon(Icons.check_circle, color: Colors.green),
+                        ],
+                      ],
+                    ),
+                    if (errorText.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        errorText,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting ? null : save,
+                child: Text(isSubmitting ? 'Saving...' : 'SAVE'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Internal QC flag only — never triggers GoogleSheetsService.sendRow, the
+  // Sheets sync is unrelated to this. Same tick-vs-untick confirmation
+  // wording as ManagementSiteReportsScreen's version, kept in sync.
+  Future<void> _toggleVerification(
+    DocumentReference ref,
+    bool currentlyVerified,
+    String currentUserName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          currentlyVerified ? 'Remove Verification?' : 'Mark as Verified?',
+        ),
+        content: Text(
+          currentlyVerified
+              ? 'This will mark the report as unverified. Continue?'
+              : 'Confirm this report is correct and verified?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('CONFIRM'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final nowVerified = !currentlyVerified;
+      await ref.update({
+        'isVerified': nowVerified,
+        'verifiedBy': nowVerified ? currentUserName : null,
+        'verifiedAt': nowVerified ? FieldValue.serverTimestamp() : null,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nowVerified ? 'Marked as verified.' : 'Verification removed.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+      }
+    }
+  }
+
+  Widget _buildTable(
+    List<Map<String, dynamic>> records,
+    bool canEdit,
+    String currentUserName,
+  ) {
+    final truckNumberColIndex = 1 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 1 + _columns.indexOf('Bill Number');
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        sortColumnIndex: _sortColumnIndex,
+        sortAscending: _sortAscending,
         columns: [
-          ..._columns.map(
-            (c) => DataColumn(
+          const DataColumn(
+            label: Text('#', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          if (canEdit)
+            const DataColumn(
               label: Text(
-                c,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Verified',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
-          ),
+          ..._columns.asMap().entries.map((entry) {
+            final colIndex = entry.key + 1;
+            final sortable =
+                colIndex == truckNumberColIndex ||
+                colIndex == billNumberColIndex;
+            return DataColumn(
+              label: Text(
+                entry.value,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onSort: sortable
+                  ? (i, ascending) => setState(() {
+                      _sortColumnIndex = i;
+                      _sortAscending = ascending;
+                    })
+                  : null,
+            );
+          }),
           const DataColumn(
             label: Text('Photo', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
@@ -4280,11 +9814,32 @@ class _ManagementFuelReportsScreenState
               ),
             ),
         ],
-        rows: records.map((data) {
+        rows: records.asMap().entries.map((rowEntry) {
+          final rowIndex = rowEntry.key;
+          final data = rowEntry.value;
           final values = _rowValues(data);
           final billPhotoBase64 = data['billPhotoBase64'] as String?;
+          final isVerified = data['isVerified'] == true;
           return DataRow(
+            color: _rowStripeColor(rowIndex),
             cells: [
+              DataCell(Text('${rowIndex + 1}')),
+              if (canEdit)
+                DataCell(
+                  IconButton(
+                    icon: Icon(
+                      isVerified
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      color: isVerified ? Colors.green : Colors.grey,
+                    ),
+                    onPressed: () => _toggleVerification(
+                      data['_ref'] as DocumentReference,
+                      isVerified,
+                      currentUserName,
+                    ),
+                  ),
+                ),
               ...values.map((v) => DataCell(Text(v))),
               DataCell(
                 IconButton(
@@ -4380,6 +9935,27 @@ class _ManagementFuelReportsScreenState
                 totalAmount += (r['amount'] as num?)?.toDouble() ?? 0;
               }
 
+              // Truck Number / Bill Number header-click sort (Part D) —
+              // applied after the chronological default sort above, only
+              // when the user has actually clicked one of those headers.
+              if (_sortColumnIndex != null) {
+                final sortField =
+                    _sortColumnIndex == 1 + _columns.indexOf('Truck Number')
+                    ? 'truckNumber'
+                    : _sortColumnIndex == 1 + _columns.indexOf('Bill Number')
+                    ? 'billNumber'
+                    : null;
+                if (sortField != null) {
+                  filtered.sort((a, b) {
+                    final cmp = _naturalCompare(
+                      (a[sortField] ?? '').toString(),
+                      (b[sortField] ?? '').toString(),
+                    );
+                    return _sortAscending ? cmp : -cmp;
+                  });
+                }
+              }
+
               return SingleChildScrollView(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -4387,6 +9963,20 @@ class _ManagementFuelReportsScreenState
                   children: [
                     _buildFiltersRow(),
                     const SizedBox(height: 20),
+                    if (canEdit) ...[
+                      SizedBox(
+                        width: 220,
+                        child: GradientButton(
+                          label: '+ Add Fuel Record',
+                          icon: Icons.add,
+                          height: 44,
+                          onTap: () => _showAddFuelRecordDialog(
+                            (userData?['name'] ?? '').toString(),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
@@ -4419,7 +10009,11 @@ class _ManagementFuelReportsScreenState
                     const SizedBox(height: 16),
                     _buildChart(filtered),
                     const SizedBox(height: 20),
-                    _buildTable(filtered, canEdit),
+                    _buildTable(
+                      filtered,
+                      canEdit,
+                      (userData?['name'] ?? '').toString(),
+                    ),
                   ],
                 ),
               );
@@ -4430,6 +10024,23 @@ class _ManagementFuelReportsScreenState
     );
   }
 }
+
+// Shared with _WorkSessionScreenState/NewWorkDialog — ManagementSiteReports'
+// manual "+ Add Report" Category dropdown reuses these same lists rather
+// than duplicating the category names.
+const List<String> kLoadingCategories = [
+  'Sand Loading',
+  'Soil Loading',
+  'Rock Loading',
+];
+
+const List<String> kOtherCategories = [
+  'Road Cleaning',
+  'Travelling',
+  'Idle',
+  'Fuel Filling',
+  'Maintenance',
+];
 
 // ---------------- MANAGEMENT SITE REPORTS SCREEN (web-only) ----------------
 class ManagementSiteReportsScreen extends StatefulWidget {
@@ -4444,22 +10055,20 @@ class _ManagementSiteReportsScreenState
     extends State<ManagementSiteReportsScreen> {
   static const List<String> _columns = [
     'Date',
-    'Machine',
-    'Site',
-    'Supervisor',
-    'Category',
     'Truck Number',
     'Bill Number',
+    'Cube',
+    'Site',
     'Unloading Site',
     'Distance KM',
-    'Start Meter',
-    'End Meter',
-    'Meter Run',
+    'Category',
+    'Machine Operator',
+    'Truck Driver',
+    'Machine',
+    'Supervisor',
     'Started At',
     'Completed At',
-    'Truck Driver',
-    'Cube',
-    'Machine Operator',
+    'Duration',
   ];
 
   DateTimeRange? _dateRange;
@@ -4469,6 +10078,17 @@ class _ManagementSiteReportsScreenState
   String _truckNumberFilter = '';
   Timer? _debounce;
   String? _selectedOperatorName;
+  String? _selectedUnloadingSite;
+  final _billNumberController = TextEditingController();
+  String _billNumberFilter = '';
+  Timer? _billNumberDebounce;
+  int? _sortColumnIndex;
+  bool _sortAscending = true;
+
+  // "Sort By" filters-row dropdown — a top-level sort preference, separate
+  // from (and applied before) the column-header-click sort above. One of
+  // 'date' (default, chronological), 'truckNumber', 'billNumber'.
+  String _selectedSortBy = 'date';
 
   // Created once, not inline in build(): Query.snapshots() returns a new
   // Stream object every time it's called, and StreamBuilder resubscribes
@@ -4483,6 +10103,15 @@ class _ManagementSiteReportsScreenState
       .collectionGroup('work_records')
       .where('isLoadingCategory', isEqualTo: true)
       .where('isCompleted', isEqualTo: true)
+      .snapshots();
+
+  // Manual "+ Add Report" entries (Part E) — a separate top-level collection,
+  // merged client-side into the same filtered/sorted list build() produces
+  // from _workRecordsStream, rather than trying to shoehorn them into the
+  // collectionGroup('work_records') query above.
+  late final Stream<QuerySnapshot> _manualSiteReportsStream = FirebaseFirestore
+      .instance
+      .collection('manual_site_reports')
       .snapshots();
 
   // Same reasoning as _workRecordsStream — the filter dropdowns' own
@@ -4526,6 +10155,8 @@ class _ManagementSiteReportsScreenState
   void dispose() {
     _debounce?.cancel();
     _truckNumberController.dispose();
+    _billNumberDebounce?.cancel();
+    _billNumberController.dispose();
     super.dispose();
   }
 
@@ -4543,6 +10174,7 @@ class _ManagementSiteReportsScreenState
 
   void _clearFilters() {
     _debounce?.cancel();
+    _billNumberDebounce?.cancel();
     setState(() {
       _dateRange = null;
       _selectedSiteName = null;
@@ -4550,7 +10182,26 @@ class _ManagementSiteReportsScreenState
       _truckNumberController.clear();
       _truckNumberFilter = '';
       _selectedOperatorName = null;
+      _selectedUnloadingSite = null;
+      _billNumberController.clear();
+      _billNumberFilter = '';
+      _selectedSortBy = 'date';
     });
+  }
+
+  // Truck Number is always entered in caps — forces letters to uppercase as
+  // the user types (digits/hyphens pass through unaffected, since
+  // String.toUpperCase() only touches cased letters) while keeping the
+  // cursor at the end of what was just typed. Used by every Truck Number
+  // TextField in this screen: the filters-row filter field, the Edit
+  // dialog's field, and the Add Report dialog's Autocomplete field.
+  void _forceUppercase(TextEditingController controller, String value) {
+    final upper = value.toUpperCase();
+    if (upper == value) return;
+    controller.value = controller.value.copyWith(
+      text: upper,
+      selection: TextSelection.collapsed(offset: upper.length),
+    );
   }
 
   bool _matchesFilters(Map<String, dynamic> data) {
@@ -4591,6 +10242,15 @@ class _ManagementSiteReportsScreenState
         data['machineOperatorName'] != _selectedOperatorName) {
       return false;
     }
+    if (_selectedUnloadingSite != null &&
+        data['unloadingSiteName'] != _selectedUnloadingSite) {
+      return false;
+    }
+    final billQuery = _billNumberFilter.trim().toLowerCase();
+    if (billQuery.isNotEmpty) {
+      final billNumber = (data['billNumber'] ?? '').toString().toLowerCase();
+      if (!billNumber.contains(billQuery)) return false;
+    }
     return true;
   }
 
@@ -4600,24 +10260,29 @@ class _ManagementSiteReportsScreenState
     final meterRun = (startMeter != null && endMeter != null)
         ? (endMeter - startMeter).toStringAsFixed(1)
         : '';
+    // Duration is a single combined column: work_records-sourced rows carry
+    // startMeter/endMeter (use the computed Meter Run), manual_site_reports
+    // rows instead carry a free-text 'duration' field and no meter
+    // readings — exactly one of the two is ever populated per record.
+    final duration = meterRun.isNotEmpty
+        ? meterRun
+        : (data['duration'] ?? '').toString();
     return [
       (data['date'] ?? '').toString(),
-      (data['machineName'] ?? '').toString(),
-      (data['siteName'] ?? '').toString(),
-      (data['supervisorName'] ?? '').toString(),
-      (data['category'] ?? '').toString(),
-      (data['truckNumber'] ?? '').toString(),
+      (data['truckNumber'] ?? '').toString().toUpperCase(),
       (data['billNumber'] ?? '').toString(),
+      (data['cubeCount'] ?? '').toString(),
+      (data['siteName'] ?? '').toString(),
       (data['unloadingSiteName'] ?? '').toString(),
       data['distanceKm']?.toString() ?? '',
-      startMeter?.toString() ?? '',
-      endMeter?.toString() ?? '',
-      meterRun,
+      (data['category'] ?? '').toString(),
+      (data['machineOperatorName'] ?? '').toString(),
+      (data['truckDriverName'] ?? '').toString(),
+      (data['machineName'] ?? '').toString(),
+      (data['supervisorName'] ?? '').toString(),
       GoogleSheetsService.formatTime(data['loadStartedAt']),
       GoogleSheetsService.formatTime(data['loadCompletedAt']),
-      (data['truckDriverName'] ?? '').toString(),
-      (data['cubeCount'] ?? '').toString(),
-      (data['machineOperatorName'] ?? '').toString(),
+      duration,
     ];
   }
 
@@ -4627,14 +10292,35 @@ class _ManagementSiteReportsScreenState
     excelFile.rename(defaultSheetName, 'Site Report');
     final sheet = excelFile['Site Report'];
 
+    // Cube/Distance KM/Bill Number need real numeric cells (see
+    // _numericCellValue) so Excel doesn't flag them as "Number stored as
+    // text" — every other column stays plain text. Duration is
+    // deliberately excluded: it's either a computed Meter Run number or a
+    // free-text HH:MM:SS string depending on the record's source (see
+    // _rowValues), so forcing it numeric would silently blank out the
+    // text-duration rows.
+    const numericColumns = {'Cube', 'Distance KM', 'Bill Number'};
+
     sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
     for (final data in records) {
-      sheet.appendRow(
-        _rowValues(data).map((v) => xls.TextCellValue(v)).toList(),
-      );
+      final rowValues = _rowValues(data);
+      sheet.appendRow([
+        for (var i = 0; i < rowValues.length; i++)
+          numericColumns.contains(_columns[i])
+              ? _numericCellValue(rowValues[i])
+              : xls.TextCellValue(rowValues[i]),
+      ]);
     }
 
-    final bytes = excelFile.save();
+    // Excel.save() on web already triggers its own browser download
+    // internally (see the excel package's SavingHelper) — calling
+    // downloader.downloadBytes afterward fired a *second* download per
+    // click, which trips Chrome's "site is trying to download multiple
+    // files" flood-block after the first export and silently blocks every
+    // export after that. Passing our real filename straight into save()
+    // and not calling downloadBytes keeps it to exactly one download.
+    final filename = 'Site_Report_${DateTime.now().toIso8601String()}.xlsx';
+    final bytes = excelFile.save(fileName: filename);
     if (bytes == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -4644,9 +10330,6 @@ class _ManagementSiteReportsScreenState
       return;
     }
 
-    final filename = 'Site_Report_${DateTime.now().toIso8601String()}.xlsx';
-    downloader.downloadBytes(bytes, filename);
-
     if (mounted) {
       ScaffoldMessenger.of(
         context,
@@ -4654,7 +10337,359 @@ class _ManagementSiteReportsScreenState
     }
   }
 
-  Widget _buildFiltersRow() {
+  // Search-bottom-sheet pattern, same as _SupervisorScreenState's
+  // _showSiteSearchPicker / NewWorkDialog's _showUnloadingSitePicker: a
+  // search TextField over a scrollable filtered list, tap to select. Options
+  // come from the already-fetched records' distinct unloadingSiteName
+  // values (passed in from _buildFiltersRow), not a fresh Firestore query.
+  Future<void> _showUnloadingSiteSearchSheet(List<String> options) async {
+    // Real unloading site names are always non-empty (see the
+    // .where((name) => name.isNotEmpty) filter that builds `options`), so
+    // '' is a safe sentinel for "explicitly picked All Unloading Sites" —
+    // distinct from a plain dismiss (tap outside / back), which resolves
+    // this Future with null and must leave the current filter unchanged.
+    final selected = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            final filtered = options
+                .where(
+                  (name) =>
+                      name.toLowerCase().contains(searchText.toLowerCase()),
+                )
+                .toList();
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search unloading site',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: ListView(
+                        children: [
+                          ListTile(
+                            leading: const Icon(
+                              Icons.clear_all,
+                              color: Colors.teal,
+                            ),
+                            title: const Text('All Unloading Sites'),
+                            onTap: () => Navigator.pop(sheetContext, ''),
+                          ),
+                          if (filtered.isEmpty && searchText.isNotEmpty)
+                            const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text('No matching unloading sites.'),
+                            ),
+                          for (final name in filtered)
+                            ListTile(
+                              leading: const Icon(
+                                Icons.location_on,
+                                color: Colors.teal,
+                              ),
+                              title: Text(name),
+                              onTap: () => Navigator.pop(sheetContext, name),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected == null) return; // dismissed without choosing — no change
+    setState(() => _selectedUnloadingSite = selected.isEmpty ? null : selected);
+  }
+
+  // Search-bottom-sheet pattern for a *field value* (Edit Record's and Add
+  // Report's Unloading Site fields) — distinct from
+  // _showUnloadingSiteSearchSheet above, which drives the filters-row
+  // dropdown off already-loaded record values only. This one mirrors
+  // NewWorkDialog._showUnloadingSitePicker exactly: queries the `sites`
+  // collection live, filters by canBeUnloadingSite, and offers a "use as
+  // new unloading site" option so a not-yet-registered site can still be
+  // entered. Returns null if dismissed without choosing.
+  Future<Map<String, String?>?> _showUnloadingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String?>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search or type a new site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final trimmedSearch = searchText.trim();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeUnloadingSite'] == false)
+                              return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              trimmedSearch.toLowerCase(),
+                            );
+                          }).toList();
+                          final hasExactMatch = filtered.any(
+                            (doc) =>
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString()
+                                    .toLowerCase() ==
+                                trimmedSearch.toLowerCase(),
+                          );
+                          return ListView(
+                            children: [
+                              if (trimmedSearch.isNotEmpty && !hasExactMatch)
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.add_circle,
+                                    color: AppTheme.accent,
+                                  ),
+                                  title: Text(
+                                    "Use '$trimmedSearch' as new unloading site",
+                                  ),
+                                  onTap: () => Navigator.pop(sheetContext, {
+                                    'id': null,
+                                    'name': trimmedSearch,
+                                  }),
+                                ),
+                              for (final doc in filtered)
+                                Builder(
+                                  builder: (context) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.location_on,
+                                        color: Colors.teal,
+                                      ),
+                                      title: Text(data['name'] ?? ''),
+                                      subtitle: Text(data['location'] ?? ''),
+                                      onTap: () => Navigator.pop(sheetContext, {
+                                        'id': doc.id,
+                                        'name': (data['name'] ?? '').toString(),
+                                      }),
+                                    );
+                                  },
+                                ),
+                              if (filtered.isEmpty && trimmedSearch.isEmpty)
+                                const Padding(
+                                  padding: EdgeInsets.all(24),
+                                  child: Text(
+                                    'No sites yet — start typing to add one.',
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // Select-only registered-site picker for Add Report's Site field — mirrors
+  // SupervisorScreen._showSiteSearchPicker (canBeLoadingSite filter, no "add
+  // new" option, since this Site must be a real registered site). Returns
+  // null if dismissed without choosing.
+  Future<Map<String, String>?> _showWorkingSiteFieldPicker() {
+    return showModalBottomSheet<Map<String, String>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search site name',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            if (data['canBeLoadingSite'] == false) return false;
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(
+                              searchText.toLowerCase(),
+                            );
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text('No matching sites.'),
+                            );
+                          }
+                          return ListView.builder(
+                            itemCount: filtered.length,
+                            itemBuilder: (context, index) {
+                              final doc = filtered[index];
+                              final data = doc.data() as Map<String, dynamic>;
+                              return ListTile(
+                                leading: const Icon(
+                                  Icons.location_on,
+                                  color: Colors.teal,
+                                ),
+                                title: Text(data['name'] ?? ''),
+                                subtitle: Text(data['location'] ?? ''),
+                                onTap: () => Navigator.pop(sheetContext, {
+                                  'id': doc.id,
+                                  'name': (data['name'] ?? '').toString(),
+                                }),
+                              );
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFiltersRow(List<Map<String, dynamic>> allRecords) {
+    // Unloading sites aren't a managed reference collection (unlike
+    // sites/machines/operators below) — they're free-text entered per load —
+    // so the dropdown's options come from whatever distinct values actually
+    // appear in the fetched records, not a Firestore stream.
+    final unloadingSites =
+        allRecords
+            .map((r) => (r['unloadingSiteName'] ?? '').toString().trim())
+            .where((name) => name.isNotEmpty)
+            .toSet()
+            .toList()
+          ..sort();
+
     return Wrap(
       spacing: 12,
       runSpacing: 12,
@@ -4662,6 +10697,7 @@ class _ManagementSiteReportsScreenState
       children: [
         SizedBox(
           width: 230,
+          height: 48,
           child: OutlinedButton.icon(
             onPressed: _pickDateRange,
             icon: const Icon(Icons.date_range),
@@ -4751,9 +10787,11 @@ class _ManagementSiteReportsScreenState
           child: TextField(
             controller: _truckNumberController,
             onChanged: (value) {
+              _forceUppercase(_truckNumberController, value);
+              final upper = _truckNumberController.text;
               _debounce?.cancel();
               _debounce = Timer(const Duration(milliseconds: 400), () {
-                setState(() => _truckNumberFilter = value);
+                setState(() => _truckNumberFilter = upper);
               });
             },
             decoration: InputDecoration(
@@ -4761,6 +10799,27 @@ class _ManagementSiteReportsScreenState
               isDense: true,
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 200,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: () => _showUnloadingSiteSearchSheet(unloadingSites),
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Unloading Site',
+                isDense: true,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                suffixIcon: const Icon(Icons.search, size: 18),
+              ),
+              child: Text(
+                _selectedUnloadingSite ?? 'All Unloading Sites',
+                overflow: TextOverflow.ellipsis,
               ),
             ),
           ),
@@ -4801,10 +10860,64 @@ class _ManagementSiteReportsScreenState
             },
           ),
         ),
-        OutlinedButton.icon(
-          onPressed: _clearFilters,
-          icon: const Icon(Icons.clear),
-          label: const Text('Clear Filters'),
+        SizedBox(
+          width: 180,
+          child: TextField(
+            controller: _billNumberController,
+            onChanged: (value) {
+              _billNumberDebounce?.cancel();
+              _billNumberDebounce = Timer(
+                const Duration(milliseconds: 400),
+                () {
+                  setState(() => _billNumberFilter = value);
+                },
+              );
+            },
+            decoration: InputDecoration(
+              labelText: 'Bill Number',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ),
+        SizedBox(
+          width: 220,
+          child: DropdownButtonFormField<String>(
+            initialValue: _selectedSortBy,
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Sort By',
+              isDense: true,
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+            items: const [
+              DropdownMenuItem<String>(
+                value: 'date',
+                child: Text('Default (Date Order)'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'truckNumber',
+                child: Text('Truck Number'),
+              ),
+              DropdownMenuItem<String>(
+                value: 'billNumber',
+                child: Text('Bill Number'),
+              ),
+            ],
+            onChanged: (val) => setState(() => _selectedSortBy = val ?? 'date'),
+          ),
+        ),
+        SizedBox(
+          height: 48,
+          child: OutlinedButton.icon(
+            onPressed: _clearFilters,
+            icon: const Icon(Icons.clear),
+            label: const Text('Clear Filters'),
+          ),
         ),
       ],
     );
@@ -4922,9 +11035,7 @@ class _ManagementSiteReportsScreenState
     final billNumberController = TextEditingController(
       text: (data['billNumber'] ?? '').toString(),
     );
-    final unloadingSiteController = TextEditingController(
-      text: (data['unloadingSiteName'] ?? '').toString(),
-    );
+    String unloadingSiteName = (data['unloadingSiteName'] ?? '').toString();
     final distanceController = TextEditingController(
       text: data['distanceKm']?.toString() ?? '',
     );
@@ -4940,125 +11051,127 @@ class _ManagementSiteReportsScreenState
 
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Edit Record'),
-        content: SizedBox(
-          width: 400,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: siteNameController,
-                  decoration: const InputDecoration(labelText: 'Site Name'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: machineNameController,
-                  decoration: const InputDecoration(labelText: 'Machine Name'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: supervisorNameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Supervisor Name',
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Edit Record'),
+          content: SizedBox(
+            width: 400,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: siteNameController,
+                    decoration: const InputDecoration(labelText: 'Site Name'),
                   ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: categoryController,
-                  decoration: const InputDecoration(labelText: 'Category'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: truckNumberController,
-                  decoration: const InputDecoration(labelText: 'Truck Number'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: billNumberController,
-                  decoration: const InputDecoration(labelText: 'Bill Number'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: unloadingSiteController,
-                  decoration: const InputDecoration(
-                    labelText: 'Unloading Site',
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: machineNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Machine Name',
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: distanceController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Distance KM'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: startMeterController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Start Meter'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: endMeterController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'End Meter'),
-                ),
-                const SizedBox(height: 10),
-                TextField(
-                  controller: cubeController,
-                  keyboardType: TextInputType.number,
-                  decoration: const InputDecoration(labelText: 'Cube'),
-                ),
-              ],
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: supervisorNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Supervisor Name',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: categoryController,
+                    decoration: const InputDecoration(labelText: 'Category'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: truckNumberController,
+                    onChanged: (value) =>
+                        _forceUppercase(truckNumberController, value),
+                    decoration: const InputDecoration(
+                      labelText: 'Truck Number',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: billNumberController,
+                    decoration: const InputDecoration(labelText: 'Bill Number'),
+                  ),
+                  const SizedBox(height: 10),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(10),
+                    onTap: () async {
+                      final selected = await _showUnloadingSiteFieldPicker();
+                      if (selected != null) {
+                        setDialogState(
+                          () => unloadingSiteName = selected['name'] ?? '',
+                        );
+                      }
+                    },
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Unloading Site',
+                        suffixIcon: Icon(Icons.search, size: 18),
+                      ),
+                      child: Text(
+                        unloadingSiteName.isEmpty
+                            ? 'Search or type unloading site name'
+                            : unloadingSiteName,
+                        style: TextStyle(
+                          color: unloadingSiteName.isEmpty
+                              ? Colors.grey[600]
+                              : Colors.black87,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: distanceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Distance KM'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: startMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Start Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: endMeterController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'End Meter'),
+                  ),
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: cubeController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(labelText: 'Cube'),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              try {
-                await ref.update({
-                  'siteName': siteNameController.text.trim(),
-                  'machineName': machineNameController.text.trim(),
-                  'supervisorName': supervisorNameController.text.trim(),
-                  'category': categoryController.text.trim(),
-                  'truckNumber': truckNumberController.text.trim(),
-                  'billNumber': billNumberController.text.trim(),
-                  'unloadingSiteName': unloadingSiteController.text.trim(),
-                  'distanceKm': double.tryParse(distanceController.text.trim()),
-                  'startMeter': double.tryParse(
-                    startMeterController.text.trim(),
-                  ),
-                  'endMeter': double.tryParse(endMeterController.text.trim()),
-                  // Kept as a string — matches how NewWorkDialog/_startNewWork
-                  // save it, not a number field.
-                  'cubeCount': cubeController.text.trim(),
-                });
-
-                // Sync the edit back to the same Sheet row (update-in-place
-                // via recordId) instead of appending a duplicate. Column
-                // order matches _completeLoadingRecord's original 17-column
-                // Supervisor_Loads row exactly — this is deliberately NOT
-                // _rowValues()'s table/export order, which substitutes a
-                // computed "Meter Run" for the real Duration column at the
-                // same index; sending that here would silently corrupt the
-                // sheet's Duration column.
-                final merged = {
-                  ...data,
-                  ...{
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                try {
+                  await ref.update({
                     'siteName': siteNameController.text.trim(),
                     'machineName': machineNameController.text.trim(),
                     'supervisorName': supervisorNameController.text.trim(),
                     'category': categoryController.text.trim(),
                     'truckNumber': truckNumberController.text.trim(),
                     'billNumber': billNumberController.text.trim(),
-                    'unloadingSiteName': unloadingSiteController.text.trim(),
+                    'unloadingSiteName': unloadingSiteName.trim(),
                     'distanceKm': double.tryParse(
                       distanceController.text.trim(),
                     ),
@@ -5066,101 +11179,784 @@ class _ManagementSiteReportsScreenState
                       startMeterController.text.trim(),
                     ),
                     'endMeter': double.tryParse(endMeterController.text.trim()),
+                    // Kept as a string — matches how NewWorkDialog/_startNewWork
+                    // save it, not a number field.
                     'cubeCount': cubeController.text.trim(),
-                  },
-                };
-                final syncRow = [
-                  (merged['date'] ?? '').toString(),
-                  (merged['machineName'] ?? '').toString(),
-                  (merged['siteName'] ?? '').toString(),
-                  (merged['supervisorName'] ?? '').toString(),
-                  (merged['category'] ?? '').toString(),
-                  (merged['truckNumber'] ?? '').toString(),
-                  (merged['billNumber'] ?? '').toString(),
-                  (merged['unloadingSiteName'] ?? '').toString(),
-                  merged['distanceKm']?.toString() ?? '',
-                  merged['startMeter']?.toString() ?? '',
-                  merged['endMeter']?.toString() ?? '',
-                  _formatSyncDuration(
-                    (merged['totalDurationSeconds'] ?? 0) as int,
-                  ),
-                  GoogleSheetsService.formatTime(merged['loadStartedAt']),
-                  GoogleSheetsService.formatTime(merged['loadCompletedAt']),
-                  (merged['truckDriverName'] ?? '').toString(),
-                  (merged['cubeCount'] ?? '').toString(),
-                  (merged['machineOperatorName'] ?? '').toString(),
-                ];
-                GoogleSheetsService.sendRow(
-                  sheetName: 'Supervisor_Loads',
-                  row: syncRow,
-                  recordId: ref.id,
-                );
+                  });
 
-                // Mirror _completeLoadingRecord's Plant_Loads / site-specific
-                // sheet sync so an edit updates those tabs in place too, not
-                // just Supervisor_Loads. Uses the (possibly just-edited) site
-                // name to look up the site doc, since work_records only store
-                // siteName, not siteId.
-                final editedSiteName = siteNameController.text.trim();
-                final siteQuery = await FirebaseFirestore.instance
-                    .collection('sites')
-                    .where('name', isEqualTo: editedSiteName)
-                    .limit(1)
-                    .get();
-                final editIsPlantSite =
-                    siteQuery.docs.isNotEmpty &&
-                    siteQuery.docs.first.data()['isPlantSite'] == true;
-                final editSiteSpecificMatch =
-                    kSiteSheetMap[editedSiteName.toLowerCase()];
-                if (editIsPlantSite) {
+                  // Sync the edit back to the same Sheet row (update-in-place
+                  // via recordId) instead of appending a duplicate. Column
+                  // order matches _completeLoadingRecord's original 17-column
+                  // Supervisor_Loads row exactly — this is deliberately NOT
+                  // _rowValues()'s table/export order, which substitutes a
+                  // computed "Meter Run" for the real Duration column at the
+                  // same index; sending that here would silently corrupt the
+                  // sheet's Duration column.
+                  final merged = {
+                    ...data,
+                    ...{
+                      'siteName': siteNameController.text.trim(),
+                      'machineName': machineNameController.text.trim(),
+                      'supervisorName': supervisorNameController.text.trim(),
+                      'category': categoryController.text.trim(),
+                      'truckNumber': truckNumberController.text.trim(),
+                      'billNumber': billNumberController.text.trim(),
+                      'unloadingSiteName': unloadingSiteName.trim(),
+                      'distanceKm': double.tryParse(
+                        distanceController.text.trim(),
+                      ),
+                      'startMeter': double.tryParse(
+                        startMeterController.text.trim(),
+                      ),
+                      'endMeter': double.tryParse(
+                        endMeterController.text.trim(),
+                      ),
+                      'cubeCount': cubeController.text.trim(),
+                    },
+                  };
+                  final syncRow = [
+                    (merged['date'] ?? '').toString(),
+                    (merged['machineName'] ?? '').toString(),
+                    (merged['siteName'] ?? '').toString(),
+                    (merged['supervisorName'] ?? '').toString(),
+                    (merged['category'] ?? '').toString(),
+                    (merged['truckNumber'] ?? '').toString(),
+                    (merged['billNumber'] ?? '').toString(),
+                    (merged['unloadingSiteName'] ?? '').toString(),
+                    merged['distanceKm']?.toString() ?? '',
+                    merged['startMeter']?.toString() ?? '',
+                    merged['endMeter']?.toString() ?? '',
+                    _formatSyncDuration(
+                      (merged['totalDurationSeconds'] ?? 0) as int,
+                    ),
+                    GoogleSheetsService.formatTime(merged['loadStartedAt']),
+                    GoogleSheetsService.formatTime(merged['loadCompletedAt']),
+                    (merged['truckDriverName'] ?? '').toString(),
+                    (merged['cubeCount'] ?? '').toString(),
+                    (merged['machineOperatorName'] ?? '').toString(),
+                  ];
                   GoogleSheetsService.sendRow(
-                    sheetName: 'Plant_Loads',
+                    sheetName: 'Supervisor_Loads',
                     row: syncRow,
                     recordId: ref.id,
                   );
-                }
-                if (editSiteSpecificMatch != null) {
-                  GoogleSheetsService.sendRow(
-                    sheetName: editSiteSpecificMatch,
-                    row: syncRow,
-                    recordId: ref.id,
-                  );
-                }
 
-                if (dialogContext.mounted) {
-                  Navigator.pop(dialogContext);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Record updated.')),
-                  );
+                  // Mirror _completeLoadingRecord's Plant_Loads / site-specific
+                  // sheet sync so an edit updates those tabs in place too, not
+                  // just Supervisor_Loads. Uses the (possibly just-edited) site
+                  // name to look up the site doc, since work_records only store
+                  // siteName, not siteId.
+                  final editedSiteName = siteNameController.text.trim();
+                  final siteQuery = await FirebaseFirestore.instance
+                      .collection('sites')
+                      .where('name', isEqualTo: editedSiteName)
+                      .limit(1)
+                      .get();
+                  final editIsPlantSite =
+                      siteQuery.docs.isNotEmpty &&
+                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteSpecificMatch =
+                      kSiteSheetMap[normalizeSiteNameForSheetLookup(
+                        editedSiteName,
+                      )];
+                  if (editIsPlantSite) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: 'Plant_Loads',
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+                  if (editSiteSpecificMatch != null) {
+                    GoogleSheetsService.sendRow(
+                      sheetName: editSiteSpecificMatch,
+                      row: syncRow,
+                      recordId: ref.id,
+                    );
+                  }
+
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Record updated.')),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Failed to update record: $e')),
+                    );
+                  }
                 }
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text('Failed to update record: $e')),
-                  );
-                }
-              }
-            },
-            child: const Text('SAVE'),
-          ),
-        ],
+              },
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  Widget _buildTable(List<Map<String, dynamic>> records, bool canEdit) {
+  // Manual admin/management entry (Part E) — writes to the SEPARATE
+  // manual_site_reports collection (not work_records, which lives under a
+  // supervisor's daily_sessions and is written by the actual work-session
+  // flow), for historical/paper records that never went through that flow.
+  // build() merges this collection into the same filtered/sorted list as
+  // _workRecordsStream, so once saved this shows up in the table immediately
+  // with no extra plumbing.
+  // Field widgets/patterns below are deliberately kept identical to
+  // NewWorkDialog's (Supervisor's "Start New Work" dialog) — Site/Machine/
+  // Supervisor/Category/Machine Operator as live Firestore dropdowns, Truck
+  // Number/Truck Driver Name as Autocompletes, Unloading Site as the
+  // search-or-add-new picker — so a manual report is built from the same
+  // registered data a real work session would be. No Start Meter / End
+  // Meter here: a manual report has no timer session behind it, so those
+  // fields (and the startMeter/endMeter keys in the saved document) are
+  // intentionally omitted rather than saved as null.
+  void _showAddReportDialog(String currentUserName) {
+    DateTime selectedDate = DateTime.now();
+    String? selectedSiteName;
+    String? selectedMachineName;
+    String? selectedSupervisorName;
+    String? selectedCategory;
+    final truckNumberController = TextEditingController();
+    final billNumberController = TextEditingController();
+    String? selectedUnloadingSiteName;
+    final distanceController = TextEditingController();
+    final durationController = TextEditingController();
+    final truckDriverController = TextEditingController();
+    final cubeController = TextEditingController();
+    String? selectedMachineOperatorName;
+    String errorText = '';
+    bool isSubmitting = false;
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) {
+          Future<void> pickDate() async {
+            final picked = await showDatePicker(
+              context: dialogContext,
+              initialDate: selectedDate,
+              firstDate: DateTime(2020),
+              lastDate: DateTime.now().add(const Duration(days: 1)),
+            );
+            if (picked != null) {
+              setDialogState(() => selectedDate = picked);
+            }
+          }
+
+          Future<void> save() async {
+            if (isSubmitting) return;
+            if (selectedMachineName == null || selectedSiteName == null) {
+              setDialogState(
+                () => errorText = 'Please enter at least Machine and Site.',
+              );
+              return;
+            }
+
+            setDialogState(() {
+              errorText = '';
+              isSubmitting = true;
+            });
+
+            try {
+              await FirebaseFirestore.instance
+                  .collection('manual_site_reports')
+                  .add({
+                    'date': GoogleSheetsService.formatDate(selectedDate),
+                    'machineName': selectedMachineName,
+                    'siteName': selectedSiteName,
+                    'supervisorName': selectedSupervisorName ?? '',
+                    'category': selectedCategory ?? '',
+                    'truckNumber': truckNumberController.text.trim(),
+                    'billNumber': billNumberController.text.trim(),
+                    'unloadingSiteName': selectedUnloadingSiteName ?? '',
+                    'distanceKm': double.tryParse(
+                      distanceController.text.trim(),
+                    ),
+                    'duration': durationController.text.trim(),
+                    'truckDriverName': truckDriverController.text.trim(),
+                    'cubeCount': cubeController.text.trim(),
+                    'machineOperatorName': selectedMachineOperatorName ?? '',
+                    'isVerified': false,
+                    'addedByName': currentUserName,
+                    'createdAt': FieldValue.serverTimestamp(),
+                    'isManualEntry': true,
+                  });
+
+              if (dialogContext.mounted) {
+                Navigator.pop(dialogContext);
+                ScaffoldMessenger.of(
+                  context,
+                ).showSnackBar(const SnackBar(content: Text('Report added.')));
+              }
+            } catch (e) {
+              setDialogState(() {
+                isSubmitting = false;
+                errorText = 'Failed to save report: $e';
+              });
+            }
+          }
+
+          Widget field(
+            TextEditingController c,
+            String label, {
+            bool number = false,
+          }) {
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: TextField(
+                controller: c,
+                keyboardType: number
+                    ? TextInputType.number
+                    : TextInputType.text,
+                decoration: InputDecoration(labelText: label),
+              ),
+            );
+          }
+
+          Widget sectionLabel(String text) => Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Text(
+              text,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+            ),
+          );
+
+          final categories = [...kLoadingCategories, ...kOtherCategories];
+
+          return AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text('Add Report'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: pickDate,
+                      icon: const Icon(Icons.date_range),
+                      label: Text(GoogleSheetsService.formatDate(selectedDate)),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Site — Working Site search picker, canBeLoadingSite
+                    // filter, select-only (matches SupervisorScreen's
+                    // Working Site field: existing registered sites only).
+                    sectionLabel('Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showWorkingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedSiteName ?? 'Search site name',
+                          style: TextStyle(
+                            color: selectedSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Machine — machines collection dropdown (Supervisor
+                    // screen's Machine dropdown pattern).
+                    sectionLabel('Machine'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('machines')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final machines = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a machine',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: machines.map((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final name = (data['name'] ?? '').toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text('$name (${data['type'] ?? ''})'),
+                            );
+                          }).toList(),
+                          onChanged: (val) =>
+                              setDialogState(() => selectedMachineName = val),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Supervisor — users collection dropdown, role ==
+                    // 'supervisor'.
+                    sectionLabel('Supervisor'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('role', isEqualTo: 'supervisor')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final supervisors = snapshot.data!.docs;
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedSupervisorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose a supervisor',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: supervisors.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedSupervisorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Category — same kLoadingCategories/kOtherCategories
+                    // combined list, as a TaskButton grid (color-coded per
+                    // category name hash, tap to select, selected one
+                    // highlighted) — matches how the Supervisor app's task
+                    // buttons work, instead of a dropdown.
+                    sectionLabel('Category'),
+                    GridView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      gridDelegate:
+                          const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            crossAxisSpacing: 10,
+                            mainAxisSpacing: 10,
+                            childAspectRatio: 1.6,
+                          ),
+                      itemCount: categories.length,
+                      itemBuilder: (context, index) {
+                        final c = categories[index];
+                        return TaskButton(
+                          label: c,
+                          selected: selectedCategory == c,
+                          onTap: () =>
+                              setDialogState(() => selectedCategory = c),
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Truck Number — trucks collection Autocomplete
+                    // (NewWorkDialog's Select Truck pattern).
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('trucks')
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> truckNumbers = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final number =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckNumber'];
+                            if (number != null &&
+                                number.toString().isNotEmpty) {
+                              truckNumbers.add(number.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return truckNumbers.where(
+                              (number) => number.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckNumberController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckNumberController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) {
+                                    _forceUppercase(controller, val);
+                                    truckNumberController.text =
+                                        controller.text;
+                                  },
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Number',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(billNumberController, 'Bill Number', number: true),
+
+                    // Unloading Site — same search + "use as new site"
+                    // picker as the Edit Record dialog's Unloading Site
+                    // field.
+                    sectionLabel('Unloading Site'),
+                    InkWell(
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () async {
+                        final selected = await _showUnloadingSiteFieldPicker();
+                        if (selected != null) {
+                          setDialogState(
+                            () => selectedUnloadingSiteName = selected['name'],
+                          );
+                        }
+                      },
+                      child: InputDecorator(
+                        decoration: InputDecoration(
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          suffixIcon: const Icon(Icons.search, size: 18),
+                        ),
+                        child: Text(
+                          selectedUnloadingSiteName ??
+                              'Search or type unloading site name',
+                          style: TextStyle(
+                            color: selectedUnloadingSiteName == null
+                                ? Colors.grey[600]
+                                : Colors.black87,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    field(distanceController, 'Distance KM', number: true),
+                    field(durationController, 'Duration (HH:MM:SS)'),
+
+                    // Truck Driver Name — collectionGroup('work_records')
+                    // Autocomplete (NewWorkDialog's pattern).
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collectionGroup('work_records')
+                          .where('truckDriverName', isNotEqualTo: null)
+                          .limit(50)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        final Set<String> pastNames = {};
+                        if (snapshot.hasData) {
+                          for (final doc in snapshot.data!.docs) {
+                            final name =
+                                (doc.data()
+                                    as Map<String, dynamic>)['truckDriverName'];
+                            if (name != null && name.toString().isNotEmpty) {
+                              pastNames.add(name.toString());
+                            }
+                          }
+                        }
+                        return Autocomplete<String>(
+                          optionsBuilder: (textEditingValue) {
+                            if (textEditingValue.text.isEmpty) {
+                              return const Iterable<String>.empty();
+                            }
+                            return pastNames.where(
+                              (name) => name.toLowerCase().contains(
+                                textEditingValue.text.toLowerCase(),
+                              ),
+                            );
+                          },
+                          onSelected: (selection) =>
+                              truckDriverController.text = selection,
+                          fieldViewBuilder:
+                              (context, controller, focusNode, onSubmit) {
+                                controller.text = truckDriverController.text;
+                                return TextField(
+                                  controller: controller,
+                                  focusNode: focusNode,
+                                  onChanged: (val) =>
+                                      truckDriverController.text = val,
+                                  decoration: InputDecoration(
+                                    labelText: 'Truck Driver Name',
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                );
+                              },
+                        );
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    field(cubeController, 'Cube (Quantity)', number: true),
+                    const SizedBox(height: 2),
+
+                    // Machine Operator — users collection dropdown,
+                    // canOperateMachine == true (NewWorkDialog's Machine
+                    // Operator dropdown).
+                    sectionLabel('Machine Operator'),
+                    StreamBuilder<QuerySnapshot>(
+                      stream: FirebaseFirestore.instance
+                          .collection('users')
+                          .where('canOperateMachine', isEqualTo: true)
+                          .snapshots(),
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const CircularProgressIndicator();
+                        }
+                        final operators = snapshot.data!.docs;
+                        if (operators.isEmpty) {
+                          return const Text(
+                            'No operators registered.',
+                            style: TextStyle(color: Colors.grey, fontSize: 12),
+                          );
+                        }
+                        return DropdownButtonFormField<String>(
+                          initialValue: selectedMachineOperatorName,
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            hintText: 'Choose operator',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          items: operators.map((doc) {
+                            final name =
+                                ((doc.data() as Map<String, dynamic>)['name'] ??
+                                        '')
+                                    .toString();
+                            return DropdownMenuItem<String>(
+                              value: name,
+                              child: Text(name),
+                            );
+                          }).toList(),
+                          onChanged: (val) => setDialogState(
+                            () => selectedMachineOperatorName = val,
+                          ),
+                        );
+                      },
+                    ),
+                    if (errorText.isNotEmpty) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        errorText,
+                        style: const TextStyle(color: Colors.red),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancel'),
+              ),
+              ElevatedButton(
+                onPressed: isSubmitting ? null : save,
+                child: Text(isSubmitting ? 'Saving...' : 'SAVE'),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  // Internal QC flag only — never triggers GoogleSheetsService.sendRow, the
+  // Sheets sync is unrelated to this. Same tick-vs-untick confirmation
+  // wording as ManagementFuelReportsScreen's version, kept in sync.
+  Future<void> _toggleVerification(
+    DocumentReference ref,
+    bool currentlyVerified,
+    String currentUserName,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          currentlyVerified ? 'Remove Verification?' : 'Mark as Verified?',
+        ),
+        content: Text(
+          currentlyVerified
+              ? 'This will mark the report as unverified. Continue?'
+              : 'Confirm this report is correct and verified?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('CONFIRM'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final nowVerified = !currentlyVerified;
+      await ref.update({
+        'isVerified': nowVerified,
+        'verifiedBy': nowVerified ? currentUserName : null,
+        'verifiedAt': nowVerified ? FieldValue.serverTimestamp() : null,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              nowVerified ? 'Marked as verified.' : 'Verification removed.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to update: $e')));
+      }
+    }
+  }
+
+  // Firestore-only delete — deliberately never touches Google Sheets (no
+  // GoogleSheetsService call anywhere here), so removing a row from the
+  // synced sheet is left to manual cleanup if that's ever needed. Works
+  // uniformly for either source a record can come from — a top-level
+  // manual_site_reports doc, or a nested
+  // daily_sessions/{id}/work_records/{id} doc — since `ref` is always the
+  // record's own correct DocumentReference (see _enrichRecords and the
+  // manual-records mapping in build(), both of which set data['_ref'] to
+  // doc.reference). Both source streams are live .snapshots(), so deleting
+  // the doc removes it from the table automatically on the next snapshot —
+  // no manual refetch needed.
+  Future<void> _deleteRecord(DocumentReference ref) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Delete Report?'),
+        content: const Text(
+          'Are you sure you want to permanently delete this report record? '
+          'This action cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            child: const Text('DELETE', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.delete();
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Report deleted')));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to delete report: $e')));
+      }
+    }
+  }
+
+  Widget _buildTable(
+    List<Map<String, dynamic>> records,
+    bool canEdit,
+    String currentUserName,
+  ) {
+    final truckNumberColIndex = 1 + _columns.indexOf('Truck Number');
+    final billNumberColIndex = 1 + _columns.indexOf('Bill Number');
+    final siteColIndex = 1 + _columns.indexOf('Site');
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        sortColumnIndex: _sortColumnIndex,
+        sortAscending: _sortAscending,
         columns: [
-          ..._columns.map(
-            (c) => DataColumn(
+          const DataColumn(
+            label: Text('#', style: TextStyle(fontWeight: FontWeight.bold)),
+          ),
+          if (canEdit)
+            const DataColumn(
               label: Text(
-                c,
-                style: const TextStyle(fontWeight: FontWeight.bold),
+                'Verified',
+                style: TextStyle(fontWeight: FontWeight.bold),
               ),
             ),
-          ),
+          ..._columns.asMap().entries.map((entry) {
+            final colIndex = entry.key + 1;
+            final sortable =
+                colIndex == truckNumberColIndex ||
+                colIndex == billNumberColIndex;
+            return DataColumn(
+              label: Text(
+                entry.value,
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+              onSort: sortable
+                  ? (i, ascending) => setState(() {
+                      _sortColumnIndex = i;
+                      _sortAscending = ascending;
+                    })
+                  : null,
+            );
+          }),
           if (canEdit)
             const DataColumn(
               label: Text(
@@ -5169,19 +11965,60 @@ class _ManagementSiteReportsScreenState
               ),
             ),
         ],
-        rows: records.map((data) {
+        rows: records.asMap().entries.map((rowEntry) {
+          final rowIndex = rowEntry.key;
+          final data = rowEntry.value;
           final values = _rowValues(data);
+          final isVerified = data['isVerified'] == true;
+          final isManual = data['isManualEntry'] == true;
           return DataRow(
+            color: _rowStripeColor(rowIndex),
             cells: [
-              ...values.map((v) => DataCell(Text(v))),
+              DataCell(Text('${rowIndex + 1}')),
               if (canEdit)
                 DataCell(
                   IconButton(
-                    icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
-                    onPressed: () => _showEditRecordDialog(
-                      data['_ref'] as DocumentReference,
-                      data,
+                    icon: Icon(
+                      isVerified
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      color: isVerified ? Colors.green : Colors.grey,
                     ),
+                    onPressed: () => _toggleVerification(
+                      data['_ref'] as DocumentReference,
+                      isVerified,
+                      currentUserName,
+                    ),
+                  ),
+                ),
+              ...values.asMap().entries.map((v) {
+                final colIndex = v.key + 1;
+                final text = (colIndex == siteColIndex && isManual)
+                    ? '${v.value} (Manual)'
+                    : v.value;
+                return DataCell(Text(text));
+              }),
+              if (canEdit)
+                DataCell(
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      IconButton(
+                        icon: const Icon(
+                          Icons.edit,
+                          color: AppTheme.primaryMid,
+                        ),
+                        onPressed: () => _showEditRecordDialog(
+                          data['_ref'] as DocumentReference,
+                          data,
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.delete, color: Colors.red),
+                        onPressed: () =>
+                            _deleteRecord(data['_ref'] as DocumentReference),
+                      ),
+                    ],
                   ),
                 ),
             ],
@@ -5285,68 +12122,154 @@ class _ManagementSiteReportsScreenState
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final allRecords = enrichSnap.data!;
-                  // Chronological order: date ascending, then same-day records
-                  // by when the load actually started (falling back to
-                  // createdAt if that's missing) — oldest first, matching the
-                  // Supervisor_Loads sheet's row order. Both the table and the
-                  // chart, plus Excel export, all read from this same sorted
-                  // `filtered` list, so the order applies everywhere
-                  // automatically.
-                  final filtered = allRecords.where(_matchesFilters).toList()
-                    ..sort((a, b) {
-                      final dateCompare = (a['date'] ?? '')
-                          .toString()
-                          .compareTo((b['date'] ?? '').toString());
-                      if (dateCompare != 0) return dateCompare;
+                  final workRecords = enrichSnap.data!;
 
-                      final aTime =
-                          (a['loadStartedAt'] as Timestamp?) ??
-                          (a['createdAt'] as Timestamp?);
-                      final bTime =
-                          (b['loadStartedAt'] as Timestamp?) ??
-                          (b['createdAt'] as Timestamp?);
-                      if (aTime == null && bTime == null) return 0;
-                      if (aTime == null) return -1;
-                      if (bTime == null) return 1;
-                      return aTime.compareTo(bTime);
-                    });
+                  // Manual "+ Add Report" entries (Part E) live in a separate
+                  // top-level collection — merged client-side into the same
+                  // filtered/sorted list the collectionGroup('work_records')
+                  // query produces above, rather than trying to make one
+                  // Firestore query span both collections.
+                  return StreamBuilder<QuerySnapshot>(
+                    stream: _manualSiteReportsStream,
+                    builder: (context, manualSnap) {
+                      final manualRecords = (manualSnap.data?.docs ?? []).map((
+                        d,
+                      ) {
+                        final data = Map<String, dynamic>.from(
+                          d.data() as Map<String, dynamic>,
+                        );
+                        data['_ref'] = d.reference;
+                        return data;
+                      }).toList();
 
-                  return SingleChildScrollView(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        _buildFiltersRow(),
-                        const SizedBox(height: 20),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      final allRecords = [...workRecords, ...manualRecords];
+
+                      // "Sort By" filters-row dropdown — a top-level sort
+                      // preference. Both the table and the chart, plus Excel
+                      // export, all read from this same sorted `filtered`
+                      // list, so the choice applies everywhere automatically.
+                      final filtered = allRecords
+                          .where(_matchesFilters)
+                          .toList();
+                      if (_selectedSortBy == 'truckNumber') {
+                        filtered.sort(
+                          (a, b) => _naturalCompare(
+                            (a['truckNumber'] ?? '').toString(),
+                            (b['truckNumber'] ?? '').toString(),
+                          ),
+                        );
+                      } else if (_selectedSortBy == 'billNumber') {
+                        filtered.sort(
+                          (a, b) => _naturalCompare(
+                            (a['billNumber'] ?? '').toString(),
+                            (b['billNumber'] ?? '').toString(),
+                          ),
+                        );
+                      } else {
+                        // Default: date ascending, then same-day records by
+                        // when the load actually started (falling back to
+                        // createdAt if that's missing) — oldest first,
+                        // matching the Supervisor_Loads sheet's row order.
+                        // Manual entries have no loadStartedAt, so they fall
+                        // back to createdAt too.
+                        filtered.sort((a, b) {
+                          final dateCompare = (a['date'] ?? '')
+                              .toString()
+                              .compareTo((b['date'] ?? '').toString());
+                          if (dateCompare != 0) return dateCompare;
+
+                          final aTime =
+                              (a['loadStartedAt'] as Timestamp?) ??
+                              (a['createdAt'] as Timestamp?);
+                          final bTime =
+                              (b['loadStartedAt'] as Timestamp?) ??
+                              (b['createdAt'] as Timestamp?);
+                          if (aTime == null && bTime == null) return 0;
+                          if (aTime == null) return -1;
+                          if (bTime == null) return 1;
+                          return aTime.compareTo(bTime);
+                        });
+                      }
+
+                      // Truck Number / Bill Number header-click sort (Part D)
+                      // — applied after the chronological default sort
+                      // above, only when the user has actually clicked one
+                      // of those headers.
+                      if (_sortColumnIndex != null) {
+                        final sortField =
+                            _sortColumnIndex ==
+                                1 + _columns.indexOf('Truck Number')
+                            ? 'truckNumber'
+                            : _sortColumnIndex ==
+                                  1 + _columns.indexOf('Bill Number')
+                            ? 'billNumber'
+                            : null;
+                        if (sortField != null) {
+                          filtered.sort((a, b) {
+                            final cmp = _naturalCompare(
+                              (a[sortField] ?? '').toString(),
+                              (b[sortField] ?? '').toString(),
+                            );
+                            return _sortAscending ? cmp : -cmp;
+                          });
+                        }
+                      }
+
+                      return SingleChildScrollView(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(
-                              '${filtered.length} records',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.bold,
+                            _buildFiltersRow(allRecords),
+                            const SizedBox(height: 20),
+                            if (canEdit) ...[
+                              SizedBox(
+                                width: 200,
+                                child: GradientButton(
+                                  label: '+ Add Report',
+                                  icon: Icons.add,
+                                  height: 44,
+                                  onTap: () => _showAddReportDialog(
+                                    (userData?['name'] ?? '').toString(),
+                                  ),
+                                ),
                               ),
+                              const SizedBox(height: 16),
+                            ],
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '${filtered.length} records',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                SizedBox(
+                                  width: 200,
+                                  child: GradientButton(
+                                    label: 'Export to Excel',
+                                    icon: Icons.download,
+                                    height: 44,
+                                    onTap: filtered.isEmpty
+                                        ? () {}
+                                        : () => _exportToExcel(filtered),
+                                  ),
+                                ),
+                              ],
                             ),
-                            SizedBox(
-                              width: 200,
-                              child: GradientButton(
-                                label: 'Export to Excel',
-                                icon: Icons.download,
-                                height: 44,
-                                onTap: filtered.isEmpty
-                                    ? () {}
-                                    : () => _exportToExcel(filtered),
-                              ),
+                            const SizedBox(height: 16),
+                            _buildChart(filtered),
+                            const SizedBox(height: 20),
+                            _buildTable(
+                              filtered,
+                              canEdit,
+                              (userData?['name'] ?? '').toString(),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 16),
-                        _buildChart(filtered),
-                        const SizedBox(height: 20),
-                        _buildTable(filtered, canEdit),
-                      ],
-                    ),
+                      );
+                    },
                   );
                 },
               );
@@ -6588,22 +13511,12 @@ class WorkSessionScreen extends StatefulWidget {
 class _WorkSessionScreenState extends State<WorkSessionScreen> {
   Timer? _tickTimer;
 
-  final List<String> _loadingCategories = [
-    'Sand Loading',
-    'Soil Loading',
-    'Rock Loading',
-  ];
-
-  final List<String> _otherCategories = [
-    'Road Cleaning',
-    'Travelling',
-    'Idle',
-    'Fuel Filling',
-    'Maintenance',
-  ];
+  final List<String> _loadingCategories = kLoadingCategories;
+  final List<String> _otherCategories = kOtherCategories;
 
   void _syncToSiteSpecificSheet(List<dynamic> row, String? recordId) {
-    final sheetName = kSiteSheetMap[widget.siteName.trim().toLowerCase()];
+    final sheetName =
+        kSiteSheetMap[normalizeSiteNameForSheetLookup(widget.siteName)];
     if (sheetName != null) {
       GoogleSheetsService.sendRow(
         sheetName: sheetName,
@@ -9953,12 +16866,14 @@ class TaskButton extends StatefulWidget {
   final String label;
   final VoidCallback onTap;
   final Color? color;
+  final bool selected;
 
   const TaskButton({
     super.key,
     required this.label,
     required this.onTap,
     this.color,
+    this.selected = false,
   });
 
   @override
@@ -10006,24 +16921,44 @@ class _TaskButtonState extends State<TaskButton> {
               colors: [baseColor, baseColor.withOpacity(0.75)],
             ),
             borderRadius: BorderRadius.circular(18),
+            border: widget.selected
+                ? Border.all(color: Colors.white, width: 3)
+                : null,
             boxShadow: [
               BoxShadow(
-                color: baseColor.withOpacity(0.4),
-                blurRadius: 12,
+                color: baseColor.withOpacity(widget.selected ? 0.65 : 0.4),
+                blurRadius: widget.selected ? 16 : 12,
+                spreadRadius: widget.selected ? 1 : 0,
                 offset: const Offset(0, 5),
               ),
             ],
           ),
           alignment: Alignment.center,
           padding: const EdgeInsets.all(10),
-          child: Text(
-            widget.label,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
-              fontSize: 14,
-            ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            alignment: Alignment.center,
+            children: [
+              Text(
+                widget.label,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              if (widget.selected)
+                const Positioned(
+                  top: -4,
+                  right: -4,
+                  child: Icon(
+                    Icons.check_circle,
+                    color: Colors.white,
+                    size: 18,
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -11361,13 +18296,33 @@ class AdminSiteListScreen extends StatelessWidget {
 // stay consistent. Add new loading site -> sheet name mappings here.
 const Map<String, String> kSiteSheetMap = {
   'athukorala land': 'Athukorala_Land_Loads',
-  'lalith land': 'Lalith_Land_Loads',
+  // The actual Firestore site name is "Lalitha Land" (confirmed live on
+  // device, from an active work session's denormalized siteName field) —
+  // not "Lalith Land". The key must match the real site name exactly;
+  // Lalith_Land_Loads is kept as the sheet tab name since that's what's
+  // already referenced in the Google Sheet.
+  'lalitha land': 'Lalith_Land_Loads',
   'hesei site': 'Hesei_Site_Loads',
-  'dhompe site': 'Dhompe_Site_Loads',
+  // Site was renamed "Dhompe Site" -> "Dompe Site" via Site Management's
+  // edit feature — this key must track the CURRENT Firestore site name
+  // (kSiteSheetMap is a static const, so a rename doesn't update it on its
+  // own). The Google Sheet tab itself was also manually renamed to match
+  // (Dhompe_Site_Loads -> Dompe_Site_Loads), so the value had to move too.
+  'dompe site': 'Dompe_Site_Loads',
   'cmc plant': 'CMC_Plant_Loads',
   'maga site': 'Maga_Site_Loads',
   'rajakaruna land': 'Rajakaruna_Land_Loads',
 };
+
+// trim()+toLowerCase() alone doesn't catch a doubled internal space (e.g. a
+// site named "Lalith  Land" typo'd with two spaces when it was added in
+// Site Management) — that would silently fail a kSiteSheetMap lookup since
+// the map's keys use a single space. Collapsing internal whitespace closes
+// that gap. Always look up kSiteSheetMap through this, not a raw
+// .trim().toLowerCase().
+String normalizeSiteNameForSheetLookup(String siteName) {
+  return siteName.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+}
 
 // ---------------- GOOGLE SHEETS SYNC SERVICE ----------------
 class GoogleSheetsService {

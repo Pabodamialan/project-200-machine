@@ -36,6 +36,16 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canEditReports == true;
     }
 
+    // Management's Transport Records access permission (ManagementDashboard's
+    // sidebar / TransportRecordsScreen / TransportSummaryScreen route
+    // guards), set per-account via ManageUsersScreen's
+    // canAccessTransportRecords toggle. Same shape as
+    // canManagementEditReports() above.
+    function canManagementAccessTransportRecords() {
+      return isManagement() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canAccessTransportRecords == true;
+    }
+
     // ---- users ----
     // Read is broad (not owner/admin-restricted): supervisors query other
     // users' profiles for pickers/dropdowns in several places (Machine
@@ -154,6 +164,21 @@ service cloud.firestore {
           canManagementEditReports());
       allow delete: if isSignedIn() &&
         (resource.data.supervisorUid == request.auth.uid || isAdminOrOwner());
+    }
+
+    // ---- manual_site_reports (ManagementSiteReportsScreen's "+ Add Report",
+    // for historical/paper site records that never went through a
+    // Supervisor's actual work session) ----
+    match /manual_site_reports/{reportId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canManagementEditReports();
+    }
+
+    // ---- transport_rate_settings (TransportRecordScreen's global Cube/Load
+    // rate setting — single fixed-ID document "main") ----
+    match /transport_rate_settings/{docId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canManagementAccessTransportRecords();
     }
 
     // ---- truck_sessions (driver truck tracking: trips, location_points) ----
