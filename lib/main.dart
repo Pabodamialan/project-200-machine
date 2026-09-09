@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:math';
+import 'dart:ui' as ui;
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'dart:convert';
@@ -8,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
@@ -16,6 +18,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:video_player/video_player.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:excel/excel.dart' as xls;
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:qr_flutter/qr_flutter.dart';
+import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,13 +46,30 @@ void main() async {
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
+  // Public, unauthenticated route for Google Play Store's Account Deletion
+  // requirement (see AccountDeletionScreen) — reachable at /account-deletion
+  // or ?page=account-deletion. Firebase Hosting's "**" -> /index.html
+  // rewrite (see firebase.json) means a direct browser navigation to that
+  // path reaches this Flutter app instead of 404ing at the server, and
+  // Uri.base picks it up from there. Checked ahead of AuthGate so this shows
+  // regardless of login state — signed in, signed out, or no account at all.
+  bool get _isAccountDeletionRoute {
+    if (!kIsWeb) return false;
+    final path = Uri.base.path;
+    return path == '/account-deletion' ||
+        path == '/account-deletion/' ||
+        Uri.base.queryParameters['page'] == 'account-deletion';
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'NODA Civimech Engineering (PVT) Ltd.',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
-      home: AuthGate(key: UniqueKey()),
+      home: _isAccountDeletionRoute
+          ? const AccountDeletionScreen()
+          : AuthGate(key: UniqueKey()),
     );
   }
 }
@@ -782,6 +804,243 @@ class _ContactFooterSection extends StatelessWidget {
   }
 }
 
+// ---------------- ACCOUNT DELETION SCREEN (public, no login required) ----------------
+// Google Play Store's Data Safety section requires a publicly reachable page
+// describing how a user can request their account and data be deleted, even
+// for an app like this one where accounts are created only by an admin, not
+// self-registered. Reached at the "/account-deletion" URL path (see MyApp's
+// kIsWeb routing check, which shows this screen directly in place of
+// AuthGate — before Firebase auth state is even consulted, so it works
+// whether the visitor is signed in, signed out, or has no account at all).
+class AccountDeletionScreen extends StatelessWidget {
+  const AccountDeletionScreen({super.key});
+
+  Future<void> _openWhatsApp(
+    BuildContext context,
+    String whatsappNumber,
+  ) async {
+    final uri = Uri.parse('https://wa.me/$whatsappNumber');
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Could not open WhatsApp.')));
+    }
+  }
+
+  Future<void> _openEmail(BuildContext context, String email) async {
+    final uri = Uri(scheme: 'mailto', path: email);
+    final launched = await launchUrl(uri);
+    if (!launched && context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open an email app.')),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.white,
+      body: StreamBuilder<DocumentSnapshot>(
+        stream: FirebaseFirestore.instance
+            .collection('website_content')
+            .doc('main')
+            .snapshots(),
+        builder: (context, snapshot) {
+          final content = snapshot.data?.data() as Map<String, dynamic>?;
+          final whatsappNumber = (content?['whatsappNumber'] ?? '')
+              .toString()
+              .trim();
+          final contactEmail = (content?['contactEmail'] ?? '')
+              .toString()
+              .trim();
+
+          return SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 40,
+                  ),
+                  decoration: const BoxDecoration(
+                    gradient: AppTheme.mainGradient,
+                  ),
+                  child: const Column(
+                    children: [
+                      Text(
+                        'NODA Civimech Engineering',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(height: 10),
+                      Text(
+                        'Account Deletion Request',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 28,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 640),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 40,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'NODA Civimech Engineering app accounts are created '
+                            'and managed by company administrators. '
+                            'Self-registration is not available. To request '
+                            'deletion of your account and associated data, '
+                            'please contact us using one of the methods below, '
+                            'and include your registered name and role.',
+                            style: TextStyle(
+                              fontSize: 16,
+                              height: 1.5,
+                              color: AppTheme.primaryDark,
+                            ),
+                          ),
+                          const SizedBox(height: 32),
+                          _AccountDeletionContactRow(
+                            icon: Icons.email_outlined,
+                            label: 'Email',
+                            value: contactEmail.isEmpty
+                                ? 'Not configured yet'
+                                : contactEmail,
+                            onTap: contactEmail.isEmpty
+                                ? null
+                                : () => _openEmail(context, contactEmail),
+                          ),
+                          const SizedBox(height: 16),
+                          _AccountDeletionContactRow(
+                            icon: Icons.chat_outlined,
+                            label: 'WhatsApp',
+                            value: whatsappNumber.isEmpty
+                                ? 'Not configured yet'
+                                : whatsappNumber,
+                            onTap: whatsappNumber.isEmpty
+                                ? null
+                                : () => _openWhatsApp(context, whatsappNumber),
+                          ),
+                          const SizedBox(height: 40),
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(20),
+                            decoration: BoxDecoration(
+                              color: AppTheme.primaryMid.withOpacity(0.06),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: AppTheme.primaryMid.withOpacity(0.15),
+                              ),
+                            ),
+                            child: const Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Data Retention',
+                                  style: TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 15,
+                                    color: AppTheme.primaryDark,
+                                  ),
+                                ),
+                                SizedBox(height: 8),
+                                Text(
+                                  'Upon request, your account and associated '
+                                  'data (profile information, work records) '
+                                  'will be deleted within 30 days, except '
+                                  'where retention is required for legal or '
+                                  'business record-keeping purposes.',
+                                  style: TextStyle(
+                                    height: 1.5,
+                                    color: AppTheme.primaryDark,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _AccountDeletionContactRow extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final String value;
+  final VoidCallback? onTap;
+
+  const _AccountDeletionContactRow({
+    required this.icon,
+    required this.label,
+    required this.value,
+    this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Icon(icon, color: AppTheme.primaryMid),
+            const SizedBox(width: 12),
+            Text(
+              '$label: ',
+              style: const TextStyle(
+                fontWeight: FontWeight.bold,
+                fontSize: 16,
+                color: AppTheme.primaryDark,
+              ),
+            ),
+            Expanded(
+              child: Text(
+                value,
+                style: TextStyle(
+                  fontSize: 16,
+                  color: onTap != null ? AppTheme.primaryMid : Colors.grey[600],
+                  decoration: onTap != null
+                      ? TextDecoration.underline
+                      : TextDecoration.none,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------- LOGIN SCREEN ----------------
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -1305,6 +1564,63 @@ class AdminDashboard extends StatelessWidget {
             index: 6,
             child: _buildMenuCard(
               context,
+              icon: Icons.directions_car,
+              title: 'Vehicle Registration',
+              subtitle: 'Register trucks and generate load QR codes',
+              color: Colors.deepOrange,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const VehicleRegistrationScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 7,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.checklist,
+              title: 'Availability',
+              subtitle: 'Manage the Loading Category master list',
+              color: Colors.teal,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const AvailabilityManagementScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 8,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.gps_fixed,
+              title: 'GPS Devices',
+              subtitle: 'Traccar devices, assignments and KM history',
+              color: Colors.indigo,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const GpsDeviceManagementScreen(),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 9,
+            child: _buildMenuCard(
+              context,
               icon: Icons.local_gas_station,
               title: 'Manage Fuel Stations',
               subtitle: 'Add or view fuel stations',
@@ -1321,7 +1637,7 @@ class AdminDashboard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _WebStaggeredFadeIn(
-            index: 7,
+            index: 10,
             child: _buildMenuCard(
               context,
               icon: Icons.web,
@@ -1340,7 +1656,7 @@ class AdminDashboard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _WebStaggeredFadeIn(
-            index: 8,
+            index: 11,
             child: _buildMenuCard(
               context,
               icon: Icons.assessment,
@@ -1359,7 +1675,7 @@ class AdminDashboard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _WebStaggeredFadeIn(
-            index: 9,
+            index: 12,
             child: _buildMenuCard(
               context,
               icon: Icons.local_gas_station,
@@ -1378,7 +1694,7 @@ class AdminDashboard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           _WebStaggeredFadeIn(
-            index: 10,
+            index: 13,
             child: _buildMenuCard(
               context,
               icon: Icons.summarize,
@@ -1446,6 +1762,38 @@ class AdminDashboard extends StatelessWidget {
             onTap: () => Navigator.push(
               context,
               FadeSlideRoute(page: const TruckManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.directions_car,
+            label: 'Vehicle Registration',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const VehicleRegistrationScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.checklist,
+            label: 'Availability',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const AvailabilityManagementScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.map,
+            label: 'Live Tracking',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const LiveTrackingScreen()),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.gps_fixed,
+            label: 'GPS Devices',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: const GpsDeviceManagementScreen()),
             ),
           ),
           WebSidebarItem(
@@ -2504,6 +2852,179 @@ class _MachineManagementScreenState extends State<MachineManagementScreen> {
   }
 }
 
+// ---------------- AVAILABILITY MANAGEMENT SCREEN (Admin) ----------------
+// Admin-managed master list of Loading Category names
+// (loading_availability_options collection). SiteManagementScreen's Site
+// Edit dialog builds its "Available Loading Categories" checkbox list from
+// this collection live, instead of the old hardcoded
+// kLoadingCategories + kOtherCategories, which mixed in non-loading items
+// like Fuel Filling/Maintenance. WorkSessionScreen's QR Scan category
+// picker reads sites/{id}.availableCategories, so it's automatically
+// cleaner too — no changes needed there.
+class AvailabilityManagementScreen extends StatefulWidget {
+  const AvailabilityManagementScreen({super.key});
+
+  @override
+  State<AvailabilityManagementScreen> createState() =>
+      _AvailabilityManagementScreenState();
+}
+
+class _AvailabilityManagementScreenState
+    extends State<AvailabilityManagementScreen> {
+  final _itemNameController = TextEditingController();
+
+  Future<void> _addItem() async {
+    final enteredName = _itemNameController.text.trim();
+    if (enteredName.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter a name.')));
+      return;
+    }
+
+    final existing = await FirebaseFirestore.instance
+        .collection('loading_availability_options')
+        .get();
+    final normalizedEntry = enteredName.toUpperCase();
+    final isDuplicate = existing.docs.any((doc) {
+      final existingName =
+          (doc.data()['name'] as String?)?.trim().toUpperCase() ?? '';
+      return existingName == normalizedEntry;
+    });
+
+    if (isDuplicate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This item is already in the list.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    await FirebaseFirestore.instance
+        .collection('loading_availability_options')
+        .add({'name': enteredName, 'createdAt': FieldValue.serverTimestamp()});
+
+    _itemNameController.clear();
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Item added.')));
+    }
+  }
+
+  Future<void> _deleteItem(String docId) async {
+    await FirebaseFirestore.instance
+        .collection('loading_availability_options')
+        .doc(docId)
+        .delete();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Availability'),
+        backgroundColor: Colors.teal[800],
+      ),
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _itemNameController,
+                    onSubmitted: (_) => _addItem(),
+                    decoration: InputDecoration(
+                      labelText: 'Category Name',
+                      hintText: 'e.g. Sand Loading',
+                      prefixIcon: const Icon(Icons.checklist),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(
+                  height: 56,
+                  child: ElevatedButton(
+                    onPressed: _addItem,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.teal[800],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                    child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot>(
+              stream: FirebaseFirestore.instance
+                  .collection('loading_availability_options')
+                  .orderBy('createdAt')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final items = snapshot.data?.docs ?? [];
+                if (items.isEmpty) {
+                  return const Center(
+                    child: Text('No availability items yet.'),
+                  );
+                }
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final doc = items[index];
+                    final data = doc.data() as Map<String, dynamic>;
+                    final itemName = (data['name'] ?? '').toString();
+                    return Card(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      child: ListTile(
+                        leading: const Icon(
+                          Icons.checklist,
+                          color: Colors.teal,
+                        ),
+                        title: Text(itemName),
+                        trailing: IconButton(
+                          icon: const Icon(Icons.delete, color: Colors.red),
+                          onPressed: () => confirmDelete(
+                            context: context,
+                            title: 'Delete Item?',
+                            message:
+                                'Are you sure you want to delete "$itemName"? '
+                                'Sites that already have it checked will '
+                                'keep showing it until re-edited.',
+                            onConfirm: () => _deleteItem(doc.id),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------- SITE MANAGEMENT SCREEN ----------------
 class SiteManagementScreen extends StatefulWidget {
   const SiteManagementScreen({super.key});
@@ -2579,24 +3100,70 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     await FirebaseFirestore.instance.collection('sites').doc(docId).delete();
   }
 
-  // Renaming only updates the sites/{docId} doc — existing work_records/
-  // fuel_entries keep whatever siteName string they already have (they're
-  // historical snapshots, not live references), and everything that reads
-  // the site name live (kSiteSheetMap lookups use the CURRENT record's
-  // siteName so are unaffected by a rename going forward, the Working Site
-  // search picker, Unloading Site autocomplete) queries this doc directly,
-  // so they pick up the new name automatically with no code change needed.
-  Future<void> _showEditSiteNameDialog(String docId, String currentName) {
-    final nameController = TextEditingController(text: currentName);
-    return showDialog(
+  // Captures the site's GPS coordinates from the admin's current
+  // phone/browser position — reuses TruckLocationService.requestPermission()
+  // (the same Geolocator permission flow Truck Trip Tracking already uses)
+  // rather than duplicating that permission-request logic here.
+  Future<void> _setSiteLocation(String docId, String siteName) async {
+    final hasPermission = await TruckLocationService.requestPermission();
+    if (!hasPermission) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Location permission is required to set this site\'s location.',
+            ),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      final position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high,
+      );
+      await FirebaseFirestore.instance.collection('sites').doc(docId).update({
+        'latitude': position.latitude,
+        'longitude': position.longitude,
+      });
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Location saved for $siteName '
+              '(${position.latitude.toStringAsFixed(4)}, '
+              '${position.longitude.toStringAsFixed(4)})',
+            ),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to get current location: $e')),
+        );
+      }
+    }
+  }
+
+  void _showSetLocationDialog(
+    String docId,
+    String siteName,
+    bool hasExistingLocation,
+  ) {
+    showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Rename Site'),
-        content: TextField(
-          controller: nameController,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'Site Name'),
+        title: const Text('Set Site Location'),
+        content: Text(
+          hasExistingLocation
+              ? "Set $siteName's location to your current position? "
+                    'This will overwrite the existing location. Continue?'
+              : "Set $siteName's location to your current position?",
         ),
         actions: [
           TextButton(
@@ -2604,62 +3171,209 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
             child: const Text('Cancel'),
           ),
           ElevatedButton(
-            onPressed: () async {
-              final newName = nameController.text.trim();
-              if (newName.isEmpty) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(content: Text('Please enter a site name.')),
-                );
-                return;
-              }
-
-              // Same trim/uppercase duplicate-check pattern as _addSite,
-              // excluding this site's own doc so saving an unchanged name
-              // (or just a case/whitespace tweak of it) doesn't falsely
-              // flag itself as a duplicate.
-              final existingSites = await FirebaseFirestore.instance
-                  .collection('sites')
-                  .get();
-              final normalizedEntry = newName.toUpperCase();
-              final isDuplicate = existingSites.docs.any((doc) {
-                if (doc.id == docId) return false;
-                final existingName =
-                    (doc.data()['name'] as String?)?.trim().toUpperCase() ?? '';
-                return existingName == normalizedEntry;
-              });
-
-              if (isDuplicate) {
-                ScaffoldMessenger.of(dialogContext).showSnackBar(
-                  const SnackBar(
-                    content: Text('This name is already used by another site.'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
-                return;
-              }
-
-              try {
-                await FirebaseFirestore.instance
-                    .collection('sites')
-                    .doc(docId)
-                    .update({'name': newName});
-                if (dialogContext.mounted) {
-                  Navigator.pop(dialogContext);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Site name updated')),
-                  );
-                }
-              } catch (e) {
-                if (dialogContext.mounted) {
-                  ScaffoldMessenger.of(dialogContext).showSnackBar(
-                    SnackBar(content: Text('Failed to update site: $e')),
-                  );
-                }
-              }
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              _setSiteLocation(docId, siteName);
             },
-            child: const Text('SAVE'),
+            child: const Text('CONFIRM'),
           ),
         ],
+      ),
+    );
+  }
+
+  // Renaming only updates the sites/{docId} doc — existing work_records/
+  // fuel_entries keep whatever siteName string they already have (they're
+  // historical snapshots, not live references). Live consumers (Working
+  // Site search picker, Unloading Site autocomplete) query this doc
+  // directly, so they pick up the new name automatically with no code
+  // change needed. The Google Sheet tab mapping is different: it's resolved
+  // through the site's `sheetName` field when set (see _syncToSiteSpecificSheet),
+  // falling back to the static kSiteSheetMap keyed by the site's current
+  // name — so a rename alone does NOT require re-editing kSiteSheetMap
+  // unless the site has no `sheetName` override set here.
+  Future<void> _showEditSiteNameDialog(
+    String docId,
+    String currentName,
+    String? currentSheetName,
+    List<dynamic>? currentAvailableCategories,
+  ) {
+    final nameController = TextEditingController(text: currentName);
+    final sheetNameController = TextEditingController(
+      text: currentSheetName ?? '',
+    );
+    final selectedCategories = <String>{
+      ...?currentAvailableCategories?.map((c) => c.toString()),
+    };
+    return showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Rename Site'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    autofocus: true,
+                    decoration: const InputDecoration(labelText: 'Site Name'),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: sheetNameController,
+                    decoration: const InputDecoration(
+                      labelText: 'Google Sheet Tab Name (optional)',
+                      helperText:
+                          'Pins this site\'s sync target so renaming the '
+                          'site above never changes which sheet tab it '
+                          'syncs to. Leave blank to use the default '
+                          'name-based mapping.',
+                      helperMaxLines: 3,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Text(
+                    'Available Loading Categories',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  const Text(
+                    'Used by the Supervisor QR Scan flow to offer only the '
+                    'categories relevant to this site.',
+                    style: TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  // Live from the Admin-managed master list (Availability
+                  // screen), not the old hardcoded
+                  // kLoadingCategories + kOtherCategories — that mixed in
+                  // non-loading items like Fuel Filling/Maintenance.
+                  StreamBuilder<QuerySnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('loading_availability_options')
+                        .orderBy('createdAt')
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          child: Center(child: CircularProgressIndicator()),
+                        );
+                      }
+                      final items = snapshot.data!.docs;
+                      if (items.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            'No availability items yet — add some in '
+                            'Admin → Availability.',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: items.map((doc) {
+                          final category =
+                              ((doc.data() as Map<String, dynamic>)['name'] ??
+                                      '')
+                                  .toString();
+                          return CheckboxListTile(
+                            dense: true,
+                            contentPadding: EdgeInsets.zero,
+                            controlAffinity: ListTileControlAffinity.leading,
+                            title: Text(category),
+                            value: selectedCategories.contains(category),
+                            onChanged: (checked) => setDialogState(() {
+                              if (checked == true) {
+                                selectedCategories.add(category);
+                              } else {
+                                selectedCategories.remove(category);
+                              }
+                            }),
+                          );
+                        }).toList(),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                final newName = nameController.text.trim();
+                if (newName.isEmpty) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(content: Text('Please enter a site name.')),
+                  );
+                  return;
+                }
+
+                // Same trim/uppercase duplicate-check pattern as _addSite,
+                // excluding this site's own doc so saving an unchanged name
+                // (or just a case/whitespace tweak of it) doesn't falsely
+                // flag itself as a duplicate.
+                final existingSites = await FirebaseFirestore.instance
+                    .collection('sites')
+                    .get();
+                final normalizedEntry = newName.toUpperCase();
+                final isDuplicate = existingSites.docs.any((doc) {
+                  if (doc.id == docId) return false;
+                  final existingName =
+                      (doc.data()['name'] as String?)?.trim().toUpperCase() ??
+                      '';
+                  return existingName == normalizedEntry;
+                });
+
+                if (isDuplicate) {
+                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                    const SnackBar(
+                      content: Text(
+                        'This name is already used by another site.',
+                      ),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
+                try {
+                  final newSheetName = sheetNameController.text.trim();
+                  await FirebaseFirestore.instance
+                      .collection('sites')
+                      .doc(docId)
+                      .update({
+                        'name': newName,
+                        'sheetName': newSheetName.isEmpty ? null : newSheetName,
+                        'availableCategories': selectedCategories.toList(),
+                      });
+                  if (dialogContext.mounted) {
+                    Navigator.pop(dialogContext);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Site name updated')),
+                    );
+                  }
+                } catch (e) {
+                  if (dialogContext.mounted) {
+                    ScaffoldMessenger.of(dialogContext).showSnackBar(
+                      SnackBar(content: Text('Failed to update site: $e')),
+                    );
+                  }
+                }
+              },
+              child: const Text('SAVE'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2877,6 +3591,9 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
       itemBuilder: (context, index) {
         final data = sites[index].data() as Map<String, dynamic>;
         final docId = sites[index].id;
+        final siteName = (data['name'] ?? '').toString();
+        final hasLocation =
+            data['latitude'] != null && data['longitude'] != null;
 
         return _WebStaggeredFadeIn(
           index: index,
@@ -2888,7 +3605,22 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   backgroundColor: Colors.teal.withOpacity(0.15),
                   child: const Icon(Icons.location_on, color: Colors.teal),
                 ),
-                title: Text(data['name'] ?? ''),
+                title: Row(
+                  children: [
+                    Flexible(child: Text(siteName)),
+                    if (hasLocation) ...[
+                      const SizedBox(width: 8),
+                      const Text(
+                        '📍 Location Set',
+                        style: TextStyle(
+                          color: Colors.green,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
                 subtitle: Text(
                   [
                     data['location'] ?? '',
@@ -2901,10 +3633,21 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     IconButton(
+                      icon: const Icon(
+                        Icons.my_location,
+                        color: AppTheme.primaryMid,
+                      ),
+                      tooltip: 'Set Location',
+                      onPressed: () =>
+                          _showSetLocationDialog(docId, siteName, hasLocation),
+                    ),
+                    IconButton(
                       icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
                       onPressed: () => _showEditSiteNameDialog(
                         docId,
-                        (data['name'] ?? '').toString(),
+                        siteName,
+                        data['sheetName'] as String?,
+                        data['availableCategories'] as List<dynamic>?,
                       ),
                     ),
                     IconButton(
@@ -3728,6 +4471,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
               ),
             ),
             WebSidebarItem(
+              icon: Icons.map,
+              label: 'Live Tracking',
+              onTap: () => Navigator.push(
+                context,
+                FadeSlideRoute(page: const LiveTrackingScreen()),
+              ),
+            ),
+            WebSidebarItem(
               icon: Icons.local_gas_station,
               label: 'Fuel Stations',
               onTap: () => Navigator.push(
@@ -3808,6 +4559,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                   onTap: () => Navigator.push(
                     context,
                     FadeSlideRoute(page: const TeamCategoryScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.map,
+                  label: 'Live Tracking',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const LiveTrackingScreen()),
                   ),
                 ),
                 WebSidebarItem(
@@ -3992,6 +4751,14 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
                   onTap: () => Navigator.push(
                     context,
                     FadeSlideRoute(page: const ManagementSiteReportsScreen()),
+                  ),
+                ),
+                WebSidebarItem(
+                  icon: Icons.map,
+                  label: 'Live Tracking',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: const LiveTrackingScreen()),
                   ),
                 ),
                 if (_canAccessTransportRecords)
@@ -4258,6 +5025,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
     'Site',
     'Unloading Site',
     'Distance KM',
+    'Load Type',
     'Loading Amount (Rs.)',
     'Category',
     'Machine Operator',
@@ -4462,6 +5230,9 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
       (data['siteName'] ?? '').toString(),
       (data['unloadingSiteName'] ?? '').toString(),
       data['distanceKm']?.toString() ?? '',
+      (data['loadType'] ?? 'company').toString() == 'private'
+          ? 'Private Load'
+          : 'Company Load',
       'Rs. ${_loadingAmountFor(data, cubeRate, loadRate).toStringAsFixed(2)}',
       (data['category'] ?? '').toString(),
       (data['machineOperatorName'] ?? '').toString(),
@@ -4539,6 +5310,14 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
       fontSize: 10,
       backgroundColorHex: xls.ExcelColor.amber100,
     );
+    // Same color as the web table's Private Load row (kPrivateLoadCellColor)
+    // — wins over the duplicate highlight above, same as it wins over the
+    // striping cycle on the web table.
+    final privateLoadDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+      backgroundColorHex: kPrivateLoadCellColor,
+    );
 
     // '#'/Cube/Distance KM/Loading Amount/Bill Number need real numeric
     // cells (see _numericCellValue) so Excel doesn't flag them as "Number
@@ -4563,6 +5342,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
       ];
       totalLoadingAmount += _loadingAmountFor(records[i], cubeRate, loadRate);
       for (var col = 0; col < rowValues.length; col++) {
+        final isPrivateLoad = records[i]['loadType'] == 'private';
         final isDuplicateCell =
             (col == truckNumberColIndex &&
                 duplicateTruckNumbers.contains(rowValues[col])) ||
@@ -4574,7 +5354,9 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
         cell.value = numericColumns.contains(headers[col])
             ? _numericCellValue(rowValues[col])
             : xls.TextCellValue(rowValues[col]);
-        cell.cellStyle = isDuplicateCell ? duplicateDataStyle : normalDataStyle;
+        cell.cellStyle = isPrivateLoad
+            ? privateLoadDataStyle
+            : (isDuplicateCell ? duplicateDataStyle : normalDataStyle);
       }
     }
 
@@ -5399,6 +6181,9 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
     final cubeController = TextEditingController(
       text: data['cubeCount']?.toString() ?? '',
     );
+    // 'company' is the default for older records saved before this field
+    // existed, matching NewWorkDialog/_startNewWork's default.
+    String editedLoadType = (data['loadType'] ?? 'company').toString();
 
     showDialog(
       context: context,
@@ -5480,6 +6265,37 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Load Type',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Company Load'),
+                    value: 'company',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Private Load'),
+                    value: 'private',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: distanceController,
                     keyboardType: TextInputType.number,
@@ -5533,6 +6349,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                     // Kept as a string — matches how NewWorkDialog/_startNewWork
                     // save it, not a number field.
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': editedLoadType,
                   });
 
                   // Sync the edit back to the same Sheet row (update-in-place
@@ -5563,6 +6380,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                         endMeterController.text.trim(),
                       ),
                       'cubeCount': cubeController.text.trim(),
+                      'loadType': editedLoadType,
                     },
                   };
                   final syncRow = [
@@ -5603,10 +6421,15 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                       .where('name', isEqualTo: editedSiteName)
                       .limit(1)
                       .get();
-                  final editIsPlantSite =
-                      siteQuery.docs.isNotEmpty &&
-                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteData = siteQuery.docs.isNotEmpty
+                      ? siteQuery.docs.first.data()
+                      : null;
+                  final editIsPlantSite = editSiteData?['isPlantSite'] == true;
+                  // Prefers the site's pinned `sheetName` (see Manage Sites'
+                  // rename dialog) so this stays correct even if the name
+                  // typed above doesn't match kSiteSheetMap's static key.
                   final editSiteSpecificMatch =
+                      (editSiteData?['sheetName'] as String?) ??
                       kSiteSheetMap[normalizeSiteNameForSheetLookup(
                         editedSiteName,
                       )];
@@ -5677,6 +6500,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
     final truckDriverController = TextEditingController();
     final cubeController = TextEditingController();
     String? selectedMachineOperatorName;
+    String selectedLoadType = 'company';
     String errorText = '';
     bool isSubmitting = false;
 
@@ -5728,6 +6552,7 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                     'duration': durationController.text.trim(),
                     'truckDriverName': truckDriverController.text.trim(),
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': selectedLoadType,
                     'machineOperatorName': selectedMachineOperatorName ?? '',
                     'isVerified': false,
                     'addedByName': currentUserName,
@@ -6006,6 +6831,27 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    sectionLabel('Load Type'),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Company Load'),
+                      value: 'company',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Private Load'),
+                      value: 'private',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
                     field(distanceController, 'Distance KM', number: true),
                     field(durationController, 'Duration (HH:MM:SS)'),
 
@@ -6305,7 +7151,10 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
           final isVerified = data['isVerified'] == true;
           final isManual = data['isManualEntry'] == true;
           return DataRow(
-            color: _rowStripeColor(rowIndex),
+            color: _rowStripeColor(
+              rowIndex,
+              isPrivateLoad: data['loadType'] == 'private',
+            ),
             cells: [
               DataCell(Text('${rowIndex + 1}')),
               DataCell(
@@ -6678,6 +7527,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
     'Site',
     'Unloading Site',
     'Distance KM',
+    'Load Type',
     'Loading Amount (Rs.)',
     'Driver Salary (Rs.)',
     'Category',
@@ -6904,6 +7754,9 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
       (data['siteName'] ?? '').toString(),
       (data['unloadingSiteName'] ?? '').toString(),
       data['distanceKm']?.toString() ?? '',
+      (data['loadType'] ?? 'company').toString() == 'private'
+          ? 'Private Load'
+          : 'Company Load',
       'Rs. ${loadingAmount.toStringAsFixed(2)}',
       'Rs. ${driverSalary.toStringAsFixed(2)}',
       (data['category'] ?? '').toString(),
@@ -6984,6 +7837,14 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
       fontSize: 10,
       backgroundColorHex: xls.ExcelColor.amber100,
     );
+    // Same color as the web table's Private Load row (kPrivateLoadCellColor)
+    // — wins over the duplicate highlight above, same as it wins over the
+    // striping cycle on the web table.
+    final privateLoadDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+      backgroundColorHex: kPrivateLoadCellColor,
+    );
 
     // '#'/Cube/Distance KM/Loading Amount/Driver Salary/Bill Number need
     // real numeric cells (see _numericCellValue) so Excel doesn't flag
@@ -7024,6 +7885,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
             (driverSalaryTotals[driverName] ?? 0) + salary;
       }
       for (var col = 0; col < rowValues.length; col++) {
+        final isPrivateLoad = records[i]['loadType'] == 'private';
         final isDuplicateCell =
             (col == truckNumberColIndex &&
                 duplicateTruckNumbers.contains(rowValues[col])) ||
@@ -7035,7 +7897,9 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
         cell.value = numericColumns.contains(headers[col])
             ? _numericCellValue(rowValues[col])
             : xls.TextCellValue(rowValues[col]);
-        cell.cellStyle = isDuplicateCell ? duplicateDataStyle : normalDataStyle;
+        cell.cellStyle = isPrivateLoad
+            ? privateLoadDataStyle
+            : (isDuplicateCell ? duplicateDataStyle : normalDataStyle);
       }
     }
 
@@ -7953,6 +8817,9 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
     final cubeController = TextEditingController(
       text: data['cubeCount']?.toString() ?? '',
     );
+    // 'company' is the default for older records saved before this field
+    // existed, matching NewWorkDialog/_startNewWork's default.
+    String editedLoadType = (data['loadType'] ?? 'company').toString();
 
     showDialog(
       context: context,
@@ -8034,6 +8901,37 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Load Type',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Company Load'),
+                    value: 'company',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Private Load'),
+                    value: 'private',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: distanceController,
                     keyboardType: TextInputType.number,
@@ -8087,6 +8985,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                     // Kept as a string — matches how NewWorkDialog/_startNewWork
                     // save it, not a number field.
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': editedLoadType,
                   });
 
                   // Sync the edit back to the same Sheet row (update-in-place
@@ -8117,6 +9016,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                         endMeterController.text.trim(),
                       ),
                       'cubeCount': cubeController.text.trim(),
+                      'loadType': editedLoadType,
                     },
                   };
                   final syncRow = [
@@ -8157,10 +9057,15 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                       .where('name', isEqualTo: editedSiteName)
                       .limit(1)
                       .get();
-                  final editIsPlantSite =
-                      siteQuery.docs.isNotEmpty &&
-                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteData = siteQuery.docs.isNotEmpty
+                      ? siteQuery.docs.first.data()
+                      : null;
+                  final editIsPlantSite = editSiteData?['isPlantSite'] == true;
+                  // Prefers the site's pinned `sheetName` (see Manage Sites'
+                  // rename dialog) so this stays correct even if the name
+                  // typed above doesn't match kSiteSheetMap's static key.
                   final editSiteSpecificMatch =
+                      (editSiteData?['sheetName'] as String?) ??
                       kSiteSheetMap[normalizeSiteNameForSheetLookup(
                         editedSiteName,
                       )];
@@ -8231,6 +9136,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
     final truckDriverController = TextEditingController();
     final cubeController = TextEditingController();
     String? selectedMachineOperatorName;
+    String selectedLoadType = 'company';
     String errorText = '';
     bool isSubmitting = false;
 
@@ -8282,6 +9188,7 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                     'duration': durationController.text.trim(),
                     'truckDriverName': truckDriverController.text.trim(),
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': selectedLoadType,
                     'machineOperatorName': selectedMachineOperatorName ?? '',
                     'isVerified': false,
                     'addedByName': currentUserName,
@@ -8560,6 +9467,27 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    sectionLabel('Load Type'),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Company Load'),
+                      value: 'company',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Private Load'),
+                      value: 'private',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
                     field(distanceController, 'Distance KM', number: true),
                     field(durationController, 'Duration (HH:MM:SS)'),
 
@@ -8859,7 +9787,10 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
           final isVerified = data['isVerified'] == true;
           final isManual = data['isManualEntry'] == true;
           return DataRow(
-            color: _rowStripeColor(rowIndex),
+            color: _rowStripeColor(
+              rowIndex,
+              isPrivateLoad: data['loadType'] == 'private',
+            ),
             cells: [
               DataCell(Text('${rowIndex + 1}')),
               DataCell(
@@ -9244,6 +10175,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
     'Site',
     'Unloading Site',
     'Distance KM',
+    'Load Type',
     'Category',
     'Machine Operator',
     'Truck Driver',
@@ -9416,6 +10348,9 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
       (data['siteName'] ?? '').toString(),
       (data['unloadingSiteName'] ?? '').toString(),
       data['distanceKm']?.toString() ?? '',
+      (data['loadType'] ?? 'company').toString() == 'private'
+          ? 'Private Load'
+          : 'Company Load',
       (data['category'] ?? '').toString(),
       (data['machineOperatorName'] ?? '').toString(),
       (data['truckDriverName'] ?? '').toString(),
@@ -9487,6 +10422,14 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
       fontSize: 10,
       backgroundColorHex: xls.ExcelColor.amber100,
     );
+    // Same color as the web table's Private Load row (kPrivateLoadCellColor)
+    // — wins over the duplicate highlight above, same as it wins over the
+    // striping cycle on the web table.
+    final privateLoadDataStyle = xls.CellStyle(
+      fontFamily: 'Times New Roman',
+      fontSize: 10,
+      backgroundColorHex: kPrivateLoadCellColor,
+    );
 
     // '#'/Cube/Distance KM/Bill Number need real numeric cells (see
     // _numericCellValue) so Excel doesn't flag them as "Number stored as
@@ -9496,6 +10439,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
     for (var i = 0; i < records.length; i++) {
       final rowValues = [(i + 1).toString(), ..._rowValues(records[i])];
       for (var col = 0; col < rowValues.length; col++) {
+        final isPrivateLoad = records[i]['loadType'] == 'private';
         final isDuplicateCell =
             (col == truckNumberColIndex &&
                 duplicateTruckNumbers.contains(rowValues[col])) ||
@@ -9507,7 +10451,9 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
         cell.value = numericColumns.contains(headers[col])
             ? _numericCellValue(rowValues[col])
             : xls.TextCellValue(rowValues[col]);
-        cell.cellStyle = isDuplicateCell ? duplicateDataStyle : normalDataStyle;
+        cell.cellStyle = isPrivateLoad
+            ? privateLoadDataStyle
+            : (isDuplicateCell ? duplicateDataStyle : normalDataStyle);
       }
     }
 
@@ -10182,6 +11128,9 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
     final cubeController = TextEditingController(
       text: data['cubeCount']?.toString() ?? '',
     );
+    // 'company' is the default for older records saved before this field
+    // existed, matching NewWorkDialog/_startNewWork's default.
+    String editedLoadType = (data['loadType'] ?? 'company').toString();
 
     showDialog(
       context: context,
@@ -10263,6 +11212,37 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                     ),
                   ),
                   const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Load Type',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Company Load'),
+                    value: 'company',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Private Load'),
+                    value: 'private',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: distanceController,
                     keyboardType: TextInputType.number,
@@ -10316,6 +11296,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                     // Kept as a string — matches how NewWorkDialog/_startNewWork
                     // save it, not a number field.
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': editedLoadType,
                   });
 
                   // Sync the edit back to the same Sheet row (update-in-place
@@ -10346,6 +11327,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                         endMeterController.text.trim(),
                       ),
                       'cubeCount': cubeController.text.trim(),
+                      'loadType': editedLoadType,
                     },
                   };
                   final syncRow = [
@@ -10386,10 +11368,15 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                       .where('name', isEqualTo: editedSiteName)
                       .limit(1)
                       .get();
-                  final editIsPlantSite =
-                      siteQuery.docs.isNotEmpty &&
-                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteData = siteQuery.docs.isNotEmpty
+                      ? siteQuery.docs.first.data()
+                      : null;
+                  final editIsPlantSite = editSiteData?['isPlantSite'] == true;
+                  // Prefers the site's pinned `sheetName` (see Manage Sites'
+                  // rename dialog) so this stays correct even if the name
+                  // typed above doesn't match kSiteSheetMap's static key.
                   final editSiteSpecificMatch =
+                      (editSiteData?['sheetName'] as String?) ??
                       kSiteSheetMap[normalizeSiteNameForSheetLookup(
                         editedSiteName,
                       )];
@@ -10460,6 +11447,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
     final truckDriverController = TextEditingController();
     final cubeController = TextEditingController();
     String? selectedMachineOperatorName;
+    String selectedLoadType = 'company';
     String errorText = '';
     bool isSubmitting = false;
 
@@ -10511,6 +11499,7 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                     'duration': durationController.text.trim(),
                     'truckDriverName': truckDriverController.text.trim(),
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': selectedLoadType,
                     'machineOperatorName': selectedMachineOperatorName ?? '',
                     'isVerified': false,
                     'addedByName': currentUserName,
@@ -10789,6 +11778,27 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                       ),
                     ),
                     const SizedBox(height: 10),
+                    sectionLabel('Load Type'),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Company Load'),
+                      value: 'company',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Private Load'),
+                      value: 'private',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
                     field(distanceController, 'Distance KM', number: true),
                     field(durationController, 'Duration (HH:MM:SS)'),
 
@@ -11086,7 +12096,10 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
           final isVerified = data['isVerified'] == true;
           final isManual = data['isManualEntry'] == true;
           return DataRow(
-            color: _rowStripeColor(rowIndex),
+            color: _rowStripeColor(
+              rowIndex,
+              isPrivateLoad: data['loadType'] == 'private',
+            ),
             cells: [
               DataCell(Text('${rowIndex + 1}')),
               DataCell(
@@ -11439,25 +12452,64 @@ const List<Color> _rowStripeColors = [
   Color(0xFFEEF3F8), // light blue-grey
 ];
 
-WidgetStateProperty<Color?> _rowStripeColor(int rowIndex) {
+// Private Load row/cell background — light-medium red, clearly distinct from
+// the striping cycle above and from the amber100 duplicate-highlight used in
+// Excel exports (see kPrivateLoadCellColor), so a Private Load row is
+// unmistakable at a glance on both the web table and the exported sheet.
+// Deliberately not a dark red — text still needs to read cleanly on top of
+// it. Same hex used in both places (see _exportToExcel in each of the 4
+// report screens) so the color is consistent, not just "similar", between
+// web and Excel.
+const Color kPrivateLoadRowColor = Color(0xFFFFCDD2);
+
+WidgetStateProperty<Color?> _rowStripeColor(
+  int rowIndex, {
+  bool isPrivateLoad = false,
+}) {
+  // Wins over the striping cycle — a Private Load row always shows this
+  // color regardless of which stripe band its index would otherwise land on.
+  if (isPrivateLoad) {
+    return WidgetStateProperty.all(kPrivateLoadRowColor);
+  }
   return WidgetStateProperty.all(_rowStripeColors[rowIndex % 3]);
 }
 
 // Used by every report screen's Excel export (Site/Fuel/Transport Record/
-// Transport Summary) for numeric columns (Distance KM, Cube, Liters, Amount,
-// Loading Amount, etc.) — sending a number through as TextCellValue is what
-// triggers Excel's "Number stored as text" warning triangle, so numeric
-// columns need an actual DoubleCellValue instead. Strips anything that
-// isn't a digit/dot/minus first (so an already-formatted display string
-// like "Rs. 123.45" still parses cleanly), and falls back to a blank text
-// cell — not the original text — when nothing numeric comes out (an empty
-// cell, or genuinely non-numeric content like an HH:MM:SS duration string).
+// Transport Summary/Driver Salary) for numeric columns (Distance KM, Cube,
+// Liters, Amount, Loading Amount, Driver Salary, etc.) — sending a number
+// through as TextCellValue is what triggers Excel's "Number stored as text"
+// warning triangle, so numeric columns need an actual DoubleCellValue
+// instead. Extracts the first digit run (with an optional single decimal
+// point and optional leading minus) rather than stripping unwanted
+// characters, so a prefix like "Rs. 123.45" parses to 123.45 even though
+// "Rs." itself contains a period — a plain character-whitelist strip would
+// keep that period too and leave "123.45" mangled into an unparseable
+// two-dot string. Falls back to a blank text cell — not the original text —
+// when nothing numeric comes out (an empty cell, or genuinely non-numeric
+// content like an HH:MM:SS duration string).
 xls.CellValue _numericCellValue(String value) {
-  final cleaned = value.replaceAll(RegExp(r'[^0-9.\-]'), '');
-  final parsed = double.tryParse(cleaned);
+  final match = RegExp(r'-?\d+(\.\d+)?').firstMatch(value);
+  if (match == null) return xls.TextCellValue('');
+  final parsed = double.tryParse(match.group(0)!);
   if (parsed == null) return xls.TextCellValue('');
+  // Bill Number is almost always a whole number — forcing DoubleCellValue
+  // unconditionally made Excel display it as "123.00" instead of "123".
+  // IntCellValue for a value with no fractional part, DoubleCellValue only
+  // when it genuinely has one (rare, but Bill Number isn't exclusively
+  // integer — kept working for that case).
+  if (parsed == parsed.truncate()) {
+    return xls.IntCellValue(parsed.truncate());
+  }
   return xls.DoubleCellValue(parsed);
 }
+
+// Private Load row/cell background for Excel exports — same hex as
+// kPrivateLoadRowColor (the web DataTable's row color for the same
+// condition), so Private Load rows look identical, not just similar,
+// between the on-screen table and the exported sheet.
+final xls.ExcelColor kPrivateLoadCellColor = xls.ExcelColor.fromHexString(
+  'FFFFCDD2',
+);
 
 // ---------------- MANAGEMENT FUEL REPORTS SCREEN (web-only) ----------------
 class ManagementFuelReportsScreen extends StatefulWidget {
@@ -12688,6 +13740,7 @@ class _ManagementSiteReportsScreenState
     'Site',
     'Unloading Site',
     'Distance KM',
+    'Load Type',
     'Category',
     'Machine Operator',
     'Truck Driver',
@@ -12902,6 +13955,9 @@ class _ManagementSiteReportsScreenState
       (data['siteName'] ?? '').toString(),
       (data['unloadingSiteName'] ?? '').toString(),
       data['distanceKm']?.toString() ?? '',
+      (data['loadType'] ?? 'company').toString() == 'private'
+          ? 'Private Load'
+          : 'Company Load',
       (data['category'] ?? '').toString(),
       (data['machineOperatorName'] ?? '').toString(),
       (data['truckDriverName'] ?? '').toString(),
@@ -12927,16 +13983,29 @@ class _ManagementSiteReportsScreenState
     // _rowValues), so forcing it numeric would silently blank out the
     // text-duration rows.
     const numericColumns = {'Cube', 'Distance KM', 'Bill Number'};
+    // Same color as the web table's Private Load row (kPrivateLoadCellColor)
+    // — this screen has no other cell styling to override, so it's applied
+    // unconditionally whenever the row is a Private Load.
+    final privateLoadDataStyle = xls.CellStyle(
+      backgroundColorHex: kPrivateLoadCellColor,
+    );
 
     sheet.appendRow(_columns.map((c) => xls.TextCellValue(c)).toList());
-    for (final data in records) {
+    for (var row = 0; row < records.length; row++) {
+      final data = records[row];
       final rowValues = _rowValues(data);
-      sheet.appendRow([
-        for (var i = 0; i < rowValues.length; i++)
-          numericColumns.contains(_columns[i])
-              ? _numericCellValue(rowValues[i])
-              : xls.TextCellValue(rowValues[i]),
-      ]);
+      final isPrivateLoad = data['loadType'] == 'private';
+      for (var col = 0; col < rowValues.length; col++) {
+        final cell = sheet.cell(
+          xls.CellIndex.indexByColumnRow(columnIndex: col, rowIndex: row + 1),
+        );
+        cell.value = numericColumns.contains(_columns[col])
+            ? _numericCellValue(rowValues[col])
+            : xls.TextCellValue(rowValues[col]);
+        if (isPrivateLoad) {
+          cell.cellStyle = privateLoadDataStyle;
+        }
+      }
     }
 
     // Excel.save() on web already triggers its own browser download
@@ -13675,6 +14744,9 @@ class _ManagementSiteReportsScreenState
     final cubeController = TextEditingController(
       text: data['cubeCount']?.toString() ?? '',
     );
+    // 'company' is the default for older records saved before this field
+    // existed, matching NewWorkDialog/_startNewWork's default.
+    String editedLoadType = (data['loadType'] ?? 'company').toString();
 
     showDialog(
       context: context,
@@ -13756,6 +14828,37 @@ class _ManagementSiteReportsScreenState
                     ),
                   ),
                   const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      'Load Type',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Company Load'),
+                    value: 'company',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  RadioListTile<String>(
+                    contentPadding: EdgeInsets.zero,
+                    dense: true,
+                    title: const Text('Private Load'),
+                    value: 'private',
+                    groupValue: editedLoadType,
+                    onChanged: (value) => setDialogState(
+                      () => editedLoadType = value ?? 'company',
+                    ),
+                  ),
+                  const SizedBox(height: 10),
                   TextField(
                     controller: distanceController,
                     keyboardType: TextInputType.number,
@@ -13809,6 +14912,7 @@ class _ManagementSiteReportsScreenState
                     // Kept as a string — matches how NewWorkDialog/_startNewWork
                     // save it, not a number field.
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': editedLoadType,
                   });
 
                   // Sync the edit back to the same Sheet row (update-in-place
@@ -13839,6 +14943,7 @@ class _ManagementSiteReportsScreenState
                         endMeterController.text.trim(),
                       ),
                       'cubeCount': cubeController.text.trim(),
+                      'loadType': editedLoadType,
                     },
                   };
                   final syncRow = [
@@ -13879,10 +14984,15 @@ class _ManagementSiteReportsScreenState
                       .where('name', isEqualTo: editedSiteName)
                       .limit(1)
                       .get();
-                  final editIsPlantSite =
-                      siteQuery.docs.isNotEmpty &&
-                      siteQuery.docs.first.data()['isPlantSite'] == true;
+                  final editSiteData = siteQuery.docs.isNotEmpty
+                      ? siteQuery.docs.first.data()
+                      : null;
+                  final editIsPlantSite = editSiteData?['isPlantSite'] == true;
+                  // Prefers the site's pinned `sheetName` (see Manage Sites'
+                  // rename dialog) so this stays correct even if the name
+                  // typed above doesn't match kSiteSheetMap's static key.
                   final editSiteSpecificMatch =
+                      (editSiteData?['sheetName'] as String?) ??
                       kSiteSheetMap[normalizeSiteNameForSheetLookup(
                         editedSiteName,
                       )];
@@ -13953,6 +15063,7 @@ class _ManagementSiteReportsScreenState
     final truckDriverController = TextEditingController();
     final cubeController = TextEditingController();
     String? selectedMachineOperatorName;
+    String selectedLoadType = 'company';
     String errorText = '';
     bool isSubmitting = false;
 
@@ -14004,6 +15115,7 @@ class _ManagementSiteReportsScreenState
                     'duration': durationController.text.trim(),
                     'truckDriverName': truckDriverController.text.trim(),
                     'cubeCount': cubeController.text.trim(),
+                    'loadType': selectedLoadType,
                     'machineOperatorName': selectedMachineOperatorName ?? '',
                     'isVerified': false,
                     'addedByName': currentUserName,
@@ -14299,6 +15411,27 @@ class _ManagementSiteReportsScreenState
                       ),
                     ),
                     const SizedBox(height: 10),
+                    sectionLabel('Load Type'),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Company Load'),
+                      value: 'company',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Private Load'),
+                      value: 'private',
+                      groupValue: selectedLoadType,
+                      onChanged: (value) => setDialogState(
+                        () => selectedLoadType = value ?? 'company',
+                      ),
+                    ),
                     field(distanceController, 'Distance KM', number: true),
                     field(durationController, 'Duration (HH:MM:SS)'),
 
@@ -14599,7 +15732,10 @@ class _ManagementSiteReportsScreenState
           final isVerified = data['isVerified'] == true;
           final isManual = data['isManualEntry'] == true;
           return DataRow(
-            color: _rowStripeColor(rowIndex),
+            color: _rowStripeColor(
+              rowIndex,
+              isPrivateLoad: data['loadType'] == 'private',
+            ),
             cells: [
               DataCell(Text('${rowIndex + 1}')),
               if (canEdit)
@@ -16141,9 +17277,22 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
   final List<String> _loadingCategories = kLoadingCategories;
   final List<String> _otherCategories = kOtherCategories;
 
-  void _syncToSiteSpecificSheet(List<dynamic> row, String? recordId) {
+  // Prefers the site's own `sheetName` field (set via Manage Sites' rename
+  // dialog) so a display-name rename never breaks which tab this site syncs
+  // to. Falls back to kSiteSheetMap keyed by the site's CURRENT live name
+  // (from siteData, freshly read by the caller) rather than widget.siteName,
+  // since widget.siteName can be a stale snapshot from an existing
+  // daily_sessions doc when this screen was reached via "resume active
+  // session" instead of "start a new session".
+  void _syncToSiteSpecificSheet(
+    List<dynamic> row,
+    String? recordId,
+    Map<String, dynamic>? siteData,
+  ) {
+    final liveSiteName = (siteData?['name'] as String?) ?? widget.siteName;
     final sheetName =
-        kSiteSheetMap[normalizeSiteNameForSheetLookup(widget.siteName)];
+        (siteData?['sheetName'] as String?) ??
+        kSiteSheetMap[normalizeSiteNameForSheetLookup(liveSiteName)];
     if (sheetName != null) {
       GoogleSheetsService.sendRow(
         sheetName: sheetName,
@@ -16202,7 +17351,11 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
   }
 
   // Start a brand new work record
-  Future<void> _startNewWork({
+  // Returns the created record's DocumentReference — most callers (the
+  // manual NewWorkDialog flow) just await this and ignore the result, but
+  // QR Scan (_submitViaQrScan) needs the new doc's id to immediately chain
+  // into _completeLoadingRecord.
+  Future<DocumentReference> _startNewWork({
     required String category,
     required bool isLoadingCategory,
     String? truckNumber,
@@ -16212,6 +17365,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     String? truckDriverName,
     String? cubeCount,
     String? machineOperatorName,
+    String loadType = 'company',
   }) async {
     await _pauseRunningRecord();
 
@@ -16237,7 +17391,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     final dateString =
         "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-    await _recordsRef.add({
+    return _recordsRef.add({
       'category': category,
       'isLoadingCategory': isLoadingCategory,
       'status': 'running',
@@ -16252,6 +17406,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       'truckDriverName': truckDriverName,
       'cubeCount': cubeCount,
       'machineOperatorName': machineOperatorName,
+      'loadType': loadType,
       'loadStartedAt': isLoadingCategory ? FieldValue.serverTimestamp() : null,
       'loadCompletedAt': null,
       'isCompleted': false,
@@ -16264,6 +17419,166 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       'siteName': widget.siteName,
       'supervisorName': widget.supervisorName,
     });
+  }
+
+  // QR Scan flow: pushes the full-screen scanner, decodes the JSON payload
+  // Vehicle Registration's QR Generate tab encodes ({"truckNumber",
+  // "driverName", "cube"}), then opens the site-specific category picker.
+  Future<void> _openQrScanner() async {
+    final rawValue = await Navigator.push<String?>(
+      context,
+      MaterialPageRoute(builder: (_) => const _QrScannerScreen()),
+    );
+    if (rawValue == null || !mounted) return;
+
+    Map<String, dynamic> qrData;
+    try {
+      qrData = jsonDecode(rawValue) as Map<String, dynamic>;
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR code — not a recognized truck QR.'),
+        ),
+      );
+      return;
+    }
+
+    final truckNumber = (qrData['truckNumber'] ?? '').toString();
+    if (truckNumber.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Invalid QR code — missing truck number.'),
+        ),
+      );
+      return;
+    }
+    final driverName = qrData['driverName'] as String?;
+    final cube = qrData['cube']?.toString();
+
+    _showQrCategorySelectionDialog(
+      truckNumber: truckNumber,
+      driverName: driverName,
+      cube: cube,
+    );
+  }
+
+  // Reads availableCategories from the Supervisor's current working site
+  // (widget.siteId — the same site this session/screen was started for, not
+  // a re-picked one) and offers only those as completion categories, same
+  // color-coded TaskButton grid the manual New Work flow uses.
+  Future<void> _showQrCategorySelectionDialog({
+    required String truckNumber,
+    required String? driverName,
+    required String? cube,
+  }) async {
+    final siteDoc = await FirebaseFirestore.instance
+        .collection('sites')
+        .doc(widget.siteId)
+        .get();
+    final availableCategories =
+        (siteDoc.data()?['availableCategories'] as List<dynamic>?)
+            ?.map((c) => c.toString())
+            .where((c) => c.isNotEmpty)
+            .toList() ??
+        <String>[];
+
+    if (!mounted) return;
+
+    if (availableCategories.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${widget.siteName} has no Loading Categories configured yet — '
+            'ask Admin to set them in Site Management.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Select Category to Complete Loading'),
+        content: SizedBox(
+          width: double.maxFinite,
+          // shrinkWrap alone isn't enough — a site with many categories
+          // selected could still overflow a short dialog on a small phone
+          // screen, so this needs to be independently scrollable rather
+          // than relying on the grid to size itself within an unbounded
+          // height.
+          child: SingleChildScrollView(
+            child: GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 12,
+                mainAxisSpacing: 12,
+                childAspectRatio: 1.3,
+              ),
+              itemCount: availableCategories.length,
+              itemBuilder: (context, index) {
+                final category = availableCategories[index];
+                return TaskButton(
+                  label: category,
+                  onTap: () {
+                    Navigator.pop(dialogContext);
+                    _submitViaQrScan(
+                      truckNumber: truckNumber,
+                      driverName: driverName,
+                      cube: cube,
+                      category: category,
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Creates the work_records doc via the same _startNewWork every other
+  // Loading task uses, then immediately runs it through
+  // _completeLoadingRecord — QR Scan is a one-shot "this load happened"
+  // submission (unlike the manual flow, which starts a running task the
+  // supervisor completes later), so it goes straight to complete rather
+  // than being left running. This also means the sync to Google Sheets is
+  // the existing, already-correct one _completeLoadingRecord performs
+  // (Supervisor_Loads + Plant_Loads + site-specific sheet), not a
+  // hand-rolled duplicate of it.
+  Future<void> _submitViaQrScan({
+    required String truckNumber,
+    required String? driverName,
+    required String? cube,
+    required String category,
+  }) async {
+    final ref = await _startNewWork(
+      category: category,
+      isLoadingCategory: true,
+      truckNumber: truckNumber,
+      // TODO: Auto-populate via GPS proximity detection (Phase 2)
+      unloadingSiteName: '',
+      truckDriverName: driverName,
+      cubeCount: cube,
+    );
+    await _completeLoadingRecord(ref.id);
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Load submitted via QR scan for Truck $truckNumber'),
+        ),
+      );
+    }
   }
 
   // Complete a loading record. Meter readings are no longer taken per task -
@@ -16338,7 +17653,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
 
       // Independent of the Plant_Loads check above: some loading sites also
       // get their own dedicated sheet tab.
-      _syncToSiteSpecificSheet(row, recordId);
+      _syncToSiteSpecificSheet(row, recordId, siteDoc.data());
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -16382,6 +17697,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               truckDriverName,
               cubeCount,
               machineOperatorName,
+              loadType,
             ) {
               Navigator.pop(context);
               _startNewWork(
@@ -16394,6 +17710,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                 truckDriverName: truckDriverName,
                 cubeCount: cubeCount,
                 machineOperatorName: machineOperatorName,
+                loadType: loadType,
               );
             },
       ),
@@ -16529,7 +17846,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                 // here — this summary row doesn't correspond 1:1 with any
                 // single existing Sheet row (see the comment above), so it
                 // must always append, never overwrite.
-                _syncToSiteSpecificSheet(row, null);
+                _syncToSiteSpecificSheet(row, null, siteDoc.data());
 
                 if (context.mounted) {
                   // Close dialog and go back to supervisor home in one atomic
@@ -16578,6 +17895,11 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
         title: Text(widget.machineName),
         backgroundColor: Colors.orange[800],
         actions: [
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            tooltip: 'QR Scan',
+            onPressed: _openQrScanner,
+          ),
           IconButton(
             icon: const Icon(Icons.history),
             onPressed: () {
@@ -16943,6 +18265,43 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
   }
 }
 
+// ---------------- QR SCANNER SCREEN (WorkSessionScreen's QR Scan) ----------------
+// Full-screen camera scanner. Works on both mobile and web — mobile_scanner
+// uses the browser's camera API on web (kIsWeb) automatically, no separate
+// codepath needed. Pops with the first successfully-decoded raw QR string,
+// or null if the supervisor backs out without scanning anything.
+class _QrScannerScreen extends StatefulWidget {
+  const _QrScannerScreen();
+
+  @override
+  State<_QrScannerScreen> createState() => _QrScannerScreenState();
+}
+
+class _QrScannerScreenState extends State<_QrScannerScreen> {
+  bool _handled = false;
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled || capture.barcodes.isEmpty) return;
+    final rawValue = capture.barcodes.first.rawValue;
+    if (rawValue == null) return;
+    _handled = true;
+    Navigator.pop(context, rawValue);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: Colors.black,
+      appBar: AppBar(
+        title: const Text('Scan Truck QR Code'),
+        backgroundColor: Colors.black,
+        foregroundColor: Colors.white,
+      ),
+      body: MobileScanner(onDetect: _onDetect),
+    );
+  }
+}
+
 // ---------------- NEW WORK DIALOG ----------------
 class NewWorkDialog extends StatefulWidget {
   final List<String> loadingCategories;
@@ -16957,6 +18316,7 @@ class NewWorkDialog extends StatefulWidget {
     String? truckDriverName,
     String? cubeCount,
     String? machineOperatorName,
+    String loadType,
   )
   onSubmit;
 
@@ -16982,6 +18342,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
   String? _selectedOperatorName;
   final _billNumberController = TextEditingController();
   final _distanceController = TextEditingController();
+  String _selectedLoadType = 'company';
   String _errorText = '';
 
   // Search-bottom-sheet pattern: typing a name with no exact match surfaces
@@ -17194,6 +18555,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
             ? null
             : _cubeController.text.trim(),
         _selectedOperatorName,
+        _selectedLoadType,
       );
     } else {
       widget.onSubmit(
@@ -17206,6 +18568,7 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
         null,
         null,
         null,
+        'company',
       );
     }
   }
@@ -17257,15 +18620,39 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                     .snapshots(),
                 builder: (context, snapshot) {
                   final Set<String> truckNumbers = {};
+                  // Truck Number -> assigned driver name (set via Truck
+                  // Profile's "Change Driver" dialog), used below to
+                  // auto pre-fill Truck Driver Name when a truck is picked —
+                  // pure convenience: that field stays fully editable so a
+                  // substitute driver can still be typed over it.
+                  final Map<String, String> assignedDriverByTruckNumber = {};
                   if (snapshot.hasData) {
                     for (final doc in snapshot.data!.docs) {
                       final data = doc.data() as Map<String, dynamic>;
                       final number = data['truckNumber'];
                       if (number != null && number.toString().isNotEmpty) {
                         truckNumbers.add(number.toString());
+                        final driverName = data['assignedDriverName'];
+                        if (driverName != null &&
+                            driverName.toString().isNotEmpty) {
+                          assignedDriverByTruckNumber[number.toString()] =
+                              driverName.toString();
+                        }
                       }
                     }
                   }
+                  // Always overwrites Truck Driver Name (falling back to
+                  // empty when the newly picked truck has no assigned
+                  // driver) so switching trucks never leaves a stale name
+                  // behind from whichever truck was selected before.
+                  void applyTruckSelection(String truckNumber) {
+                    setState(() {
+                      _selectedTruckNumber = truckNumber;
+                      _truckDriverController.text =
+                          assignedDriverByTruckNumber[truckNumber] ?? '';
+                    });
+                  }
+
                   return Autocomplete<String>(
                     optionsBuilder: (textEditingValue) {
                       if (textEditingValue.text.isEmpty)
@@ -17276,16 +18663,23 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                         ),
                       );
                     },
-                    onSelected: (selection) {
-                      _selectedTruckNumber = selection;
-                    },
+                    onSelected: applyTruckSelection,
                     fieldViewBuilder:
                         (context, controller, focusNode, onSubmit) {
                           controller.text = _selectedTruckNumber ?? '';
                           return TextField(
                             controller: controller,
                             focusNode: focusNode,
-                            onChanged: (val) => _selectedTruckNumber = val,
+                            onChanged: (val) {
+                              // Also cover typing a truck's exact number
+                              // out without tapping the suggestion —
+                              // onSelected alone wouldn't fire then.
+                              if (truckNumbers.contains(val)) {
+                                applyTruckSelection(val);
+                              } else {
+                                _selectedTruckNumber = val;
+                              }
+                            },
                             decoration: InputDecoration(
                               hintText: 'Enter or choose truck number',
                               border: OutlineInputBorder(
@@ -17334,6 +18728,29 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                     ),
                   ),
                 ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Load Type',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Company Load'),
+                value: 'company',
+                groupValue: _selectedLoadType,
+                onChanged: (val) =>
+                    setState(() => _selectedLoadType = val ?? 'company'),
+              ),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Private Load'),
+                value: 'private',
+                groupValue: _selectedLoadType,
+                onChanged: (val) =>
+                    setState(() => _selectedLoadType = val ?? 'company'),
               ),
               const SizedBox(height: 12),
               TextField(
@@ -21014,6 +22431,852 @@ class GoogleSheetsService {
   }
 }
 
+// ---------------- TRACCAR SERVICE (GPS Live Tracking, web-only — Phase 1) ----------------
+// Thin REST client for the self-hosted Traccar server this fleet's GPS
+// trackers report positions to. Traccar has its own separate auth model
+// (server username/password, Basic-Authenticated — nothing to do with
+// Firebase Auth), so every call here takes credentials explicitly rather
+// than reading FirebaseAuth.instance.currentUser. Requires the Traccar
+// server's web.origin CORS setting to allow this app's origin (see the
+// firestore-adjacent /opt/traccar/conf/traccar.xml note given alongside
+// this feature) — without it, the browser blocks these requests before
+// they ever reach Traccar.
+class TraccarService {
+  static const String baseUrl = 'http://168.144.45.67:8082';
+
+  static Map<String, String> _authHeaders(String username, String password) {
+    final credentials = base64Encode(utf8.encode('$username:$password'));
+    return {
+      'Authorization': 'Basic $credentials',
+      'Accept': 'application/json',
+    };
+  }
+
+  // GET /api/positions — the latest known position for every device this
+  // account can see. Each entry carries deviceId (Traccar's internal
+  // numeric device id — NOT the same as a device's uniqueId/Identifier
+  // string, see fetchDevices below), latitude, longitude, speed (knots,
+  // Traccar's convention), and fixTime (when the GPS fix was actually
+  // taken, as opposed to serverTime/when Traccar received it).
+  static Future<List<Map<String, dynamic>>> fetchPositions({
+    required String username,
+    required String password,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/positions'),
+      headers: _authHeaders(username, password),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Traccar fetchPositions failed: HTTP ${response.statusCode}',
+      );
+    }
+    final decoded = jsonDecode(response.body) as List<dynamic>;
+    return decoded.cast<Map<String, dynamic>>();
+  }
+
+  // GET /api/devices — id/uniqueId/name for every device registered on the
+  // server. uniqueId is the "Identifier" shown in Traccar's own Devices
+  // list — the same string an admin types into TruckProfileScreen's
+  // Assigned GPS Device field (trucks/{id}.gpsDeviceId). LiveTrackingScreen
+  // uses this to join a fetchPositions() entry's numeric deviceId back to a
+  // specific truck: deviceId -> uniqueId (via this list) -> gpsDeviceId
+  // match (via Firestore).
+  static Future<List<Map<String, dynamic>>> fetchDevices({
+    required String username,
+    required String password,
+  }) async {
+    final response = await http.get(
+      Uri.parse('$baseUrl/api/devices'),
+      headers: _authHeaders(username, password),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Traccar fetchDevices failed: HTTP ${response.statusCode}',
+      );
+    }
+    final decoded = jsonDecode(response.body) as List<dynamic>;
+    return decoded.cast<Map<String, dynamic>>();
+  }
+
+  // GET /api/reports/summary — total distance (meters) for one device over
+  // a date range. Confirmed against Traccar's official OpenAPI spec: this
+  // endpoint takes deviceId/groupId + from + to only — there is NO "daily"
+  // boolean parameter, despite that being a natural thing to expect. A
+  // per-day breakdown (see GpsDeviceManagementScreen's KM History panel)
+  // is done by calling this once per day with a 24h from/to window, not by
+  // a single call with a daily flag. deviceId here is Traccar's internal
+  // numeric id (from fetchDevices' "id" field), not the uniqueId/Identifier
+  // string stored as trucks/{id}.gpsDeviceId.
+  static Future<double> fetchDistanceSummary({
+    required String username,
+    required String password,
+    required int deviceId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/reports/summary').replace(
+      queryParameters: {
+        'deviceId': deviceId.toString(),
+        'from': from.toUtc().toIso8601String(),
+        'to': to.toUtc().toIso8601String(),
+      },
+    );
+    final response = await http.get(
+      uri,
+      headers: _authHeaders(username, password),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Traccar fetchDistanceSummary failed: HTTP ${response.statusCode}',
+      );
+    }
+    final decoded = jsonDecode(response.body) as List<dynamic>;
+    double totalMeters = 0;
+    for (final entry in decoded) {
+      totalMeters +=
+          ((entry as Map<String, dynamic>)['distance'] as num?)?.toDouble() ??
+          0;
+    }
+    return totalMeters;
+  }
+}
+
+// ---------------- GPS DEVICE MANAGEMENT SCREEN (web-only) ----------------
+// Native NODA-styled complement to Traccar's own web console: a quick-link
+// button out to the real console for anything this screen doesn't cover,
+// a registered-devices list cross-referenced against trucks/{id}.gpsDeviceId
+// so it's obvious at a glance which devices are actually assigned, and a
+// truck-wise KM history panel (Total + last 30 days) built on
+// TraccarService.fetchDistanceSummary.
+class GpsDeviceManagementScreen extends StatefulWidget {
+  const GpsDeviceManagementScreen({super.key});
+
+  @override
+  State<GpsDeviceManagementScreen> createState() =>
+      _GpsDeviceManagementScreenState();
+}
+
+class _GpsDeviceManagementScreenState extends State<GpsDeviceManagementScreen> {
+  static const String _traccarUsername = 'pabodamilan.rpm@gmail.com';
+  static const String _traccarPassword = 'Pa@20010707';
+
+  late final Future<List<Map<String, dynamic>>> _devicesFuture;
+  String? _selectedTruckId;
+  String? _selectedTruckNumber;
+  String? _selectedGpsDeviceId;
+
+  @override
+  void initState() {
+    super.initState();
+    _devicesFuture = TraccarService.fetchDevices(
+      username: _traccarUsername,
+      password: _traccarPassword,
+    );
+  }
+
+  Future<void> _openTraccarConsole() async {
+    final launched = await launchUrl(
+      Uri.parse(TraccarService.baseUrl),
+      mode: LaunchMode.externalApplication,
+    );
+    if (!launched && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open Traccar Console.')),
+      );
+    }
+  }
+
+  String _formatLastUpdate(String? iso) {
+    if (iso == null) return 'Never';
+    final dt = DateTime.tryParse(iso);
+    if (dt == null) return 'Unknown';
+    final local = dt.toLocal();
+    final hour = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final period = local.hour >= 12 ? 'PM' : 'AM';
+    final minute = local.minute.toString().padLeft(2, '0');
+    return '${local.year}-${local.month.toString().padLeft(2, '0')}-${local.day.toString().padLeft(2, '0')} '
+        '$hour:$minute $period';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('GPS Devices'),
+        backgroundColor: AppTheme.primaryDark,
+        foregroundColor: Colors.white,
+      ),
+      body: StreamBuilder<QuerySnapshot>(
+        stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+        builder: (context, truckSnap) {
+          final truckDocs = truckSnap.data?.docs ?? [];
+          // deviceId (Identifier) -> truck number, for the "Assigned to"
+          // badge in the devices list below.
+          final assignedTruckByDeviceId = <String, String>{};
+          // Trucks that actually have a GPS Device ID set — these are the
+          // only ones offered in the KM History truck selector.
+          final trucksWithGps = <QueryDocumentSnapshot>[];
+          for (final doc in truckDocs) {
+            final data = doc.data() as Map<String, dynamic>;
+            final gpsDeviceId = (data['gpsDeviceId'] as String?)?.trim();
+            if (gpsDeviceId != null && gpsDeviceId.isNotEmpty) {
+              assignedTruckByDeviceId[gpsDeviceId] = (data['truckNumber'] ?? '')
+                  .toString();
+              trucksWithGps.add(doc);
+            }
+          }
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 52,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: AppTheme.cardGradient,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ElevatedButton.icon(
+                      onPressed: _openTraccarConsole,
+                      icon: const Icon(Icons.open_in_new, color: Colors.white),
+                      label: const Text(
+                        'Open Traccar Console',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.transparent,
+                        shadowColor: Colors.transparent,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Registered Devices',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+              ),
+              SizedBox(
+                height: 220,
+                child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: _devicesFuture,
+                  builder: (context, deviceSnap) {
+                    if (deviceSnap.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (deviceSnap.hasError) {
+                      return Center(
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(
+                            'Failed to load devices from Traccar: '
+                            '${deviceSnap.error}',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    }
+                    final devices = deviceSnap.data ?? [];
+                    if (devices.isEmpty) {
+                      return const Center(
+                        child: Text('No devices registered on Traccar.'),
+                      );
+                    }
+                    return ListView.builder(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.all(16),
+                      itemCount: devices.length,
+                      itemBuilder: (context, index) {
+                        final device = devices[index];
+                        final uniqueId = (device['uniqueId'] ?? '').toString();
+                        final assignedTruck = assignedTruckByDeviceId[uniqueId];
+                        return Container(
+                          width: 220,
+                          margin: const EdgeInsets.only(right: 12),
+                          child: Card(
+                            child: Padding(
+                              padding: const EdgeInsets.all(12),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    (device['name'] ?? '').toString(),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'ID: $uniqueId',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey[700],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Last Update: '
+                                    '${_formatLastUpdate(device['lastUpdate'] as String?)}',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.grey[600],
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 8,
+                                        vertical: 4,
+                                      ),
+                                      decoration: BoxDecoration(
+                                        color: assignedTruck == null
+                                            ? Colors.grey[300]
+                                            : Colors.green[100],
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Text(
+                                        assignedTruck == null
+                                            ? 'Unassigned'
+                                            : 'Assigned to: $assignedTruck',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: assignedTruck == null
+                                              ? Colors.grey[700]
+                                              : Colors.green[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              const Divider(height: 1),
+              const Padding(
+                padding: EdgeInsets.all(16),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Truck-wise KM History',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      width: 260,
+                      child: trucksWithGps.isEmpty
+                          ? const Padding(
+                              padding: EdgeInsets.all(16),
+                              child: Text(
+                                'No trucks have a GPS Device ID set yet — '
+                                'set one in Truck Profile.',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: trucksWithGps.length,
+                              itemBuilder: (context, index) {
+                                final doc = trucksWithGps[index];
+                                final data = doc.data() as Map<String, dynamic>;
+                                final truckNumber = (data['truckNumber'] ?? '')
+                                    .toString();
+                                final gpsDeviceId =
+                                    (data['gpsDeviceId'] as String?)?.trim() ??
+                                    '';
+                                final isSelected = doc.id == _selectedTruckId;
+                                return ListTile(
+                                  selected: isSelected,
+                                  selectedTileColor: AppTheme.primaryMid
+                                      .withOpacity(0.08),
+                                  leading: const Icon(Icons.local_shipping),
+                                  title: Text(truckNumber),
+                                  subtitle: Text(gpsDeviceId),
+                                  onTap: () => setState(() {
+                                    _selectedTruckId = doc.id;
+                                    _selectedTruckNumber = truckNumber;
+                                    _selectedGpsDeviceId = gpsDeviceId;
+                                  }),
+                                );
+                              },
+                            ),
+                    ),
+                    const VerticalDivider(width: 1),
+                    Expanded(
+                      child: _selectedGpsDeviceId == null
+                          ? const Center(
+                              child: Text('Select a truck to view KM history.'),
+                            )
+                          : FutureBuilder<List<Map<String, dynamic>>>(
+                              // Same in-flight Future as the devices list
+                              // above — no second /api/devices call just to
+                              // resolve the numeric Traccar deviceId.
+                              future: _devicesFuture,
+                              builder: (context, deviceSnap) {
+                                if (deviceSnap.connectionState ==
+                                    ConnectionState.waiting) {
+                                  return const Center(
+                                    child: CircularProgressIndicator(),
+                                  );
+                                }
+                                final devices = deviceSnap.data ?? [];
+                                final matchedDevice = devices
+                                    .cast<Map<String, dynamic>?>()
+                                    .firstWhere(
+                                      (d) =>
+                                          (d?['uniqueId'] ?? '').toString() ==
+                                          _selectedGpsDeviceId,
+                                      orElse: () => null,
+                                    );
+                                final numericDeviceId =
+                                    (matchedDevice?['id'] as num?)?.toInt();
+                                if (numericDeviceId == null) {
+                                  return Center(
+                                    child: Padding(
+                                      padding: const EdgeInsets.all(16),
+                                      child: Text(
+                                        'No matching Traccar device found '
+                                        'for GPS Device ID '
+                                        '"$_selectedGpsDeviceId".',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return _KmHistoryPanel(
+                                  key: ValueKey(numericDeviceId),
+                                  truckNumber: _selectedTruckNumber!,
+                                  deviceId: numericDeviceId,
+                                  username: _traccarUsername,
+                                  password: _traccarPassword,
+                                );
+                              },
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _KmHistoryPanel extends StatefulWidget {
+  final String truckNumber;
+  final int deviceId;
+  final String username;
+  final String password;
+
+  const _KmHistoryPanel({
+    super.key,
+    required this.truckNumber,
+    required this.deviceId,
+    required this.username,
+    required this.password,
+  });
+
+  @override
+  State<_KmHistoryPanel> createState() => _KmHistoryPanelState();
+}
+
+class _KmHistoryPanelState extends State<_KmHistoryPanel> {
+  late final Future<double> _totalMetersFuture;
+  late final Future<List<MapEntry<DateTime, double>>> _dailyKmFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    final now = DateTime.now();
+    _totalMetersFuture = TraccarService.fetchDistanceSummary(
+      username: widget.username,
+      password: widget.password,
+      deviceId: widget.deviceId,
+      from: DateTime(2020, 1, 1),
+      to: now,
+    );
+    _dailyKmFuture = _fetchDailyKm(now);
+  }
+
+  // No "daily" flag on /api/reports/summary (confirmed against Traccar's
+  // OpenAPI spec) — one call per day, run concurrently rather than
+  // sequentially so 30 days doesn't mean 30x the wait.
+  Future<List<MapEntry<DateTime, double>>> _fetchDailyKm(DateTime now) async {
+    final today = DateTime(now.year, now.month, now.day);
+    final days = List.generate(30, (i) => today.subtract(Duration(days: i)));
+    final results = await Future.wait(
+      days.map((day) async {
+        final meters = await TraccarService.fetchDistanceSummary(
+          username: widget.username,
+          password: widget.password,
+          deviceId: widget.deviceId,
+          from: day,
+          to: day.add(const Duration(days: 1)),
+        );
+        return MapEntry(day, meters);
+      }),
+    );
+    return results;
+  }
+
+  String _formatDate(DateTime d) =>
+      '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            widget.truckNumber,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 12),
+          FutureBuilder<double>(
+            future: _totalMetersFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const LinearProgressIndicator();
+              }
+              if (snapshot.hasError) {
+                return Text('Failed to load Total KM: ${snapshot.error}');
+              }
+              final km = (snapshot.data ?? 0) / 1000;
+              return Card(
+                color: AppTheme.primaryMid.withOpacity(0.08),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.route, color: AppTheme.primaryMid),
+                      const SizedBox(width: 12),
+                      Text(
+                        'Total Distance: ${km.toStringAsFixed(1)} km',
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 20),
+          const Text(
+            'Daily KM History (Last 30 Days)',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+          const SizedBox(height: 8),
+          FutureBuilder<List<MapEntry<DateTime, double>>>(
+            future: _dailyKmFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              if (snapshot.hasError) {
+                return Text(
+                  'Failed to load Daily KM History: ${snapshot.error}',
+                );
+              }
+              final daily = snapshot.data ?? [];
+              return ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: daily.length,
+                separatorBuilder: (_, _) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final entry = daily[index];
+                  final km = entry.value / 1000;
+                  return ListTile(
+                    dense: true,
+                    title: Text(_formatDate(entry.key)),
+                    trailing: Text(
+                      '${km.toStringAsFixed(1)} km',
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------- LIVE TRACKING SCREEN (GPS Live Tracking, web-only — Phase 1) ----------------
+// Admin/Owner/Management-only live fleet map, reached from each dashboard's
+// sidebar (see AdminDashboard/OwnerDashboard/ManagementDashboard's
+// menuItems). Web-only: the Google Maps JS API key is compiled into
+// web/index.html and the Traccar credentials below are compiled into this
+// client bundle — both visible to anyone who opens browser devtools on this
+// build. That's an accepted Phase-1 tradeoff for an internal, low-user-count
+// web dashboard; kIsWeb-gating the whole screen (not just its sidebar entry)
+// keeps that exposure confined to the web build and out of the mobile app,
+// which never even links this code path.
+class LiveTrackingScreen extends StatefulWidget {
+  const LiveTrackingScreen({super.key});
+
+  @override
+  State<LiveTrackingScreen> createState() => _LiveTrackingScreenState();
+}
+
+class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
+  static const String _traccarUsername = 'pabodamilan.rpm@gmail.com';
+  static const String _traccarPassword = 'Pa@20010707';
+
+  static const CameraPosition _initialCameraPosition = CameraPosition(
+    target: LatLng(7.8731, 80.7718),
+    zoom: 8,
+  );
+
+  BitmapDescriptor? _truckIcon;
+  Timer? _refreshTimer;
+  Set<Marker> _markers = {};
+  String? _errorText;
+  bool _iconReady = false;
+
+  @override
+  void initState() {
+    super.initState();
+    if (kIsWeb) {
+      // No frame-timing dependency here — unlike the earlier
+      // RepaintBoundary/toImage() approach (which needed the widget tree
+      // fully painted first, via addPostFrameCallback, and still hit
+      // "Assertion failed: !debugNeedsPaint is not true" because
+      // RenderRepaintBoundary.toImage() can run before paint is actually
+      // complete), drawing straight onto a ui.PictureRecorder/Canvas has no
+      // widget tree to wait on, so this can run immediately.
+      _generateTruckIcon();
+    }
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  // Builds the custom truck marker icon by drawing directly on a
+  // dart:ui Canvas (PictureRecorder -> Canvas -> Picture -> Image -> PNG
+  // bytes) instead of rasterizing a widget via RepaintBoundary — sidesteps
+  // widget-tree paint timing entirely. Runs once (cached in _truckIcon, not
+  // regenerated on every 15s refresh), then starts the position-refresh
+  // timer.
+  Future<void> _generateTruckIcon() async {
+    try {
+      final recorder = ui.PictureRecorder();
+      final canvas = Canvas(recorder);
+      const size = 100.0;
+
+      final bgPaint = Paint()..color = AppTheme.primaryMid;
+      canvas.drawCircle(const Offset(size / 2, size / 2), size / 2, bgPaint);
+      final borderPaint = Paint()
+        ..color = AppTheme.accent
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 4;
+      canvas.drawCircle(
+        const Offset(size / 2, size / 2),
+        size / 2 - 2,
+        borderPaint,
+      );
+
+      final textPainter = TextPainter(textDirection: TextDirection.ltr);
+      textPainter.text = TextSpan(
+        text: String.fromCharCode(Icons.local_shipping.codePoint),
+        style: TextStyle(
+          fontSize: size * 0.6,
+          fontFamily: Icons.local_shipping.fontFamily,
+          package: Icons.local_shipping.fontPackage,
+          color: Colors.white,
+        ),
+      );
+      textPainter.layout();
+      textPainter.paint(
+        canvas,
+        Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
+      );
+
+      final picture = recorder.endRecording();
+      final image = await picture.toImage(size.toInt(), size.toInt());
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+      final bytes = byteData.buffer.asUint8List();
+      if (!mounted) return;
+      setState(() {
+        // BitmapDescriptor.bytes replaces the deprecated
+        // BitmapDescriptor.fromBytes — same result, PNG bytes in, usable as
+        // a Marker.icon.
+        _truckIcon = BitmapDescriptor.bytes(bytes);
+        _iconReady = true;
+      });
+    } catch (e) {
+      debugPrint('Failed to generate truck marker icon: $e');
+      if (mounted) setState(() => _iconReady = true);
+    }
+    unawaited(_refreshPositions());
+    _refreshTimer = Timer.periodic(
+      const Duration(seconds: 15),
+      (_) => _refreshPositions(),
+    );
+  }
+
+  Future<void> _refreshPositions() async {
+    try {
+      final positions = await TraccarService.fetchPositions(
+        username: _traccarUsername,
+        password: _traccarPassword,
+      );
+      final devices = await TraccarService.fetchDevices(
+        username: _traccarUsername,
+        password: _traccarPassword,
+      );
+      // position.deviceId is Traccar's internal numeric device id, not the
+      // uniqueId/Identifier string stored on trucks/{id}.gpsDeviceId — this
+      // map bridges the two (see TraccarService.fetchDevices' doc comment).
+      final uniqueIdByDeviceId = <int, String>{
+        for (final device in devices)
+          if (device['id'] is int && device['uniqueId'] is String)
+            device['id'] as int: device['uniqueId'] as String,
+      };
+
+      final trucksSnap = await FirebaseFirestore.instance
+          .collection('trucks')
+          .get();
+      final truckNumberByGpsId = <String, String>{
+        for (final doc in trucksSnap.docs)
+          if ((doc.data()['gpsDeviceId'] as String?)?.isNotEmpty == true)
+            doc.data()['gpsDeviceId'] as String:
+                (doc.data()['truckNumber'] ?? '').toString(),
+      };
+
+      final markers = <Marker>{};
+      for (final position in positions) {
+        final deviceId = position['deviceId'];
+        final lat = (position['latitude'] as num?)?.toDouble();
+        final lng = (position['longitude'] as num?)?.toDouble();
+        if (deviceId is! int || lat == null || lng == null) continue;
+        final uniqueId = uniqueIdByDeviceId[deviceId];
+        if (uniqueId == null) continue;
+        final truckNumber = truckNumberByGpsId[uniqueId];
+        if (truckNumber == null) continue;
+        // Traccar reports speed in knots.
+        final speedKnots = (position['speed'] as num?)?.toDouble() ?? 0;
+        final speedKmh = (speedKnots * 1.852).toStringAsFixed(1);
+        markers.add(
+          Marker(
+            markerId: MarkerId(uniqueId),
+            position: LatLng(lat, lng),
+            icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
+            infoWindow: InfoWindow(
+              title: truckNumber,
+              snippet: 'Speed: $speedKmh km/h',
+            ),
+          ),
+        );
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _markers = markers;
+        _errorText = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _errorText = 'Failed to load live positions: $e');
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!kIsWeb) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Live Tracking')),
+        body: const Center(
+          child: Text('Live Tracking is only available on the web dashboard.'),
+        ),
+      );
+    }
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Live Tracking'),
+        backgroundColor: AppTheme.primaryDark,
+        foregroundColor: Colors.white,
+      ),
+      body: Stack(
+        children: [
+          GoogleMap(
+            initialCameraPosition: _initialCameraPosition,
+            markers: _markers,
+            myLocationButtonEnabled: false,
+          ),
+          if (!_iconReady)
+            const Positioned.fill(
+              child: IgnorePointer(
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ),
+          if (_errorText != null)
+            Positioned(
+              top: 12,
+              left: 12,
+              right: 12,
+              child: Material(
+                color: Colors.red[700],
+                borderRadius: BorderRadius.circular(8),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(
+                    _errorText!,
+                    style: const TextStyle(color: Colors.white),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------- USER PROFILE SCREEN ----------------
 class UserProfileScreen extends StatelessWidget {
   final String userId;
@@ -22827,6 +25090,222 @@ class _NewTripDialogState extends State<NewTripDialog> {
   }
 }
 
+// ---------------- VEHICLE REGISTRATION SCREEN (Admin, 2 tabs) ----------------
+// Tab 1 reuses TruckManagementScreen as-is (Truck Registration, including
+// the Cube Capacity field) — deliberately the same widget, not a
+// body-only extract, so it stays a single source of truth for the truck
+// form. Tab 2 (QR Generate) picks a registered truck, shows its assigned
+// driver + cube capacity read-only, and renders a QR code encoding
+// {"truckNumber", "driverName", "cube"} for Supervisor's QR Scan
+// (WorkSessionScreen) to scan and submit a load in one step.
+class VehicleRegistrationScreen extends StatefulWidget {
+  const VehicleRegistrationScreen({super.key});
+
+  @override
+  State<VehicleRegistrationScreen> createState() =>
+      _VehicleRegistrationScreenState();
+}
+
+class _VehicleRegistrationScreenState extends State<VehicleRegistrationScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Vehicle Registration'),
+        backgroundColor: Colors.deepOrange[800],
+        bottom: TabBar(
+          controller: _tabController,
+          indicatorColor: Colors.white,
+          labelColor: Colors.white,
+          unselectedLabelColor: Colors.white70,
+          tabs: const [
+            Tab(text: 'Truck Registration'),
+            Tab(text: 'QR Generate'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: const [TruckManagementScreen(), _QrGenerateTab()],
+      ),
+    );
+  }
+}
+
+class _QrGenerateTab extends StatefulWidget {
+  const _QrGenerateTab();
+
+  @override
+  State<_QrGenerateTab> createState() => _QrGenerateTabState();
+}
+
+class _QrGenerateTabState extends State<_QrGenerateTab> {
+  String? _selectedTruckId;
+  String? _selectedTruckNumber;
+  String? _selectedDriverName;
+  double? _selectedCubeCapacity;
+  String? _qrData;
+
+  void _onTruckSelected(String truckId, Map<String, dynamic> data) {
+    setState(() {
+      _selectedTruckId = truckId;
+      _selectedTruckNumber = (data['truckNumber'] ?? '').toString();
+      _selectedDriverName = data['assignedDriverName'] as String?;
+      _selectedCubeCapacity = (data['cubeCapacity'] as num?)?.toDouble();
+      // Force an explicit re-generate for the newly selected truck, rather
+      // than leaving the previous truck's QR code showing.
+      _qrData = null;
+    });
+  }
+
+  void _generateQrCode() {
+    if (_selectedTruckNumber == null) return;
+    setState(() {
+      _qrData = jsonEncode({
+        'truckNumber': _selectedTruckNumber,
+        'driverName': _selectedDriverName ?? '',
+        'cube': _selectedCubeCapacity,
+      });
+    });
+  }
+
+  Widget _readOnlyField(String label, String value) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.grey.shade400),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: TextStyle(fontSize: 11, color: Colors.grey[600])),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Select Truck',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final trucks = snapshot.data!.docs;
+              return DropdownButtonFormField<String>(
+                initialValue: _selectedTruckId,
+                decoration: InputDecoration(
+                  labelText: 'Truck Number',
+                  prefixIcon: const Icon(Icons.local_shipping),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                items: trucks.map((doc) {
+                  final data = doc.data() as Map<String, dynamic>;
+                  return DropdownMenuItem<String>(
+                    value: doc.id,
+                    child: Text((data['truckNumber'] ?? '').toString()),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  if (val == null) return;
+                  final selected = trucks.firstWhere((d) => d.id == val);
+                  _onTruckSelected(
+                    val,
+                    selected.data() as Map<String, dynamic>,
+                  );
+                },
+              );
+            },
+          ),
+          if (_selectedTruckId != null) ...[
+            const SizedBox(height: 16),
+            _readOnlyField(
+              'Driver Name',
+              _selectedDriverName ?? 'Not assigned',
+            ),
+            const SizedBox(height: 12),
+            _readOnlyField(
+              'Cube Capacity',
+              _selectedCubeCapacity?.toString() ?? 'Not set',
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              height: 48,
+              child: ElevatedButton.icon(
+                onPressed: _generateQrCode,
+                icon: const Icon(Icons.qr_code, color: Colors.white),
+                label: const Text(
+                  'Generate QR Code',
+                  style: TextStyle(color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.deepOrange[800],
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (_qrData != null) ...[
+            const SizedBox(height: 24),
+            Center(
+              child: Card(
+                color: Colors.white,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: QrImageView(
+                    data: _qrData!,
+                    version: QrVersions.auto,
+                    size: 200,
+                    backgroundColor: Colors.white,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------- TRUCK MANAGEMENT SCREEN (Admin) ----------------
 class TruckManagementScreen extends StatefulWidget {
   const TruckManagementScreen({super.key});
@@ -22837,6 +25316,8 @@ class TruckManagementScreen extends StatefulWidget {
 
 class _TruckManagementScreenState extends State<TruckManagementScreen> {
   final _truckNumberController = TextEditingController();
+  final _gpsDeviceIdController = TextEditingController();
+  final _cubeCapacityController = TextEditingController();
   String? _selectedDriverUid;
   String? _selectedDriverName;
 
@@ -22872,14 +25353,23 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
       return;
     }
 
+    final enteredGpsDeviceId = _gpsDeviceIdController.text.trim();
+    final enteredCubeCapacity = double.tryParse(
+      _cubeCapacityController.text.trim(),
+    );
+
     await FirebaseFirestore.instance.collection('trucks').add({
       'truckNumber': enteredTruckNumber,
       'assignedDriverUid': _selectedDriverUid,
       'assignedDriverName': _selectedDriverName,
+      'gpsDeviceId': enteredGpsDeviceId.isEmpty ? null : enteredGpsDeviceId,
+      'cubeCapacity': enteredCubeCapacity,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
     _truckNumberController.clear();
+    _gpsDeviceIdController.clear();
+    _cubeCapacityController.clear();
     setState(() {
       _selectedDriverUid = null;
       _selectedDriverName = null;
@@ -22956,6 +25446,32 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                       },
                     );
                   },
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _gpsDeviceIdController,
+                  decoration: InputDecoration(
+                    labelText: 'GPS Device ID (optional)',
+                    hintText: 'Traccar Device Identifier, e.g. 9210188280',
+                    prefixIcon: const Icon(Icons.gps_fixed),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _cubeCapacityController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: 'Cube Capacity (optional)',
+                    prefixIcon: const Icon(Icons.square_foot),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -23278,6 +25794,7 @@ class _WebsiteContentManagementScreenState
   final _heroSubtitleController = TextEditingController();
   final _aboutTextController = TextEditingController();
   final _whatsappController = TextEditingController();
+  final _contactEmailController = TextEditingController();
   bool _loadingContent = true;
   bool _savingContent = false;
 
@@ -23293,6 +25810,7 @@ class _WebsiteContentManagementScreenState
     _heroSubtitleController.dispose();
     _aboutTextController.dispose();
     _whatsappController.dispose();
+    _contactEmailController.dispose();
     super.dispose();
   }
 
@@ -23307,6 +25825,7 @@ class _WebsiteContentManagementScreenState
       _heroSubtitleController.text = data['heroSubtitle'] ?? '';
       _aboutTextController.text = data['aboutText'] ?? '';
       _whatsappController.text = data['whatsappNumber'] ?? '';
+      _contactEmailController.text = data['contactEmail'] ?? '';
     }
     if (mounted) setState(() => _loadingContent = false);
   }
@@ -23322,6 +25841,7 @@ class _WebsiteContentManagementScreenState
             'heroSubtitle': _heroSubtitleController.text.trim(),
             'aboutText': _aboutTextController.text.trim(),
             'whatsappNumber': _whatsappController.text.trim(),
+            'contactEmail': _contactEmailController.text.trim(),
           }, SetOptions(merge: true));
       if (mounted) {
         ScaffoldMessenger.of(
@@ -23588,6 +26108,21 @@ class _WebsiteContentManagementScreenState
             decoration: InputDecoration(
               labelText: 'WhatsApp Number',
               hintText: 'e.g. 94XXXXXXXXX',
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          TextField(
+            controller: _contactEmailController,
+            keyboardType: TextInputType.emailAddress,
+            // Shown on the public Account Deletion page (see
+            // AccountDeletionScreen) — Google Play's Data Safety review
+            // actually uses this address, so keep it a real, monitored one.
+            decoration: InputDecoration(
+              labelText: 'Contact Email',
+              hintText: 'e.g. support@nodacivimech.com',
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -23864,6 +26399,9 @@ class TruckProfileScreen extends StatelessWidget {
   });
 
   void _showChangeDriverDialog(BuildContext context, String? currentDriverUid) {
+    // Ephemeral to this dialog invocation only — same pattern as
+    // _showEditSiteNameDialog's nameController, no explicit dispose needed.
+    final manualNameController = TextEditingController();
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
@@ -23871,67 +26409,250 @@ class TruckProfileScreen extends StatelessWidget {
         title: const Text('Change Assigned Driver'),
         content: SizedBox(
           width: double.maxFinite,
-          child: StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance
-                .collection('users')
-                .where('canDriveTruck', isEqualTo: true)
-                .snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Center(child: CircularProgressIndicator()),
-                );
-              }
-              final drivers = snapshot.data!.docs;
-              if (drivers.isEmpty) {
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: Text('No drivers available.'),
-                );
-              }
-              return SizedBox(
-                height: 300,
-                child: ListView.builder(
-                  shrinkWrap: true,
-                  itemCount: drivers.length,
-                  itemBuilder: (context, index) {
-                    final data = drivers[index].data() as Map<String, dynamic>;
-                    final uid = drivers[index].id;
-                    final isSelected = uid == currentDriverUid;
-                    return ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: Colors.deepOrange.withOpacity(0.15),
-                        child: const Icon(
-                          Icons.person,
-                          color: Colors.deepOrange,
-                        ),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                StreamBuilder<QuerySnapshot>(
+                  stream: FirebaseFirestore.instance
+                      .collection('users')
+                      .where('canDriveTruck', isEqualTo: true)
+                      .snapshots(),
+                  builder: (context, snapshot) {
+                    if (!snapshot.hasData) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Center(child: CircularProgressIndicator()),
+                      );
+                    }
+                    final drivers = snapshot.data!.docs;
+                    if (drivers.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 20),
+                        child: Text('No drivers available.'),
+                      );
+                    }
+                    return SizedBox(
+                      height: 300,
+                      child: ListView.builder(
+                        shrinkWrap: true,
+                        itemCount: drivers.length,
+                        itemBuilder: (context, index) {
+                          final data =
+                              drivers[index].data() as Map<String, dynamic>;
+                          final uid = drivers[index].id;
+                          final isSelected = uid == currentDriverUid;
+                          return ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.deepOrange.withOpacity(
+                                0.15,
+                              ),
+                              child: const Icon(
+                                Icons.person,
+                                color: Colors.deepOrange,
+                              ),
+                            ),
+                            title: Text(data['name'] ?? ''),
+                            trailing: isSelected
+                                ? const Icon(
+                                    Icons.check,
+                                    color: Colors.deepOrange,
+                                  )
+                                : null,
+                            onTap: () async {
+                              await FirebaseFirestore.instance
+                                  .collection('trucks')
+                                  .doc(truckId)
+                                  .update({
+                                    'assignedDriverUid': uid,
+                                    'assignedDriverName': data['name'] ?? '',
+                                  });
+                              if (context.mounted) Navigator.pop(context);
+                            },
+                          );
+                        },
                       ),
-                      title: Text(data['name'] ?? ''),
-                      trailing: isSelected
-                          ? const Icon(Icons.check, color: Colors.deepOrange)
-                          : null,
-                      onTap: () async {
-                        await FirebaseFirestore.instance
-                            .collection('trucks')
-                            .doc(truckId)
-                            .update({
-                              'assignedDriverUid': uid,
-                              'assignedDriverName': data['name'] ?? '',
-                            });
-                        if (context.mounted) Navigator.pop(context);
-                      },
                     );
                   },
                 ),
-              );
-            },
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Row(
+                    children: [
+                      Expanded(child: Divider()),
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 8),
+                        child: Text(
+                          'OR',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.grey,
+                          ),
+                        ),
+                      ),
+                      Expanded(child: Divider()),
+                    ],
+                  ),
+                ),
+                const Text(
+                  'Type a name manually',
+                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'For a driver who isn\'t registered in the app (e.g. a '
+                  'substitute or contract driver).',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: manualNameController,
+                  decoration: const InputDecoration(
+                    hintText: 'Driver name',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange[800],
+                    ),
+                    onPressed: () async {
+                      final typedName = manualNameController.text.trim();
+                      if (typedName.isEmpty) return;
+                      // Not a registered user — no canDriveTruck account —
+                      // so assignedDriverUid stays null. Auto-fill in the
+                      // Loading dialog reads assignedDriverName either way,
+                      // so this works there with no further changes.
+                      await FirebaseFirestore.instance
+                          .collection('trucks')
+                          .doc(truckId)
+                          .update({
+                            'assignedDriverUid': null,
+                            'assignedDriverName': typedName,
+                          });
+                      if (context.mounted) Navigator.pop(context);
+                    },
+                    child: const Text(
+                      'Assign This Name',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // GPS Live Tracking (Phase 1, web-only — see LiveTrackingScreen): the
+  // gpsDeviceId manually entered here is matched against each Traccar
+  // position's deviceId to place this truck's marker on the map. It's
+  // typed in by hand (copied from the Traccar Devices list's Identifier
+  // column) rather than looked up live, since this app has no Traccar
+  // device-provisioning integration — Traccar is the source of truth for
+  // which identifiers exist.
+  void _showSetGpsDeviceDialog(BuildContext context, String? currentDeviceId) {
+    final deviceIdController = TextEditingController(
+      text: currentDeviceId ?? '',
+    );
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Assigned GPS Device'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter this truck\'s Traccar Device Identifier (copy it from '
+              'the Traccar Devices list).',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: deviceIdController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'GPS Device Identifier',
+                hintText: 'e.g. 9210188280',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final typedId = deviceIdController.text.trim();
+              await FirebaseFirestore.instance
+                  .collection('trucks')
+                  .doc(truckId)
+                  .update({'gpsDeviceId': typedId.isEmpty ? null : typedId});
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Cube Capacity (trucks/{id}.cubeCapacity) — shown read-only on Vehicle
+  // Registration's QR Generate tab so a supervisor scanning the QR knows
+  // this truck's max load without asking, and used by QR Scan's submitted
+  // work_records.cubeCount.
+  void _showSetCubeCapacityDialog(BuildContext context, double? currentValue) {
+    final capacityController = TextEditingController(
+      text: currentValue?.toString() ?? '',
+    );
+    showDialog(
+      context: context,
+      builder: (_) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Cube Capacity'),
+        content: TextField(
+          controller: capacityController,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Cube Capacity',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final typedValue = double.tryParse(
+                capacityController.text.trim(),
+              );
+              await FirebaseFirestore.instance
+                  .collection('trucks')
+                  .doc(truckId)
+                  .update({'cubeCapacity': typedValue});
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Save'),
           ),
         ],
       ),
@@ -24060,45 +26781,104 @@ class TruckProfileScreen extends StatelessWidget {
                                   truckData?['assignedDriverName'];
                               final assignedDriverUid =
                                   truckData?['assignedDriverUid'];
+                              final gpsDeviceId =
+                                  truckData?['gpsDeviceId'] as String?;
+                              final cubeCapacity =
+                                  (truckData?['cubeCapacity'] as num?)
+                                      ?.toDouble();
 
-                              return GlassCard(
-                                child: Column(
-                                  children: [
-                                    Icon(
-                                      activeSession != null
-                                          ? Icons.play_circle_fill
-                                          : Icons.pause_circle,
-                                      color: activeSession != null
-                                          ? Colors.green
-                                          : Colors.grey,
-                                      size: 36,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      activeSession != null
-                                          ? 'Currently Active'
-                                          : 'Not Working Now',
-                                      style: const TextStyle(
-                                        color: Colors.white,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 16,
-                                      ),
-                                    ),
-                                    if (activeSession != null) ...[
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Site: ${(activeSession.data() as Map)['siteName'] ?? '-'}',
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 13,
+                              return Column(
+                                children: [
+                                  GlassCard(
+                                    child: Column(
+                                      children: [
+                                        Icon(
+                                          activeSession != null
+                                              ? Icons.play_circle_fill
+                                              : Icons.pause_circle,
+                                          color: activeSession != null
+                                              ? Colors.green
+                                              : Colors.grey,
+                                          size: 36,
                                         ),
-                                      ),
-                                    ],
-                                    const Divider(
-                                      color: Colors.white24,
-                                      height: 24,
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          activeSession != null
+                                              ? 'Currently Active'
+                                              : 'Not Working Now',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 16,
+                                          ),
+                                        ),
+                                        if (activeSession != null) ...[
+                                          const SizedBox(height: 8),
+                                          Text(
+                                            'Site: ${(activeSession.data() as Map)['siteName'] ?? '-'}',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                        const Divider(
+                                          color: Colors.white24,
+                                          height: 24,
+                                        ),
+                                        Row(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.spaceBetween,
+                                          children: [
+                                            Column(
+                                              crossAxisAlignment:
+                                                  CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  'Assigned Driver',
+                                                  style: TextStyle(
+                                                    color: Colors.white
+                                                        .withOpacity(0.6),
+                                                    fontSize: 11,
+                                                  ),
+                                                ),
+                                                Text(
+                                                  assignedDriverName ??
+                                                      'Not assigned',
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontSize: 14,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            TextButton.icon(
+                                              onPressed: () =>
+                                                  _showChangeDriverDialog(
+                                                    context,
+                                                    assignedDriverUid,
+                                                  ),
+                                              icon: const Icon(
+                                                Icons.edit,
+                                                size: 16,
+                                                color: AppTheme.accent,
+                                              ),
+                                              label: const Text(
+                                                'Change',
+                                                style: TextStyle(
+                                                  color: AppTheme.accent,
+                                                ),
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ],
                                     ),
-                                    Row(
+                                  ),
+                                  const SizedBox(height: 16),
+                                  GlassCard(
+                                    child: Row(
                                       mainAxisAlignment:
                                           MainAxisAlignment.spaceBetween,
                                       children: [
@@ -24107,7 +26887,7 @@ class TruckProfileScreen extends StatelessWidget {
                                               CrossAxisAlignment.start,
                                           children: [
                                             Text(
-                                              'Assigned Driver',
+                                              'Assigned GPS Device',
                                               style: TextStyle(
                                                 color: Colors.white.withOpacity(
                                                   0.6,
@@ -24116,8 +26896,7 @@ class TruckProfileScreen extends StatelessWidget {
                                               ),
                                             ),
                                             Text(
-                                              assignedDriverName ??
-                                                  'Not assigned',
+                                              gpsDeviceId ?? 'Not assigned',
                                               style: const TextStyle(
                                                 color: Colors.white,
                                                 fontWeight: FontWeight.bold,
@@ -24128,26 +26907,86 @@ class TruckProfileScreen extends StatelessWidget {
                                         ),
                                         TextButton.icon(
                                           onPressed: () =>
-                                              _showChangeDriverDialog(
+                                              _showSetGpsDeviceDialog(
                                                 context,
-                                                assignedDriverUid,
+                                                gpsDeviceId,
                                               ),
-                                          icon: const Icon(
-                                            Icons.edit,
+                                          icon: Icon(
+                                            gpsDeviceId == null
+                                                ? Icons.add_location_alt
+                                                : Icons.edit,
                                             size: 16,
                                             color: AppTheme.accent,
                                           ),
-                                          label: const Text(
-                                            'Change',
-                                            style: TextStyle(
+                                          label: Text(
+                                            gpsDeviceId == null
+                                                ? 'Set'
+                                                : 'Change',
+                                            style: const TextStyle(
                                               color: AppTheme.accent,
                                             ),
                                           ),
                                         ),
                                       ],
                                     ),
-                                  ],
-                                ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  GlassCard(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Cube Capacity',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.6,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            Text(
+                                              cubeCapacity == null
+                                                  ? 'Not set'
+                                                  : cubeCapacity.toString(),
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        TextButton.icon(
+                                          onPressed: () =>
+                                              _showSetCubeCapacityDialog(
+                                                context,
+                                                cubeCapacity,
+                                              ),
+                                          icon: Icon(
+                                            cubeCapacity == null
+                                                ? Icons.add
+                                                : Icons.edit,
+                                            size: 16,
+                                            color: AppTheme.accent,
+                                          ),
+                                          label: Text(
+                                            cubeCapacity == null
+                                                ? 'Set'
+                                                : 'Change',
+                                            style: const TextStyle(
+                                              color: AppTheme.accent,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               );
                             },
                           ),

@@ -4,6 +4,12 @@
     <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION"/>
+    <!-- QR Scan feature (WorkSessionScreen) — mobile_scanner needs direct
+         camera access, unlike image_picker's camera capture which delegates
+         to the system Camera app and doesn't need this. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
     <application
         android:label="NODA Civimech Engineering"
         android:name="${applicationName}"

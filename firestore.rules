@@ -75,6 +75,13 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow write: if isAdminOrOwner();
     }
+    // Admin-managed master list of Loading Category names (Availability
+    // screen) — SiteManagementScreen's Site Edit dialog reads this live to
+    // build its "Available Loading Categories" checkbox list.
+    match /loading_availability_options/{optionId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
     match /fuel_stations/{stationId} {
       allow read: if isSignedIn();
       allow write: if isAdminOrOwner();
