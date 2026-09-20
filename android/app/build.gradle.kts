@@ -13,6 +13,11 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by flutter_local_notifications (Garage module daily
+        // service-due check) — its AAR declares
+        // coreLibraryDesugaringEnabled and fails checkReleaseAarMetadata
+        // otherwise.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -43,4 +48,10 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Version required by flutter_local_notifications 22.3.0's own AAR
+    // metadata check — see the isCoreLibraryDesugaringEnabled note above.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }

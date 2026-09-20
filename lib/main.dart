@@ -10,6 +10,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:geocoding/geocoding.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_core/firebase_core.dart';
@@ -21,6 +22,11 @@ import 'package:excel/excel.dart' as xls;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:mobile_scanner/mobile_scanner.dart' hide GeoPoint;
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'qr_download_stub.dart'
+    if (dart.library.html) 'qr_download_web.dart'
+    as qr_download;
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,11 +73,27 @@ class MyApp extends StatelessWidget {
       title: 'NODA Civimech Engineering (PVT) Ltd.',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(primarySwatch: Colors.blue, useMaterial3: true),
+      scrollBehavior: AppScrollBehavior(),
       home: _isAccountDeletionRoute
           ? const AccountDeletionScreen()
           : AuthGate(key: UniqueKey()),
     );
   }
+}
+
+// Flutter's default ScrollBehavior only treats touch/stylus input as a drag
+// gesture — a desktop/web mouse can't click-and-drag any SingleChildScrollView
+// (horizontal ones especially, since a plain mouse wheel has no horizontal
+// axis to fall back on the way it does for vertical scroll). Every report
+// table's horizontal scroll (ManagementSiteReportsScreen, TransportSummaryScreen,
+// etc.) sits inside a mouse-driven web app, so this adds
+// PointerDeviceKind.mouse to the drag-enabled set app-wide.
+class AppScrollBehavior extends MaterialScrollBehavior {
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    ...super.dragDevices,
+    PointerDeviceKind.mouse,
+  };
 }
 
 // ---------------- AUTH GATE (auto-login check) ----------------
@@ -87,6 +109,10 @@ class _AuthGateState extends State<AuthGate> {
   Future<DocumentSnapshot>? _userFuture;
   late final Stream<User?> _authStream = FirebaseAuth.instance
       .authStateChanges();
+  // Fires once per signed-in AuthGate session — see
+  // GarageNotificationService, which does its own SharedPreferences-backed
+  // once-per-day gating on top of this.
+  bool _garageNotificationChecked = false;
 
   Future<DocumentSnapshot> _getUserDoc(String uid) {
     if (_cachedUid != uid || _userFuture == null) {
@@ -174,6 +200,27 @@ class _AuthGateState extends State<AuthGate> {
             final data = userSnapshot.data!.data() as Map<String, dynamic>;
             final role = data['role'] ?? '';
             final name = data['name'] ?? '';
+
+            if (!_garageNotificationChecked) {
+              _garageNotificationChecked = true;
+              unawaited(GarageNotificationService.checkAndNotifyIfNeeded());
+            }
+
+            // Garage Access override (see AddUserScreen/ManageUsersScreen's
+            // Garage Access checkbox/toggle and GarageScreen) — a
+            // "mechanic"-style account of any role lands only on
+            // GarageScreen, bypassing its normal role screen entirely.
+            // Admin/Owner/Management are excluded: they keep their normal
+            // dashboard and get Garage as an additive menu item there
+            // instead (see AdminDashboard/OwnerDashboard/
+            // ManagementDashboard) — a real dashboard is meaningful for
+            // those roles, unlike a dedicated mechanic account.
+            if (data['canAccessGarage'] == true &&
+                role != 'admin' &&
+                role != 'owner' &&
+                role != 'management') {
+              return GarageScreen(name: name);
+            }
 
             switch (role) {
               case 'admin':
@@ -1711,6 +1758,63 @@ class AdminDashboard extends StatelessWidget {
               },
             ),
           ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 14,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.garage,
+              title: 'Garage',
+              subtitle: 'Truck service tracking and notifications',
+              color: Colors.brown,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => GarageScreen(name: name)),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 15,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.warehouse,
+              title: 'Warehouse',
+              subtitle: 'Oil, tools and spare parts inventory',
+              color: Colors.brown,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => WarehouseScreen(name: name),
+                  ),
+                );
+              },
+            ),
+          ),
+          const SizedBox(height: 12),
+          // Only in the WebSidebarItem list before this — WebAppShell's
+          // sidebar only renders on wide web viewports (see its own doc
+          // comment), so this card is what actually makes Live Tracking
+          // reachable on mobile.
+          _WebStaggeredFadeIn(
+            index: 16,
+            child: _buildMenuCard(
+              context,
+              icon: Icons.map,
+              title: 'Live Tracking',
+              subtitle: 'GPS map, truck/site markers and route history',
+              color: Colors.blueGrey,
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const LiveTrackingScreen()),
+                );
+              },
+            ),
+          ),
         ],
       ),
     );
@@ -1854,6 +1958,22 @@ class AdminDashboard extends StatelessWidget {
               FadeSlideRoute(page: const TransportRecordsScreen()),
             ),
           ),
+          WebSidebarItem(
+            icon: Icons.garage,
+            label: 'Garage',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: GarageScreen(name: name)),
+            ),
+          ),
+          WebSidebarItem(
+            icon: Icons.warehouse,
+            label: 'Warehouse',
+            onTap: () => Navigator.push(
+              context,
+              FadeSlideRoute(page: WarehouseScreen(name: name)),
+            ),
+          ),
         ],
         child: bodyContent,
       ),
@@ -1909,6 +2029,7 @@ class _AddUserScreenState extends State<AddUserScreen> {
   bool _canAccessFuel = false;
   bool _canEditReports = false;
   bool _canAccessTransportRecords = false;
+  bool _canAccessGarage = false;
 
   Future<void> _pickPhoto(ImageSource source) async {
     try {
@@ -2053,6 +2174,10 @@ class _AddUserScreenState extends State<AddUserScreen> {
             'canAccessTransportRecords': _selectedRole == 'management'
                 ? _canAccessTransportRecords
                 : false,
+            // Not role-gated, unlike the flags above — Garage Access can be
+            // granted regardless of which role is selected (see AuthGate's
+            // routing override and GarageScreen).
+            'canAccessGarage': _canAccessGarage,
             'photoBase64': _photoBase64,
             'createdAt': FieldValue.serverTimestamp(),
           });
@@ -2178,6 +2303,16 @@ class _AddUserScreenState extends State<AddUserScreen> {
                   value: 'management',
                   groupValue: _selectedRole,
                   onChanged: (val) => setState(() => _selectedRole = val!),
+                ),
+                // Not role-gated (visible for every role above) — see
+                // GarageScreen and AuthGate's routing override.
+                CheckboxListTile(
+                  title: const Text('Garage Access'),
+                  value: _canAccessGarage,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (val) =>
+                      setState(() => _canAccessGarage = val ?? false),
                 ),
                 if (_selectedRole == 'management')
                   CheckboxListTile(
@@ -2594,6 +2729,70 @@ class ManageUsersScreen extends StatelessWidget {
                                 );
                               },
                             ),
+                          // Not role-gated, unlike the toggles above — Garage
+                          // Access (see GarageScreen and AuthGate's routing
+                          // override) can be granted to any existing user
+                          // regardless of role.
+                          IconButton(
+                            icon: Icon(
+                              Icons.build,
+                              color: data['canAccessGarage'] == true
+                                  ? Colors.green
+                                  : Colors.grey,
+                            ),
+                            onPressed: () {
+                              final currentlyHasAccess =
+                                  data['canAccessGarage'] == true;
+                              final newValue = !currentlyHasAccess;
+                              final userName = data['name'] ?? 'this user';
+                              showDialog(
+                                context: context,
+                                builder: (_) => AlertDialog(
+                                  title: Text(
+                                    currentlyHasAccess
+                                        ? 'Revoke Garage Access?'
+                                        : 'Grant Garage Access?',
+                                  ),
+                                  content: Text(
+                                    currentlyHasAccess
+                                        ? 'Remove Garage access from $userName?'
+                                        : 'Allow $userName to access the Garage module?',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(context),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    ElevatedButton(
+                                      onPressed: () async {
+                                        await FirebaseFirestore.instance
+                                            .collection('users')
+                                            .doc(userId)
+                                            .update({
+                                              'canAccessGarage': newValue,
+                                            });
+                                        if (context.mounted) {
+                                          Navigator.pop(context);
+                                          ScaffoldMessenger.of(
+                                            context,
+                                          ).showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                newValue
+                                                    ? 'Garage access granted'
+                                                    : 'Garage access revoked',
+                                              ),
+                                            ),
+                                          );
+                                        }
+                                      },
+                                      child: const Text('CONFIRM'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            },
+                          ),
                           if (!isSelf)
                             IconButton(
                               icon: const Icon(Icons.delete, color: Colors.red),
@@ -3025,6 +3224,41 @@ class _AvailabilityManagementScreenState
   }
 }
 
+// Backward-compatible reader for a site's GPS location(s). Prefers the
+// newer sites/{id}.gpsLocations list (each entry {latitude, longitude,
+// label} — multiple entrance/gate points per site); falls back to the
+// older single latitude/longitude fields (pre-multi-entrance), treated as
+// a single-item list, when gpsLocations is missing or empty. No migration
+// write happens automatically here — an old site keeps its old fields
+// until an admin captures a new location through
+// SiteManagementScreen._showSetLocationDialog, which folds the old point
+// in as the first gpsLocations entry ("Original Location") the first time
+// that runs. Shared by SiteManagementScreen (the capture dialog + list
+// badge) and LiveTrackingScreen (_loadSiteMarkers), so both read the same
+// data the same way.
+//
+// TODO(AutoArrivalDetectionService): when that service is built, "arrived"
+// should mean the truck's current position is within 50m of ANY ONE point
+// in a site's siteGpsLocations(...) list — not a single-point comparison —
+// since a site can now have multiple valid entrances/gates.
+List<Map<String, dynamic>> siteGpsLocations(Map<String, dynamic> data) {
+  final rawList = data['gpsLocations'] as List<dynamic>?;
+  if (rawList != null && rawList.isNotEmpty) {
+    return rawList
+        .whereType<Map<dynamic, dynamic>>()
+        .map((e) => e.cast<String, dynamic>())
+        .toList();
+  }
+  final lat = (data['latitude'] as num?)?.toDouble();
+  final lng = (data['longitude'] as num?)?.toDouble();
+  if (lat != null && lng != null) {
+    return [
+      {'latitude': lat, 'longitude': lng, 'label': 'Original Location'},
+    ];
+  }
+  return [];
+}
+
 // ---------------- SITE MANAGEMENT SCREEN ----------------
 class SiteManagementScreen extends StatefulWidget {
   const SiteManagementScreen({super.key});
@@ -3100,18 +3334,35 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     await FirebaseFirestore.instance.collection('sites').doc(docId).delete();
   }
 
-  // Captures the site's GPS coordinates from the admin's current
-  // phone/browser position — reuses TruckLocationService.requestPermission()
+  // Appends a new {latitude, longitude, label} entry to the site's
+  // gpsLocations list — reuses TruckLocationService.requestPermission()
   // (the same Geolocator permission flow Truck Trip Tracking already uses)
-  // rather than duplicating that permission-request logic here.
-  Future<void> _setSiteLocation(String docId, String siteName) async {
+  // rather than duplicating that permission-request logic here. Reads the
+  // site doc fresh right before writing (via siteGpsLocations, which also
+  // folds in the old single-field site's point as an "Original Location"
+  // entry the first time this runs) so a capture always appends onto
+  // whatever is actually there, never overwrites.
+  Future<void> _captureSiteGpsLocation(
+    String docId,
+    TextEditingController labelController,
+  ) async {
+    final label = labelController.text.trim();
+    if (label.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a label for this location.'),
+        ),
+      );
+      return;
+    }
+
     final hasPermission = await TruckLocationService.requestPermission();
     if (!hasPermission) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Location permission is required to set this site\'s location.',
+              'Location permission is required to capture this location.',
             ),
             backgroundColor: Colors.red,
           ),
@@ -3124,16 +3375,28 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
       final position = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.high,
       );
+      final doc = await FirebaseFirestore.instance
+          .collection('sites')
+          .doc(docId)
+          .get();
+      final existing = siteGpsLocations(doc.data() ?? <String, dynamic>{});
+      final updated = [
+        ...existing,
+        {
+          'latitude': position.latitude,
+          'longitude': position.longitude,
+          'label': label,
+        },
+      ];
       await FirebaseFirestore.instance.collection('sites').doc(docId).update({
-        'latitude': position.latitude,
-        'longitude': position.longitude,
+        'gpsLocations': updated,
       });
+      labelController.clear();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Location saved for $siteName '
-              '(${position.latitude.toStringAsFixed(4)}, '
+              'Captured "$label" (${position.latitude.toStringAsFixed(4)}, '
               '${position.longitude.toStringAsFixed(4)})',
             ),
             backgroundColor: Colors.green,
@@ -3143,39 +3406,217 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to get current location: $e')),
+          SnackBar(content: Text('Failed to capture location: $e')),
         );
       }
     }
   }
 
-  void _showSetLocationDialog(
+  Future<void> _deleteSiteGpsLocation(
     String docId,
-    String siteName,
-    bool hasExistingLocation,
+    List<Map<String, dynamic>> currentLocations,
+    int index,
+  ) async {
+    final updated = List<Map<String, dynamic>>.from(currentLocations)
+      ..removeAt(index);
+    await FirebaseFirestore.instance.collection('sites').doc(docId).update({
+      'gpsLocations': updated,
+    });
+  }
+
+  void _showSetLocationDialog(String docId, String siteName) {
+    final labelController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Text('$siteName — GPS Locations'),
+          content: SizedBox(
+            width: double.maxFinite,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Live via StreamBuilder rather than a local list copy —
+                  // captures/deletes write straight to Firestore, so this
+                  // reflects them immediately with no manual dialog-state
+                  // bookkeeping needed for the list itself.
+                  StreamBuilder<DocumentSnapshot>(
+                    stream: FirebaseFirestore.instance
+                        .collection('sites')
+                        .doc(docId)
+                        .snapshots(),
+                    builder: (context, snapshot) {
+                      final data =
+                          snapshot.data?.data() as Map<String, dynamic>?;
+                      final locations = data == null
+                          ? <Map<String, dynamic>>[]
+                          : siteGpsLocations(data);
+                      if (locations.isEmpty) {
+                        return const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            'No GPS locations captured yet.',
+                            style: TextStyle(color: Colors.grey),
+                          ),
+                        );
+                      }
+                      return Column(
+                        children: [
+                          for (var i = 0; i < locations.length; i++)
+                            ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(
+                                Icons.location_on,
+                                color: Colors.teal,
+                              ),
+                              title: Text(
+                                (locations[i]['label'] ?? 'Location ${i + 1}')
+                                    .toString(),
+                              ),
+                              subtitle: Text(
+                                '${(locations[i]['latitude'] as num).toStringAsFixed(4)}, '
+                                '${(locations[i]['longitude'] as num).toStringAsFixed(4)}',
+                              ),
+                              trailing: IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                  size: 20,
+                                ),
+                                onPressed: () =>
+                                    _deleteSiteGpsLocation(docId, locations, i),
+                              ),
+                            ),
+                        ],
+                      );
+                    },
+                  ),
+                  const Divider(),
+                  TextField(
+                    controller: labelController,
+                    // Rebuilds the dialog so the capture button's label
+                    // below stays in sync with what's typed here.
+                    onChanged: (_) => setDialogState(() {}),
+                    decoration: const InputDecoration(
+                      labelText: 'Label',
+                      hintText: 'e.g. Entrance 2, Gate B',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () =>
+                          _captureSiteGpsLocation(docId, labelController),
+                      icon: const Icon(Icons.my_location),
+                      label: Text(
+                        '+ Capture Current Location as '
+                        '"${labelController.text.trim().isEmpty ? '...' : labelController.text.trim()}"',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Done'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // Same shape as SiteHistoryScreen._showChangeSupervisorDialog — a
+  // StreamBuilder list of eligible users, tap to assign, checkmark on the
+  // currently-assigned one. canOperateMachine == true here instead of
+  // role == 'supervisor', writing sites/{docId}.assignedOperatorUid/Name
+  // instead of assignedSupervisorUid/Name. QR Scan's
+  // _showQrCategorySelectionDialog reads assignedOperatorName from this
+  // same site doc to auto-fill machineOperatorName on a scanned load.
+  void _showAssignMachineOperatorDialog(
+    String docId,
+    String? currentOperatorUid,
   ) {
     showDialog(
       context: context,
-      builder: (dialogContext) => AlertDialog(
+      builder: (_) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('Set Site Location'),
-        content: Text(
-          hasExistingLocation
-              ? "Set $siteName's location to your current position? "
-                    'This will overwrite the existing location. Continue?'
-              : "Set $siteName's location to your current position?",
+        title: const Text('Assigned Machine Operator'),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: StreamBuilder<QuerySnapshot>(
+            stream: FirebaseFirestore.instance
+                .collection('users')
+                .where('canOperateMachine', isEqualTo: true)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (!snapshot.hasData) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Center(child: CircularProgressIndicator()),
+                );
+              }
+              final operators = snapshot.data!.docs;
+              if (operators.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: Text('No machine operators available.'),
+                );
+              }
+              return SizedBox(
+                height: 300,
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  itemCount: operators.length,
+                  itemBuilder: (context, index) {
+                    final data =
+                        operators[index].data() as Map<String, dynamic>;
+                    final uid = operators[index].id;
+                    final isSelected = uid == currentOperatorUid;
+                    return ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: Colors.orange.withOpacity(0.15),
+                        child: const Icon(
+                          Icons.engineering,
+                          color: Colors.orange,
+                        ),
+                      ),
+                      title: Text(data['name'] ?? ''),
+                      trailing: isSelected
+                          ? const Icon(Icons.check, color: Colors.orange)
+                          : null,
+                      onTap: () async {
+                        await FirebaseFirestore.instance
+                            .collection('sites')
+                            .doc(docId)
+                            .update({
+                              'assignedOperatorUid': uid,
+                              'assignedOperatorName': data['name'] ?? '',
+                            });
+                        if (context.mounted) Navigator.pop(context);
+                      },
+                    );
+                  },
+                ),
+              );
+            },
+          ),
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
+            onPressed: () => Navigator.pop(context),
             child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(dialogContext);
-              _setSiteLocation(docId, siteName);
-            },
-            child: const Text('CONFIRM'),
           ),
         ],
       ),
@@ -3592,8 +4033,9 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
         final data = sites[index].data() as Map<String, dynamic>;
         final docId = sites[index].id;
         final siteName = (data['name'] ?? '').toString();
-        final hasLocation =
-            data['latitude'] != null && data['longitude'] != null;
+        final gpsLocationCount = siteGpsLocations(data).length;
+        final assignedOperatorName = data['assignedOperatorName'] as String?;
+        final assignedOperatorUid = data['assignedOperatorUid'] as String?;
 
         return _WebStaggeredFadeIn(
           index: index,
@@ -3608,12 +4050,25 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                 title: Row(
                   children: [
                     Flexible(child: Text(siteName)),
-                    if (hasLocation) ...[
+                    if (gpsLocationCount > 0) ...[
                       const SizedBox(width: 8),
-                      const Text(
-                        '📍 Location Set',
-                        style: TextStyle(
+                      Text(
+                        '📍 $gpsLocationCount '
+                        '${gpsLocationCount == 1 ? 'Location' : 'Locations'} Set',
+                        style: const TextStyle(
                           color: Colors.green,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ],
+                    if (assignedOperatorName != null &&
+                        assignedOperatorName.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Text(
+                        '👷 $assignedOperatorName',
+                        style: const TextStyle(
+                          color: Colors.orange,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                         ),
@@ -3638,8 +4093,18 @@ class _SiteManagementScreenState extends State<SiteManagementScreen> {
                         color: AppTheme.primaryMid,
                       ),
                       tooltip: 'Set Location',
-                      onPressed: () =>
-                          _showSetLocationDialog(docId, siteName, hasLocation),
+                      onPressed: () => _showSetLocationDialog(docId, siteName),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.engineering,
+                        color: AppTheme.primaryMid,
+                      ),
+                      tooltip: 'Assigned Machine Operator',
+                      onPressed: () => _showAssignMachineOperatorDialog(
+                        docId,
+                        assignedOperatorUid,
+                      ),
                     ),
                     IconButton(
                       icon: const Icon(Icons.edit, color: AppTheme.primaryMid),
@@ -3944,6 +4409,44 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 MaterialPageRoute(
                   builder: (_) => const ManagementFuelReportsScreen(),
                 ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        _WebStaggeredFadeIn(
+          index: 6,
+          child: DashboardMenuCard(
+            icon: Icons.garage,
+            title: 'Garage',
+            subtitle: 'Truck service tracking and notifications',
+            color: Colors.brown,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => GarageScreen(name: widget.name),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Only in the WebSidebarItem lists before this — WebAppShell's
+        // sidebar only renders on wide web viewports (see its own doc
+        // comment), so this card is what actually makes Live Tracking
+        // reachable on mobile.
+        _WebStaggeredFadeIn(
+          index: 7,
+          child: DashboardMenuCard(
+            icon: Icons.map,
+            title: 'Live Tracking',
+            subtitle: 'GPS map, truck/site markers and route history',
+            color: Colors.blueGrey,
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LiveTrackingScreen()),
               );
             },
           ),
@@ -4486,6 +4989,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                 FadeSlideRoute(page: const FuelStationManagementScreen()),
               ),
             ),
+            WebSidebarItem(
+              icon: Icons.garage,
+              label: 'Garage',
+              onTap: () => Navigator.push(
+                context,
+                FadeSlideRoute(page: GarageScreen(name: widget.name)),
+              ),
+            ),
           ],
           child: bodyContent,
         ),
@@ -4611,6 +5122,14 @@ class _OwnerDashboardState extends State<OwnerDashboard> {
                     FadeSlideRoute(page: const TransportRecordsScreen()),
                   ),
                 ),
+                WebSidebarItem(
+                  icon: Icons.garage,
+                  label: 'Garage',
+                  onTap: () => Navigator.push(
+                    context,
+                    FadeSlideRoute(page: GarageScreen(name: widget.name)),
+                  ),
+                ),
               ],
               child: webBody,
             ),
@@ -4649,16 +5168,21 @@ class ManagementDashboard extends StatefulWidget {
 }
 
 class _ManagementDashboardState extends State<ManagementDashboard> {
-  // Gates the Transport Records sidebar item — fetched once on mount rather
-  // than blocking the whole dashboard body behind a FutureBuilder, so the
-  // item just appears a moment after load for eligible users instead of
-  // delaying everything else.
+  // Gates the Transport Records and Garage sidebar/card items — fetched
+  // once on mount rather than blocking the whole dashboard body behind a
+  // FutureBuilder, so the items just appear a moment after load for
+  // eligible users instead of delaying everything else.
   bool _canAccessTransportRecords = false;
+  // AuthGate's isolated-override exemption for role == 'management' (see
+  // its doc comment) means a management account with canAccessGarage: true
+  // lands here, not on GarageScreen directly — this is what makes Garage
+  // reachable as an additive item instead, same as Admin/Owner already get.
+  bool _canAccessGarage = false;
 
   @override
   void initState() {
     super.initState();
-    _loadTransportRecordsAccess();
+    _loadAccessFlags();
   }
 
   // ManagementDashboard is only ever reached by role == 'management'
@@ -4667,7 +5191,7 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
   // in practice — kept explicit anyway so this matches the same
   // isAdminOrOwner || (isManagement && canAccessTransportRecords) pattern
   // used by TransportSummaryScreen's route guard and TransportRecordsScreen's.
-  Future<void> _loadTransportRecordsAccess() async {
+  Future<void> _loadAccessFlags() async {
     try {
       final doc = await FirebaseFirestore.instance
           .collection('users')
@@ -4682,10 +5206,12 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
           _canAccessTransportRecords =
               isAdminOrOwner ||
               (isManagement && data?['canAccessTransportRecords'] == true);
+          _canAccessGarage =
+              isAdminOrOwner || (isManagement && data?['canAccessGarage'] == true);
         });
       }
     } catch (_) {
-      // Leave the item hidden if this fails.
+      // Leave the items hidden if this fails.
     }
   }
 
@@ -4701,7 +5227,13 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
 
   @override
   Widget build(BuildContext context) {
-    final bodyContent = Padding(
+    // WebAppShell only renders `menuItems` as a sidebar on wide desktop-web
+    // viewports (see its own doc comment) — on anything narrower (a phone
+    // browser, a resized window) it renders just this `child` instead, so
+    // this card grid is what actually makes these items reachable there.
+    // Same _WebStaggeredFadeIn/DashboardMenuCard pattern Admin/OwnerDashboard
+    // use for their own mobile card grids.
+    final bodyContent = SingleChildScrollView(
       padding: const EdgeInsets.all(24.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -4710,11 +5242,88 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
             'Welcome, ${widget.name}',
             style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Use the sidebar to view fuel and site reports.',
-            style: TextStyle(fontSize: 14, color: Colors.grey[700]),
+          const SizedBox(height: 20),
+          _WebStaggeredFadeIn(
+            index: 0,
+            child: DashboardMenuCard(
+              icon: Icons.local_gas_station,
+              title: 'Fuel Reports',
+              subtitle: 'Filterable report, chart and Excel export',
+              color: Colors.deepOrange,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ManagementFuelReportsScreen(),
+                ),
+              ),
+            ),
           ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 1,
+            child: DashboardMenuCard(
+              icon: Icons.location_on,
+              title: 'Site Reports',
+              subtitle: 'Filterable report, chart and Excel export',
+              color: Colors.teal,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (_) => const ManagementSiteReportsScreen(),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          _WebStaggeredFadeIn(
+            index: 2,
+            child: DashboardMenuCard(
+              icon: Icons.map,
+              title: 'Live Tracking',
+              subtitle: 'GPS map, truck/site markers and route history',
+              color: Colors.blueGrey,
+              onTap: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const LiveTrackingScreen()),
+              ),
+            ),
+          ),
+          if (_canAccessTransportRecords) ...[
+            const SizedBox(height: 12),
+            _WebStaggeredFadeIn(
+              index: 3,
+              child: DashboardMenuCard(
+                icon: Icons.local_shipping,
+                title: 'Transport Records',
+                subtitle: 'Cube/Load rate calculation and salary reports',
+                color: Colors.indigo,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const TransportRecordsScreen(),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (_canAccessGarage) ...[
+            const SizedBox(height: 12),
+            _WebStaggeredFadeIn(
+              index: 4,
+              child: DashboardMenuCard(
+                icon: Icons.garage,
+                title: 'Garage',
+                subtitle: 'Truck/bike service tracking and notifications',
+                color: Colors.brown,
+                onTap: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => GarageScreen(name: widget.name),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -4768,6 +5377,15 @@ class _ManagementDashboardState extends State<ManagementDashboard> {
                     onTap: () => Navigator.push(
                       context,
                       FadeSlideRoute(page: const TransportRecordsScreen()),
+                    ),
+                  ),
+                if (_canAccessGarage)
+                  WebSidebarItem(
+                    icon: Icons.garage,
+                    label: 'Garage',
+                    onTap: () => Navigator.push(
+                      context,
+                      FadeSlideRoute(page: GarageScreen(name: widget.name)),
                     ),
                   ),
               ],
@@ -5000,6 +5618,55 @@ class _TransportOptionCard extends StatelessWidget {
       ),
     );
   }
+}
+
+// Small green "Completed" badge shown next to a work_record's Bill Number
+// in a report table when that record's isCompleted field is true — used by
+// TransportRecordScreen, DriverSalaryScreen, TransportSummaryScreen and
+// ManagementSiteReportsScreen's _buildTable methods. Purely a visual
+// addition to the on-screen table; the Excel export's cell values are
+// untouched.
+Widget _completedBillBadge() {
+  return Container(
+    margin: const EdgeInsets.only(left: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: Colors.green,
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: const Text(
+      '✓ Completed',
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
+    ),
+  );
+}
+
+// Orange counterpart to _completedBillBadge() above, shown next to a
+// work_record's Bill Number when isCompleted is still false — used by
+// ManagementSiteReportsScreen's _buildTable, which (unlike the other three
+// screens sharing _completedBillBadge()) now lists active/in-progress loads
+// too, not just completed ones.
+Widget _activeBillBadge() {
+  return Container(
+    margin: const EdgeInsets.only(left: 6),
+    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+    decoration: BoxDecoration(
+      color: Colors.orange[700],
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: const Text(
+      '● Active',
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.bold,
+        color: Colors.white,
+      ),
+    ),
+  );
 }
 
 // ---------------- TRANSPORT RECORD REPORT (global rate + full report) ----------------
@@ -7179,7 +7846,18 @@ class _TransportRecordScreenState extends State<TransportRecordScreen> {
                 final text = (colIndex == siteColIndex && isManual)
                     ? '${v.value} (Manual)'
                     : v.value;
-                return DataCell(Text(text));
+                return DataCell(
+                  colIndex == billNumberColIndex
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(text),
+                            if (data['isCompleted'] == true)
+                              _completedBillBadge(),
+                          ],
+                        )
+                      : Text(text),
+                );
               }),
               if (canEdit)
                 DataCell(
@@ -9815,7 +10493,18 @@ class _DriverSalaryScreenState extends State<DriverSalaryScreen> {
                 final text = (colIndex == siteColIndex && isManual)
                     ? '${v.value} (Manual)'
                     : v.value;
-                return DataCell(Text(text));
+                return DataCell(
+                  colIndex == billNumberColIndex
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(text),
+                            if (data['isCompleted'] == true)
+                              _completedBillBadge(),
+                          ],
+                        )
+                      : Text(text),
+                );
               }),
               if (canEdit)
                 DataCell(
@@ -12124,7 +12813,18 @@ class _TransportSummaryScreenState extends State<TransportSummaryScreen> {
                 final text = (colIndex == siteColIndex && isManual)
                     ? '${v.value} (Manual)'
                     : v.value;
-                return DataCell(Text(text));
+                return DataCell(
+                  colIndex == billNumberColIndex
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(text),
+                            if (data['isCompleted'] == true)
+                              _completedBillBadge(),
+                          ],
+                        )
+                      : Text(text),
+                );
               }),
               if (canEdit)
                 DataCell(
@@ -13778,11 +14478,15 @@ class _ManagementSiteReportsScreenState
   // debounced filter-change ones — created a fresh Stream and caused a
   // full unsubscribe/resubscribe, which is what the white flash actually
   // was.
+  //
+  // Deliberately NOT filtered to isCompleted:true — active (in-progress)
+  // Company Loads must show up here immediately, distinguished from
+  // completed ones by _completedBillBadge()/_activeBillBadge() in
+  // _buildTable rather than by being excluded from the query.
   late final Stream<QuerySnapshot> _workRecordsStream = FirebaseFirestore
       .instance
       .collectionGroup('work_records')
       .where('isLoadingCategory', isEqualTo: true)
-      .where('isCompleted', isEqualTo: true)
       .snapshots();
 
   // Manual "+ Add Report" entries (Part E) — a separate top-level collection,
@@ -15759,7 +16463,20 @@ class _ManagementSiteReportsScreenState
                 final text = (colIndex == siteColIndex && isManual)
                     ? '${v.value} (Manual)'
                     : v.value;
-                return DataCell(Text(text));
+                return DataCell(
+                  colIndex == billNumberColIndex
+                      ? Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(text),
+                            if (data['isCompleted'] == true)
+                              _completedBillBadge()
+                            else if (!isManual)
+                              _activeBillBadge(),
+                          ],
+                        )
+                      : Text(text),
+                );
               }),
               if (canEdit)
                 DataCell(
@@ -16803,10 +17520,23 @@ class _SupervisorScreenState extends State<SupervisorScreen> {
       final dateString =
           "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
 
-      // Check if there's already an active session today for this machine
+      // Check if the CURRENT supervisor already has an active session today
+      // for this machine — supervisorUid is a required part of this match,
+      // not just machineId/date/status. Root cause of a real production
+      // permission-denied bug: without it, this query would match ANY
+      // supervisor's active session on the machine (a shift handover, a
+      // forgotten End Day, shared equipment), and whoever ran _startDay()
+      // next would silently reuse someone else's daily_sessions doc —
+      // every write after that fails the
+      // resource.data.supervisorUid == request.auth.uid rule check,
+      // because the doc's actual owner is a different uid.
       final existing = await FirebaseFirestore.instance
           .collection('daily_sessions')
           .where('machineId', isEqualTo: _selectedMachineId)
+          .where(
+            'supervisorUid',
+            isEqualTo: FirebaseAuth.instance.currentUser!.uid,
+          )
           .where('date', isEqualTo: dateString)
           .where('status', isEqualTo: 'active')
           .limit(1)
@@ -17341,20 +18071,41 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     }
   }
 
-  // Resume a specific paused record (pauses whatever else is running first)
+  // Resume a specific paused record (pauses whatever else is running first).
+  // Its own call site (the RESUME button) fires this without await, same
+  // as _startNewWork's callers used to — wrapped here so an exception
+  // shows a SnackBar instead of silently doing nothing.
   Future<void> _resumeRecord(String recordId) async {
-    await _pauseRunningRecord();
-    await _recordsRef.doc(recordId).update({
-      'status': 'running',
-      'lastResumedAt': FieldValue.serverTimestamp(),
-    });
+    try {
+      await _pauseRunningRecord();
+      await _recordsRef.doc(recordId).update({
+        'status': 'running',
+        'lastResumedAt': FieldValue.serverTimestamp(),
+        // Resuming means the loading phase isn't over after all — without
+        // this the card would show a frozen duration next to a RUNNING
+        // badge (see _finishLoadingPhase and LiveTimerText.frozenDuration).
+        'loadingFinishedAt': null,
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to resume task: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   // Start a brand new work record
-  // Returns the created record's DocumentReference — most callers (the
-  // manual NewWorkDialog flow) just await this and ignore the result, but
-  // QR Scan (_submitViaQrScan) needs the new doc's id to immediately chain
-  // into _completeLoadingRecord.
+  // Returns the created record's DocumentReference — every current caller
+  // (manual NewWorkDialog flow, QR Scan's _submitViaQrScan) just awaits
+  // this and ignores the result; QR Scan used to need the id to chain
+  // into _completeLoadingRecord immediately, but no longer does (see
+  // _submitViaQrScan — it's left running for AutoArrivalDetectionService
+  // to complete later). Kept returning DocumentReference regardless, since
+  // it's harmless and a future caller may want it again.
   Future<DocumentReference> _startNewWork({
     required String category,
     required bool isLoadingCategory,
@@ -17366,6 +18117,20 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     String? cubeCount,
     String? machineOperatorName,
     String loadType = 'company',
+    // Superseded for Private Loads by completeImmediately below (GPS
+    // return-path detection was replaced with manual entry — see
+    // AutoArrivalDetectionService's doc comment on the now-disabled
+    // private-load branch). Kept for Company Loads, whose existing
+    // registered-site-arrival detection is unaffected by that change.
+    bool? autoCompleteViaGps,
+    // True only for a Private Load, both flows (see
+    // _submitViaQrScan/_showNewWorkDialog's onSubmit) — a Private Load's
+    // unloading location/KM are entered directly at creation time, so
+    // there's nothing left to wait for; it's created already complete
+    // instead of running. Every other record (any Company Load, or a
+    // non-loading category) is unaffected — this only changes the fields
+    // set below, nothing about who's allowed to call this method or how.
+    bool completeImmediately = false,
   }) async {
     await _pauseRunningRecord();
 
@@ -17394,9 +18159,11 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     return _recordsRef.add({
       'category': category,
       'isLoadingCategory': isLoadingCategory,
-      'status': 'running',
+      'status': completeImmediately ? 'paused' : 'running',
       'totalDurationSeconds': 0,
-      'lastResumedAt': FieldValue.serverTimestamp(),
+      'lastResumedAt': completeImmediately
+          ? null
+          : FieldValue.serverTimestamp(),
       'truckNumber': truckNumber,
       'billNumber': billNumber,
       'unloadingSiteName': unloadingSiteName,
@@ -17407,9 +18174,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       'cubeCount': cubeCount,
       'machineOperatorName': machineOperatorName,
       'loadType': loadType,
+      if (autoCompleteViaGps != null) 'autoCompleteViaGps': autoCompleteViaGps,
       'loadStartedAt': isLoadingCategory ? FieldValue.serverTimestamp() : null,
-      'loadCompletedAt': null,
-      'isCompleted': false,
+      'loadCompletedAt': completeImmediately
+          ? FieldValue.serverTimestamp()
+          : null,
+      'isCompleted': completeImmediately,
+      if (completeImmediately) 'isVerified': true,
       'createdAt': FieldValue.serverTimestamp(),
       // Denormalized for ManagementSiteReportsScreen's flat
       // collectionGroup('work_records') query, so it doesn't need to fetch
@@ -17452,8 +18223,22 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       );
       return;
     }
-    final driverName = qrData['driverName'] as String?;
-    final cube = qrData['cube']?.toString();
+    // Driver/cube are looked up live from Firestore at scan time, not read
+    // from the QR itself — the QR only ever encodes the truck number now
+    // (see _QrGenerateTabState._generateQrCode), so a truck's printed QR
+    // sticker never goes stale when its assigned driver or cube capacity
+    // changes later.
+    final truckSnap = await FirebaseFirestore.instance
+        .collection('trucks')
+        .where('truckNumber', isEqualTo: truckNumber)
+        .limit(1)
+        .get();
+    if (!mounted) return;
+    final truckData = truckSnap.docs.isNotEmpty
+        ? truckSnap.docs.first.data()
+        : null;
+    final driverName = truckData?['assignedDriverName'] as String?;
+    final cube = (truckData?['cubeCapacity'] as num?)?.toString();
 
     _showQrCategorySelectionDialog(
       truckNumber: truckNumber,
@@ -17481,6 +18266,10 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
             .where((c) => c.isNotEmpty)
             .toList() ??
         <String>[];
+    // Auto-filled from the current working site's assigned operator (Site
+    // Management's "Assigned Machine Operator") — left null (not blocked)
+    // when the site has no operator assigned.
+    final operatorName = siteDoc.data()?['assignedOperatorName'] as String?;
 
     if (!mounted) return;
 
@@ -17525,11 +18314,12 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                   label: category,
                   onTap: () {
                     Navigator.pop(dialogContext);
-                    _submitViaQrScan(
+                    _showQrBillNumberDialog(
                       truckNumber: truckNumber,
                       driverName: driverName,
                       cube: cube,
                       category: category,
+                      operatorName: operatorName,
                     );
                   },
                 );
@@ -17547,37 +18337,454 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
     );
   }
 
+  // New step between category selection and submission. Number keyboard +
+  // digits-only formatter matches NewWorkDialog's own required Bill Number
+  // field — there's no actual uppercase-force pattern for Bill Number
+  // anywhere in this codebase to reuse (that pattern exists for Truck
+  // Number only); Bill Numbers are consistently treated as numeric-only
+  // everywhere else already.
+  void _showQrBillNumberDialog({
+    required String truckNumber,
+    required String? driverName,
+    required String? cube,
+    required String category,
+    required String? operatorName,
+  }) {
+    final billNumberController = TextEditingController();
+    String? errorText;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Enter Bill Number'),
+          content: TextField(
+            controller: billNumberController,
+            autofocus: true,
+            keyboardType: TextInputType.number,
+            inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+            decoration: InputDecoration(
+              labelText: 'Bill Number',
+              border: const OutlineInputBorder(),
+              errorText: errorText,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final billNumber = billNumberController.text.trim();
+                if (billNumber.isEmpty) {
+                  setDialogState(() => errorText = 'Bill Number is required');
+                  return;
+                }
+                Navigator.pop(dialogContext);
+                _showQrLoadTypeDialog(
+                  truckNumber: truckNumber,
+                  driverName: driverName,
+                  cube: cube,
+                  category: category,
+                  billNumber: billNumber,
+                  operatorName: operatorName,
+                );
+              },
+              child: const Text('SUBMIT'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // New step between the Bill Number dialog and submission. RadioListTile
+  // pair/styling matches NewWorkDialog's own Load Type field exactly. A
+  // Company Load still needs no unloading site here — that's the whole
+  // point of AutoArrivalDetectionService's registered-site-proximity
+  // auto-detection this flow already relies on (see _submitViaQrScan);
+  // Private Load instead uses that service's return-path auto-detection.
+  void _showQrLoadTypeDialog({
+    required String truckNumber,
+    required String? driverName,
+    required String? cube,
+    required String category,
+    required String billNumber,
+    required String? operatorName,
+  }) {
+    String selectedLoadType = 'company';
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Load Type'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Company Load'),
+                value: 'company',
+                groupValue: selectedLoadType,
+                onChanged: (val) =>
+                    setDialogState(() => selectedLoadType = val ?? 'company'),
+              ),
+              RadioListTile<String>(
+                contentPadding: EdgeInsets.zero,
+                dense: true,
+                title: const Text('Private Load'),
+                value: 'private',
+                groupValue: selectedLoadType,
+                onChanged: (val) =>
+                    setDialogState(() => selectedLoadType = val ?? 'company'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                if (selectedLoadType == 'company') {
+                  // Pre-select the unloading site so
+                  // AutoArrivalDetectionService's company-load branch can
+                  // check that one specific site's siteGpsLocations()
+                  // directly, instead of looping every registered site.
+                  final selectedSite = await _showQrUnloadingSitePicker();
+                  if (selectedSite == null) return;
+                  _submitViaQrScan(
+                    truckNumber: truckNumber,
+                    driverName: driverName,
+                    cube: cube,
+                    category: category,
+                    billNumber: billNumber,
+                    operatorName: operatorName,
+                    loadType: selectedLoadType,
+                    unloadingSiteName: selectedSite,
+                  );
+                } else {
+                  // Private Load — unloading location/KM entered manually
+                  // next, and the record is created already complete (no
+                  // GPS detection involved) — see
+                  // _showQrPrivateLoadDetailsDialog/_submitViaQrScan.
+                  _showQrPrivateLoadDetailsDialog(
+                    truckNumber: truckNumber,
+                    driverName: driverName,
+                    cube: cube,
+                    category: category,
+                    billNumber: billNumber,
+                    operatorName: operatorName,
+                  );
+                }
+              },
+              child: const Text('SUBMIT'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // New step for a Private Load, after Load Type — replaces GPS
+  // return-path detection (see AutoArrivalDetectionService's now-disabled
+  // private-load branch) with direct manual entry, same idea as the
+  // manual New Work flow's Unloading Site/Distance fields, which already
+  // work this way for every load type. No "pick from registered sites"
+  // constraint here (unlike _showQrUnloadingSitePicker for Company Load)
+  // since nothing needs to match this text against real site coordinates
+  // anymore.
+  void _showQrPrivateLoadDetailsDialog({
+    required String truckNumber,
+    required String? driverName,
+    required String? cube,
+    required String category,
+    required String billNumber,
+    required String? operatorName,
+  }) {
+    final unloadingLocationController = TextEditingController();
+    final distanceController = TextEditingController();
+    String? errorText;
+    showDialog(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialogState) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: const Text('Private Load Details'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: unloadingLocationController,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Unloading Location',
+                    border: const OutlineInputBorder(),
+                    errorText: errorText,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: distanceController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: const InputDecoration(
+                    labelText: 'Distance (KM)',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final location = unloadingLocationController.text.trim();
+                if (location.isEmpty) {
+                  setDialogState(
+                    () => errorText = 'Unloading Location is required',
+                  );
+                  return;
+                }
+                Navigator.pop(dialogContext);
+                _submitViaQrScan(
+                  truckNumber: truckNumber,
+                  driverName: driverName,
+                  cube: cube,
+                  category: category,
+                  billNumber: billNumber,
+                  operatorName: operatorName,
+                  loadType: 'private',
+                  unloadingSiteName: location,
+                  distanceKm: double.tryParse(distanceController.text.trim()),
+                );
+              },
+              child: const Text('SUBMIT'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // QR Scan flow only — unlike NewWorkDialog's _showUnloadingSitePicker,
+  // this offers no "add as new site" option: a Company Load's
+  // unloadingSiteName picked here must be a real registered site with GPS
+  // coordinates, since AutoArrivalDetectionService's company-load branch
+  // checks that specific site's siteGpsLocations() directly.
+  Future<String?> _showQrUnloadingSitePicker() {
+    return showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search unloading site',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('sites')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final trimmedSearch = searchText.trim().toLowerCase();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            // Excludes the supervisor's own current loading
+                            // site — selecting it as its own "unloading
+                            // site" would make AutoArrivalDetectionService's
+                            // 50m arrival check pass instantly (the truck
+                            // starts right there), completing the load
+                            // before it's actually gone anywhere. Sites
+                            // default to canBeUnloadingSite: true, so
+                            // without this the current site was always a
+                            // selectable (and easy-to-tap-by-mistake) option
+                            // here.
+                            if (doc.id == widget.siteId) return false;
+                            final data = doc.data() as Map<String, dynamic>;
+                            // Defaults to true when absent — same
+                            // convention as every other canBeUnloadingSite
+                            // check in this codebase (see _addSite).
+                            if (data['canBeUnloadingSite'] == false) {
+                              return false;
+                            }
+                            final name = (data['name'] ?? '').toString();
+                            return name.toLowerCase().contains(trimmedSearch);
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Padding(
+                                padding: EdgeInsets.all(24),
+                                child: Text(
+                                  'No matching registered unloading sites.',
+                                  textAlign: TextAlign.center,
+                                ),
+                              ),
+                            );
+                          }
+                          return ListView(
+                            children: [
+                              for (final doc in filtered)
+                                ListTile(
+                                  leading: const Icon(
+                                    Icons.location_on,
+                                    color: AppTheme.accent,
+                                  ),
+                                  title: Text(
+                                    (doc.data()
+                                            as Map<String, dynamic>)['name'] ??
+                                        '',
+                                  ),
+                                  onTap: () => Navigator.pop(
+                                    sheetContext,
+                                    (doc.data() as Map<String, dynamic>)['name']
+                                        as String?,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   // Creates the work_records doc via the same _startNewWork every other
-  // Loading task uses, then immediately runs it through
-  // _completeLoadingRecord — QR Scan is a one-shot "this load happened"
-  // submission (unlike the manual flow, which starts a running task the
-  // supervisor completes later), so it goes straight to complete rather
-  // than being left running. This also means the sync to Google Sheets is
-  // the existing, already-correct one _completeLoadingRecord performs
-  // (Supervisor_Loads + Plant_Loads + site-specific sheet), not a
-  // hand-rolled duplicate of it.
+  // Loading task uses. Company Load's unloadingSiteName is pre-selected (see
+  // _showQrLoadTypeDialog's site picker step) so AutoArrivalDetectionService
+  // can check that one specific site's siteGpsLocations() directly, and
+  // stays on the existing GPS-arrival-detection workflow
+  // (autoCompleteViaGps: true). Private Load's unloading location/KM are
+  // now entered manually (see _showQrPrivateLoadDetailsDialog) and the
+  // record is created already complete — no GPS detection involved at all
+  // (autoCompleteViaGps omitted; see _startNewWork's doc comment on
+  // completeImmediately for the fuller picture, including the manual New
+  // Work flow's own Private Load case).
   Future<void> _submitViaQrScan({
     required String truckNumber,
     required String? driverName,
     required String? cube,
     required String category,
+    required String billNumber,
+    required String? operatorName,
+    required String loadType,
+    required String unloadingSiteName,
+    double? distanceKm,
   }) async {
-    final ref = await _startNewWork(
-      category: category,
-      isLoadingCategory: true,
-      truckNumber: truckNumber,
-      // TODO: Auto-populate via GPS proximity detection (Phase 2)
-      unloadingSiteName: '',
-      truckDriverName: driverName,
-      cubeCount: cube,
-    );
-    await _completeLoadingRecord(ref.id);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Load submitted via QR scan for Truck $truckNumber'),
-        ),
+    // Wrapped in try/catch on purpose — the caller (the Bill Number
+    // dialog's SUBMIT button) closes its dialog and calls this without
+    // awaiting it, so any exception thrown by _startNewWork used to become
+    // an unhandled Future error: no SnackBar, no dialog, nothing — the
+    // task just silently never got created. Same fix applied to
+    // _showNewWorkDialog's onSubmit below, which had the identical gap.
+    try {
+      final isPrivate = loadType == 'private';
+      final newDocRef = await _startNewWork(
+        category: category,
+        isLoadingCategory: true,
+        truckNumber: truckNumber,
+        billNumber: billNumber,
+        unloadingSiteName: unloadingSiteName,
+        distanceKm: distanceKm,
+        truckDriverName: driverName,
+        cubeCount: cube,
+        machineOperatorName: operatorName,
+        loadType: loadType,
+        autoCompleteViaGps: isPrivate ? null : true,
+        completeImmediately: isPrivate,
       );
+
+      if (isPrivate) {
+        final newDoc = await newDocRef.get();
+        final newData = newDoc.data() as Map<String, dynamic>;
+        await _syncCompletedRecordToSheets(newDocRef.id, newData, 0);
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              isPrivate
+                  ? 'Private load recorded via QR scan for Truck '
+                        '$truckNumber — marked complete.'
+                  : 'Load started via QR scan for Truck $truckNumber — '
+                        'completion will be detected automatically via GPS.',
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to start load via QR scan: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -17606,54 +18813,9 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
         'isCompleted': true,
       });
 
-      // Sync this completed load to Google Sheets
       final updatedDoc = await _recordsRef.doc(recordId).get();
       final updatedData = updatedDoc.data() as Map<String, dynamic>;
-
-      final row = [
-        GoogleSheetsService.formatDate(DateTime.now()),
-        widget.machineName,
-        widget.siteName,
-        widget.supervisorName,
-        updatedData['category'] ?? '',
-        updatedData['truckNumber'] ?? '',
-        updatedData['billNumber'] ?? '',
-        updatedData['unloadingSiteName'] ?? '',
-        updatedData['distanceKm']?.toString() ?? '',
-        updatedData['startMeter']?.toString() ?? '',
-        updatedData['endMeter']?.toString() ?? '',
-        _formatDuration(newTotal),
-        GoogleSheetsService.formatTime(updatedData['loadStartedAt']),
-        GoogleSheetsService.formatTime(updatedData['loadCompletedAt']),
-        updatedData['truckDriverName'] ?? '',
-        updatedData['cubeCount'] ?? '',
-        updatedData['machineOperatorName'] ?? '',
-      ];
-
-      GoogleSheetsService.sendRow(
-        sheetName: 'Supervisor_Loads',
-        row: row,
-        recordId: recordId,
-      );
-
-      // Plant sites also get a copy of every completed load in a dedicated
-      // sheet, in addition to the regular Supervisor_Loads log.
-      final siteDoc = await FirebaseFirestore.instance
-          .collection('sites')
-          .doc(widget.siteId)
-          .get();
-      final isPlantSite = siteDoc.data()?['isPlantSite'] == true;
-      if (isPlantSite) {
-        GoogleSheetsService.sendRow(
-          sheetName: 'Plant_Loads',
-          row: row,
-          recordId: recordId,
-        );
-      }
-
-      // Independent of the Plant_Loads check above: some loading sites also
-      // get their own dedicated sheet tab.
-      _syncToSiteSpecificSheet(row, recordId, siteDoc.data());
+      await _syncCompletedRecordToSheets(recordId, updatedData, newTotal);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(
@@ -17661,6 +18823,94 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
         ).showSnackBar(SnackBar(content: Text('Failed to complete load: $e')));
       }
     }
+  }
+
+  // A Company Load's COMPLETE button ends only its *loading* phase — the
+  // truck still has to reach the unloading site. So this stops the timer
+  // and stamps loadingFinishedAt (which LiveTimerText then shows frozen),
+  // and deliberately leaves isCompleted alone: AutoArrivalDetectionService's
+  // GPS arrival check is the only thing that ever sets that true, and the
+  // Sheets sync happens there too, once the load is genuinely delivered.
+  Future<void> _finishLoadingPhase(String recordId) async {
+    try {
+      final doc = await _recordsRef.doc(recordId).get();
+      final data = doc.data() as Map<String, dynamic>;
+      final lastResumedAt = (data['lastResumedAt'] as Timestamp?)?.toDate();
+      final currentTotal = (data['totalDurationSeconds'] ?? 0) as int;
+
+      int addedSeconds = 0;
+      if (lastResumedAt != null) {
+        addedSeconds = DateTime.now().difference(lastResumedAt).inSeconds;
+      }
+
+      await _recordsRef.doc(recordId).update({
+        'status': 'paused',
+        'totalDurationSeconds': currentTotal + addedSeconds,
+        'lastResumedAt': null,
+        'loadingFinishedAt': FieldValue.serverTimestamp(),
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to finish loading: $e')),
+        );
+      }
+    }
+  }
+
+  // Shared by _completeLoadingRecord and the Private Load
+  // immediate-completion paths in _submitViaQrScan/_showNewWorkDialog's
+  // onSubmit — same 17-column Supervisor_Loads row shape,
+  // Plant_Loads/site-specific-sheet follow-up.
+  Future<void> _syncCompletedRecordToSheets(
+    String recordId,
+    Map<String, dynamic> data,
+    int durationSeconds,
+  ) async {
+    final row = [
+      GoogleSheetsService.formatDate(DateTime.now()),
+      widget.machineName,
+      widget.siteName,
+      widget.supervisorName,
+      data['category'] ?? '',
+      data['truckNumber'] ?? '',
+      data['billNumber'] ?? '',
+      data['unloadingSiteName'] ?? '',
+      data['distanceKm']?.toString() ?? '',
+      data['startMeter']?.toString() ?? '',
+      data['endMeter']?.toString() ?? '',
+      _formatDuration(durationSeconds),
+      GoogleSheetsService.formatTime(data['loadStartedAt']),
+      GoogleSheetsService.formatTime(data['loadCompletedAt']),
+      data['truckDriverName'] ?? '',
+      data['cubeCount'] ?? '',
+      data['machineOperatorName'] ?? '',
+    ];
+
+    GoogleSheetsService.sendRow(
+      sheetName: 'Supervisor_Loads',
+      row: row,
+      recordId: recordId,
+    );
+
+    // Plant sites also get a copy of every completed load in a dedicated
+    // sheet, in addition to the regular Supervisor_Loads log.
+    final siteDoc = await FirebaseFirestore.instance
+        .collection('sites')
+        .doc(widget.siteId)
+        .get();
+    final isPlantSite = siteDoc.data()?['isPlantSite'] == true;
+    if (isPlantSite) {
+      GoogleSheetsService.sendRow(
+        sheetName: 'Plant_Loads',
+        row: row,
+        recordId: recordId,
+      );
+    }
+
+    // Independent of the Plant_Loads check above: some loading sites also
+    // get their own dedicated sheet tab.
+    _syncToSiteSpecificSheet(row, recordId, siteDoc.data());
   }
 
   int _liveElapsedSeconds(Map<String, dynamic> data) {
@@ -17686,6 +18936,7 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
       builder: (_) => NewWorkDialog(
         loadingCategories: _loadingCategories,
         otherCategories: _otherCategories,
+        currentSiteId: widget.siteId,
         onSubmit:
             (
               category,
@@ -17698,20 +18949,69 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
               cubeCount,
               machineOperatorName,
               loadType,
-            ) {
+            ) async {
               Navigator.pop(context);
-              _startNewWork(
-                category: category,
-                isLoadingCategory: _loadingCategories.contains(category),
-                truckNumber: truckNumber,
-                billNumber: billNumber,
-                unloadingSiteName: unloadingSiteName,
-                distanceKm: distanceKm,
-                truckDriverName: truckDriverName,
-                cubeCount: cubeCount,
-                machineOperatorName: machineOperatorName,
-                loadType: loadType,
-              );
+              // Same gap _submitViaQrScan had: this closure used to call
+              // _startNewWork without await or a try/catch, so any
+              // exception became an unhandled Future error — nothing
+              // shown, task silently never created. This is the manual
+              // (non-QR) New Work flow, so this bug predates and is
+              // independent of today's QR changes.
+              try {
+                // Private Load: NewWorkDialog already requires Unloading
+                // Site + Distance (KM) for every Loading task, so that
+                // manually-entered data is all a Private Load needs —
+                // create it already complete instead of running/waiting on
+                // GPS detection. A Company Load instead stays open for
+                // AutoArrivalDetectionService, exactly like the QR flow's
+                // Company branch — its COMPLETE button only ends the
+                // loading phase (_finishLoadingPhase), so GPS arrival is
+                // the only thing that can mark it isCompleted.
+                final isPrivate = loadType == 'private';
+                // Temporary — traces exactly what this submission is about
+                // to write, for the "Loading category completes instantly"
+                // investigation. Remove once confirmed fixed.
+                print(
+                  '[NEWWORK_DEBUG] category=$category, loadType=$loadType, '
+                  'isPrivate=$isPrivate, completeImmediately=$isPrivate, '
+                  'isLoadingCategory='
+                  '${_loadingCategories.contains(category)}',
+                );
+                final newDocRef = await _startNewWork(
+                  category: category,
+                  isLoadingCategory: _loadingCategories.contains(category),
+                  truckNumber: truckNumber,
+                  billNumber: billNumber,
+                  unloadingSiteName: unloadingSiteName,
+                  distanceKm: distanceKm,
+                  truckDriverName: truckDriverName,
+                  cubeCount: cubeCount,
+                  machineOperatorName: machineOperatorName,
+                  loadType: loadType,
+                  completeImmediately: isPrivate,
+                  autoCompleteViaGps: isPrivate ? null : true,
+                );
+                final newDoc = await newDocRef.get();
+                final newData = newDoc.data() as Map<String, dynamic>;
+                print(
+                  '[NEWWORK_DEBUG] Created record ${newDocRef.id}: '
+                  'isCompleted=${newData['isCompleted']}, '
+                  'status=${newData['status']}, '
+                  'loadType=${newData['loadType']}',
+                );
+                if (isPrivate) {
+                  await _syncCompletedRecordToSheets(newDocRef.id, newData, 0);
+                }
+              } catch (e) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to start task: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
             },
       ),
     );
@@ -18016,6 +19316,17 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                     final data = doc.data() as Map<String, dynamic>;
                     final isRunning = data['status'] == 'running';
                     final elapsed = _liveElapsedSeconds(data);
+                    // For a Company Load, COMPLETE means "loading phase
+                    // finished" (stops the timer, stamps loadingFinishedAt)
+                    // — not "delivered". Only AutoArrivalDetectionService's
+                    // GPS arrival check ever sets isCompleted true.
+                    final isCompanyLoadingTask =
+                        data['isLoadingCategory'] == true &&
+                        (data['loadType'] ?? 'company') == 'company';
+                    final loadingFinishedAt =
+                        (data['loadingFinishedAt'] as Timestamp?)?.toDate();
+                    final loadStartedAt =
+                        (data['loadStartedAt'] as Timestamp?)?.toDate();
 
                     return _WebStaggeredFadeIn(
                       index: index,
@@ -18078,6 +19389,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                                   lastResumedAt:
                                       (data['lastResumedAt'] as Timestamp?)
                                           ?.toDate(),
+                                  frozenDuration:
+                                      (loadingFinishedAt != null &&
+                                          loadStartedAt != null)
+                                      ? loadingFinishedAt.difference(
+                                          loadStartedAt,
+                                        )
+                                      : null,
                                 ),
                                 if (data['truckNumber'] != null) ...[
                                   const SizedBox(height: 6),
@@ -18150,8 +19468,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: ElevatedButton.icon(
-                                            onPressed: () =>
-                                                _completeLoadingRecord(doc.id),
+                                            onPressed: () {
+                                              if (isCompanyLoadingTask) {
+                                                _finishLoadingPhase(doc.id);
+                                              } else {
+                                                _completeLoadingRecord(doc.id);
+                                              }
+                                            },
                                             icon: const Icon(
                                               Icons.check,
                                               color: Colors.white,
@@ -18187,8 +19510,13 @@ class _WorkSessionScreenState extends State<WorkSessionScreen> {
                                         const SizedBox(width: 8),
                                         Expanded(
                                           child: ElevatedButton.icon(
-                                            onPressed: () =>
-                                                _completeLoadingRecord(doc.id),
+                                            onPressed: () {
+                                              if (isCompanyLoadingTask) {
+                                                _finishLoadingPhase(doc.id);
+                                              } else {
+                                                _completeLoadingRecord(doc.id);
+                                              }
+                                            },
                                             icon: const Icon(
                                               Icons.check,
                                               color: Colors.white,
@@ -18288,6 +19616,27 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
     Navigator.pop(context, rawValue);
   }
 
+  // Without this, MobileScanner falls back to its own default error UI,
+  // which for anything other than the few specifically-recognized native
+  // error codes (permission denied, no camera, already started) just shows
+  // "An unexpected error occurred." — MobileScannerException.errorDetails
+  // carries the real underlying PlatformException code/message even in
+  // that generic-error case, so this surfaces that instead, and gives a
+  // way back out rather than leaving the supervisor stuck on a dead screen.
+  String _describeError(MobileScannerException error) {
+    switch (error.errorCode) {
+      case MobileScannerErrorCode.permissionDenied:
+        return 'Camera permission was denied. Please allow camera access '
+            'for this app in your device settings and try again.';
+      case MobileScannerErrorCode.unsupported:
+        return 'No camera is available on this device.';
+      default:
+        final detail = error.errorDetails?.message;
+        return 'Could not open the camera'
+            '${detail != null && detail.isNotEmpty ? ': $detail' : '.'}';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -18297,7 +19646,39 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
       ),
-      body: MobileScanner(onDetect: _onDetect),
+      body: MobileScanner(
+        onDetect: _onDetect,
+        errorBuilder: (context, error) => Container(
+          color: Colors.black,
+          alignment: Alignment.center,
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.camera_alt_outlined,
+                color: Colors.white54,
+                size: 48,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                _describeError(error),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: Colors.white),
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton(
+                onPressed: () => Navigator.pop(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: Colors.white,
+                  side: const BorderSide(color: Colors.white54),
+                ),
+                child: const Text('Go Back'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -18306,6 +19687,13 @@ class _QrScannerScreenState extends State<_QrScannerScreen> {
 class NewWorkDialog extends StatefulWidget {
   final List<String> loadingCategories;
   final List<String> otherCategories;
+  // The supervisor's current loading site (WorkSessionScreen's widget.siteId)
+  // — excluded from _showUnloadingSitePicker's selectable list, same as
+  // _showQrUnloadingSitePicker's fix for the QR flow: selecting it as its
+  // own "unloading site" would make AutoArrivalDetectionService's 50m
+  // arrival check pass instantly, completing the load before the truck has
+  // actually gone anywhere.
+  final String currentSiteId;
   final Function(
     String category,
     String? truckNumber,
@@ -18324,6 +19712,7 @@ class NewWorkDialog extends StatefulWidget {
     super.key,
     required this.loadingCategories,
     required this.otherCategories,
+    required this.currentSiteId,
     required this.onSubmit,
   });
 
@@ -18410,6 +19799,9 @@ class _NewWorkDialogState extends State<NewWorkDialog> {
                           );
                           final trimmedSearch = searchText.trim();
                           final filtered = snapshot.data!.docs.where((doc) {
+                            // Excludes the supervisor's own current loading
+                            // site — see widget.currentSiteId's doc comment.
+                            if (doc.id == widget.currentSiteId) return false;
                             final data = doc.data() as Map<String, dynamic>;
                             if (data['canBeUnloadingSite'] == false)
                               return false;
@@ -18913,11 +20305,17 @@ class LiveTimerText extends StatefulWidget {
   final bool isRunning;
   final DateTime? lastResumedAt;
 
+  // Set once a Company Load's loading phase is finished
+  // (loadingFinishedAt - loadStartedAt): displayed as-is, with no ticking,
+  // in place of the accumulated running total.
+  final Duration? frozenDuration;
+
   const LiveTimerText({
     super.key,
     required this.totalDurationSeconds,
     required this.isRunning,
     required this.lastResumedAt,
+    this.frozenDuration,
   });
 
   @override
@@ -18930,7 +20328,7 @@ class _LiveTimerTextState extends State<LiveTimerText> {
   @override
   void initState() {
     super.initState();
-    if (widget.isRunning) {
+    if (widget.isRunning && widget.frozenDuration == null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
@@ -18941,7 +20339,7 @@ class _LiveTimerTextState extends State<LiveTimerText> {
   void didUpdateWidget(covariant LiveTimerText oldWidget) {
     super.didUpdateWidget(oldWidget);
     _timer?.cancel();
-    if (widget.isRunning) {
+    if (widget.isRunning && widget.frozenDuration == null) {
       _timer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (mounted) setState(() {});
       });
@@ -18963,8 +20361,9 @@ class _LiveTimerTextState extends State<LiveTimerText> {
 
   @override
   Widget build(BuildContext context) {
-    int elapsed = widget.totalDurationSeconds;
-    if (widget.isRunning && widget.lastResumedAt != null) {
+    final frozen = widget.frozenDuration;
+    int elapsed = frozen?.inSeconds ?? widget.totalDurationSeconds;
+    if (frozen == null && widget.isRunning && widget.lastResumedAt != null) {
       elapsed += DateTime.now().difference(widget.lastResumedAt!).inSeconds;
     }
 
@@ -22442,7 +23841,10 @@ class GoogleSheetsService {
 // this feature) — without it, the browser blocks these requests before
 // they ever reach Traccar.
 class TraccarService {
-  static const String baseUrl = 'http://168.144.45.67:8082';
+  // https, not the bare IP:8082 — a Flutter web build served over https
+  // blocks plain-http requests as Mixed Content before they ever leave the
+  // browser, regardless of Traccar's own CORS/web.origin setting.
+  static const String baseUrl = 'https://traccar.noda.lk';
 
   static Map<String, String> _authHeaders(String username, String password) {
     final credentials = base64Encode(utf8.encode('$username:$password'));
@@ -22539,6 +23941,3404 @@ class TraccarService {
           0;
     }
     return totalMeters;
+  }
+
+  // GET /api/positions?deviceId=X&from=ISO&to=ISO — position history for
+  // one device over a date range, distinct from the no-filter
+  // fetchPositions() above (which only returns each device's LATEST
+  // position). deviceId is Traccar's internal numeric id, same convention
+  // as fetchDistanceSummary — not the uniqueId/Identifier string stored as
+  // trucks/{id}.gpsDeviceId. username/password are required here (Basic
+  // Auth, same as every other call in this class) even though they weren't
+  // in the originally sketched signature — this endpoint can't authenticate
+  // without them.
+  static Future<List<Map<String, double>>> fetchPositionHistory({
+    required String username,
+    required String password,
+    required int deviceId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    final uri = Uri.parse('$baseUrl/api/positions').replace(
+      queryParameters: {
+        'deviceId': deviceId.toString(),
+        'from': from.toUtc().toIso8601String(),
+        'to': to.toUtc().toIso8601String(),
+      },
+    );
+    final response = await http.get(
+      uri,
+      headers: _authHeaders(username, password),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(
+        'Traccar fetchPositionHistory failed: HTTP ${response.statusCode}',
+      );
+    }
+    final decoded = jsonDecode(response.body) as List<dynamic>;
+    final points = <Map<String, double>>[];
+    for (final entry in decoded) {
+      final map = entry as Map<String, dynamic>;
+      final lat = (map['latitude'] as num?)?.toDouble();
+      final lng = (map['longitude'] as num?)?.toDouble();
+      if (lat != null && lng != null) {
+        points.add({'latitude': lat, 'longitude': lng});
+      }
+    }
+    return points;
+  }
+}
+
+// Emitted on AutoArrivalDetectionService.onLoadCompleted whenever a load
+// auto-completes (Company or Private) — see LiveTrackingScreen, which shows
+// a SnackBar for these.
+class LoadCompletionEvent {
+  final String truckNumber;
+  final String billNumber;
+  final String siteName;
+
+  const LoadCompletionEvent({
+    required this.truckNumber,
+    required this.billNumber,
+    required this.siteName,
+  });
+}
+
+// ---------------- AUTO ARRIVAL DETECTION SERVICE ----------------
+// Completes any work_record marked autoCompleteViaGps: true (QR-scanned
+// Company/Private Loads, and manual-flow Private Loads — see
+// WorkSessionScreen._startNewWork's doc comment on that parameter for who
+// sets it). Company Loads complete once the truck's live GPS position lands
+// within 50m of the load's pre-selected unloading site; Private Loads
+// complete via return-path detection (see _checkPrivateLoadReturn).
+// Triggered from LiveTrackingScreen's existing 15s position-refresh timer
+// (_refreshPositions) — no separate timer of its own, per that requirement.
+class AutoArrivalDetectionService {
+  static const String _traccarUsername = 'pabodamilan.rpm@gmail.com';
+  static const String _traccarPassword = 'Pa@20010707';
+  static const double _arrivalRadiusMeters = 100;
+  // Private-load return-path detection (see _checkPrivateLoadReturn) — a
+  // private load has no registered delivery site to arrive at, so instead
+  // it's treated as complete once the truck has gone far enough from its
+  // start (avoiding a false positive right at load-start) and then come
+  // back close to its own outbound path.
+  static const double _privateLoadMinTravelMeters = 500;
+  static const double _privateLoadReturnRadiusMeters = 20;
+
+  // Broadcast (not single-subscription) so this doesn't break if more than
+  // one listener ever attaches — currently just LiveTrackingScreen, which
+  // subscribes in initState/cancels in dispose to show a completion
+  // SnackBar. Never closed: this is a static, app-lifetime singleton
+  // service, same as the rest of this class.
+  static final StreamController<LoadCompletionEvent> _completionController =
+      StreamController<LoadCompletionEvent>.broadcast();
+  static Stream<LoadCompletionEvent> get onLoadCompleted =>
+      _completionController.stream;
+
+  static Future<void> checkAllActiveLoads() async {
+    try {
+      // isCompleted == false is the same single-field-equality query
+      // LiveTrackingScreen's own bill-number lookup already uses — proven,
+      // no composite index needed (no orderBy paired with it), unlike the
+      // old unloadingSiteName == '' filter. This now matches every running
+      // work_record (any category, either flow), so it's narrowed to just
+      // autoCompleteViaGps: true ones client-side below.
+      final activeLoadsSnap = await FirebaseFirestore.instance
+          .collectionGroup('work_records')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+      // Both flows (QR and manual New Work) set autoCompleteViaGps: true on
+      // a Company Load and omit it on a Private Load, which is created
+      // already complete — so this narrows to exactly the Company Loads
+      // still waiting on arrival.
+      final activeLoads = activeLoadsSnap.docs
+          .where((doc) => doc.data()['autoCompleteViaGps'] == true)
+          .toList();
+      if (activeLoads.isEmpty) return;
+
+      final positions = await TraccarService.fetchPositions(
+        username: _traccarUsername,
+        password: _traccarPassword,
+      );
+      final devices = await TraccarService.fetchDevices(
+        username: _traccarUsername,
+        password: _traccarPassword,
+      );
+      // position.deviceId is Traccar's internal numeric id, not the
+      // uniqueId/Identifier string stored as trucks/{id}.gpsDeviceId — see
+      // fetchDevices' doc comment for the same bridge LiveTrackingScreen's
+      // own _refreshPositions uses.
+      final uniqueIdByDeviceId = <int, String>{
+        for (final device in devices)
+          if (device['id'] is int && device['uniqueId'] is String)
+            device['id'] as int: device['uniqueId'] as String,
+      };
+      // Reverse of the above — needed to call
+      // TraccarService.fetchPositionHistory (which takes Traccar's numeric
+      // device id), both for the post-arrival distanceKm calculation below
+      // and (originally) for a private load's truck in the now-disabled
+      // _checkPrivateLoadReturn.
+      final deviceIdByUniqueId = <String, int>{
+        for (final device in devices)
+          if (device['id'] is int && device['uniqueId'] is String)
+            device['uniqueId'] as String: device['id'] as int,
+      };
+      final positionByGpsDeviceId = <String, LatLng>{};
+      for (final position in positions) {
+        final deviceId = position['deviceId'];
+        final lat = (position['latitude'] as num?)?.toDouble();
+        final lng = (position['longitude'] as num?)?.toDouble();
+        if (deviceId is! int || lat == null || lng == null) continue;
+        final uniqueId = uniqueIdByDeviceId[deviceId];
+        if (uniqueId == null) continue;
+        positionByGpsDeviceId[uniqueId] = LatLng(lat, lng);
+      }
+      if (positionByGpsDeviceId.isEmpty) return;
+
+      final trucksSnap = await FirebaseFirestore.instance
+          .collection('trucks')
+          .get();
+      final gpsDeviceIdByTruckNumber = <String, String>{
+        for (final doc in trucksSnap.docs)
+          if ((doc.data()['gpsDeviceId'] as String?)?.isNotEmpty == true)
+            (doc.data()['truckNumber'] ?? '').toString():
+                doc.data()['gpsDeviceId'] as String,
+      };
+
+      // Company-load site lookups are cached by name within this run — see
+      // the company-load branch below. Several active loads commonly share
+      // the same destination site, so this avoids repeat queries for those.
+      final siteDataCache = <String, Map<String, dynamic>?>{};
+      Future<Map<String, dynamic>?> fetchSiteDataByName(String name) async {
+        if (siteDataCache.containsKey(name)) return siteDataCache[name];
+        final query = await FirebaseFirestore.instance
+            .collection('sites')
+            .where('name', isEqualTo: name)
+            .limit(1)
+            .get();
+        final data = query.docs.isEmpty ? null : query.docs.first.data();
+        siteDataCache[name] = data;
+        return data;
+      }
+
+      for (final loadDoc in activeLoads) {
+        final loadData = loadDoc.data();
+        final truckNumber = (loadData['truckNumber'] ?? '').toString();
+        if (truckNumber.isEmpty) continue;
+        final gpsDeviceId = gpsDeviceIdByTruckNumber[truckNumber];
+        if (gpsDeviceId == null) continue;
+        final truckPosition = positionByGpsDeviceId[gpsDeviceId];
+        if (truckPosition == null) continue;
+
+        // Disabled: Private Loads now use manual entry, no GPS detection
+        // needed. A Private Load is created already isCompleted: true
+        // (see WorkSessionScreen._startNewWork's completeImmediately
+        // param), so it should never actually reach this branch for a
+        // record created after that change — this only still matters for
+        // any pre-existing Private Load record that was left running with
+        // autoCompleteViaGps: true from before. _checkPrivateLoadReturn
+        // itself (GPS return-path detection) is kept below, not deleted,
+        // in case this ever needs reverting.
+        if ((loadData['loadType'] ?? 'company').toString() == 'private') {
+          // await _checkPrivateLoadReturn(
+          //   loadDoc: loadDoc,
+          //   loadData: loadData,
+          //   currentPosition: truckPosition,
+          //   deviceId: deviceIdByUniqueId[gpsDeviceId],
+          // );
+          continue;
+        }
+
+        // Grace period safety net (additive, on top of the root-cause fix
+        // in _NewWorkDialog/_showQrUnloadingSitePicker) — a load can't
+        // possibly have arrived at its unloading site within moments of
+        // starting, so this guards against any future false-positive
+        // regardless of cause.
+        final companyLoadStartedAt = loadData['loadStartedAt'] as Timestamp?;
+        if (companyLoadStartedAt != null &&
+            DateTime.now().difference(companyLoadStartedAt.toDate()) <
+                const Duration(seconds: 30)) {
+          continue;
+        }
+
+        // Company Load's unloadingSiteName is pre-selected at QR Scan time
+        // (see _showQrLoadTypeDialog's site picker step), so only that one
+        // specific site needs checking — no need to loop every registered
+        // unloading site.
+        final siteName = (loadData['unloadingSiteName'] ?? '').toString();
+        if (siteName.isEmpty) continue;
+        final siteData = await fetchSiteDataByName(siteName);
+        if (siteData == null) continue;
+
+        // Multi-point support (see siteGpsLocations) — any one of a site's
+        // entrance/gate points counts as an arrival, not just a single
+        // lat/lng.
+        final points = siteGpsLocations(siteData);
+
+        // Temporary (V3) — confirms whether the selected unloading site's
+        // coordinates suspiciously match the supervisor's own loading
+        // site's coordinates (e.g. both captured from the same physical
+        // spot during testing). Remove once the "completes regardless of
+        // distance" report is confirmed fixed.
+        final companyLoadingSiteName = (loadData['siteName'] ?? '').toString();
+        final companyLoadingSiteData = companyLoadingSiteName.isEmpty
+            ? null
+            : await fetchSiteDataByName(companyLoadingSiteName);
+        final companyLoadingSitePoints = companyLoadingSiteData == null
+            ? const <Map<String, dynamic>>[]
+            : siteGpsLocations(companyLoadingSiteData);
+        print(
+          '[COMPANY_CHECK_V3] Selected Unloading Site Name: $siteName, '
+          'Coordinates: '
+          '${points.isNotEmpty ? points.first['latitude'] : null}, '
+          '${points.isNotEmpty ? points.first['longitude'] : null}',
+        );
+        print(
+          "[COMPANY_CHECK_V3] Supervisor's Loading Site Name: "
+          '$companyLoadingSiteName, Coordinates: '
+          '${companyLoadingSitePoints.isNotEmpty ? companyLoadingSitePoints.first['latitude'] : null}, '
+          '${companyLoadingSitePoints.isNotEmpty ? companyLoadingSitePoints.first['longitude'] : null}',
+        );
+        print(
+          '[COMPANY_CHECK_V3] Same Site?: ${siteName == companyLoadingSiteName}',
+        );
+
+        // Temporary (V2) — confirms the real site/position/distance values
+        // this check is actually using, in the exact format requested for
+        // this investigation. Remove once the "completes regardless of
+        // distance" report is confirmed fixed.
+        print(
+          '[COMPANY_CHECK_V2] Truck: $truckNumber, '
+          'Selected Unloading Site: $siteName',
+        );
+        print(
+          '[COMPANY_CHECK_V2] Site GPS Points: '
+          '${points.map((p) => '${p['latitude']},${p['longitude']}').join('|')}',
+        );
+        print(
+          '[COMPANY_CHECK_V2] Truck Current Position: '
+          '${truckPosition.latitude}, ${truckPosition.longitude}',
+        );
+        var arrived = false;
+        for (var i = 0; i < points.length; i++) {
+          final lat = (points[i]['latitude'] as num?)?.toDouble();
+          final lng = (points[i]['longitude'] as num?)?.toDouble();
+          if (lat == null || lng == null) continue;
+          final distanceMeters = Geolocator.distanceBetween(
+            truckPosition.latitude,
+            truckPosition.longitude,
+            lat,
+            lng,
+          );
+          print('[COMPANY_CHECK_V2] Calculated Distance: ${distanceMeters}m');
+          print(
+            '[COMPANY_CHECK_V2] Comparison Result: '
+            '${distanceMeters <= _arrivalRadiusMeters ? 'MATCH - Will Complete' : 'No Match'}',
+          );
+          if (distanceMeters <= _arrivalRadiusMeters) {
+            arrived = true;
+          }
+        }
+        if (!arrived) continue;
+
+        // Overrides the supervisor's manually-entered distanceKm estimate
+        // with the GPS-measured actual total, now that arrival is
+        // confirmed — the same "sum consecutive position-history points
+        // with Geolocator.distanceBetween" approach _drawRouteForTruck
+        // uses for the live tracking KM figure. Company Loads only:
+        // Private Loads keep their manual entry (loadType == 'private'
+        // never reaches this point — see the continue above).
+        double? calculatedDistanceKm;
+        final numericDeviceId = deviceIdByUniqueId[gpsDeviceId];
+        if (numericDeviceId != null && companyLoadStartedAt != null) {
+          final historyPoints = await TraccarService.fetchPositionHistory(
+            username: _traccarUsername,
+            password: _traccarPassword,
+            deviceId: numericDeviceId,
+            from: companyLoadStartedAt.toDate(),
+            to: DateTime.now(),
+          );
+          var totalMeters = 0.0;
+          for (var i = 1; i < historyPoints.length; i++) {
+            totalMeters += Geolocator.distanceBetween(
+              historyPoints[i - 1]['latitude']!,
+              historyPoints[i - 1]['longitude']!,
+              historyPoints[i]['latitude']!,
+              historyPoints[i]['longitude']!,
+            );
+          }
+          calculatedDistanceKm = totalMeters / 1000;
+        }
+
+        await loadDoc.reference.update({
+          'unloadingSiteName': siteName,
+          'isCompleted': true,
+          'loadCompletedAt': FieldValue.serverTimestamp(),
+          if (calculatedDistanceKm != null) 'distanceKm': calculatedDistanceKm,
+          // Auto-verified — GPS-confirmed arrival stands in for a human
+          // reviewing and ticking Verified manually.
+          'isVerified': true,
+        });
+
+        await _syncCompletedLoadToSheets(loadDoc.id, {
+          ...loadData,
+          'unloadingSiteName': siteName,
+        });
+
+        _completionController.add(
+          LoadCompletionEvent(
+            truckNumber: truckNumber,
+            billNumber: (loadData['billNumber'] ?? '').toString(),
+            siteName: siteName,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('AutoArrivalDetectionService.checkAllActiveLoads failed: $e');
+    }
+  }
+
+  // Completes a private load once its truck's live position comes back
+  // close to its own outbound path — there's no registered delivery site
+  // for a private load to arrive at, unlike the company-load proximity
+  // check in checkAllActiveLoads above. Requires the truck to have first
+  // travelled at least _privateLoadMinTravelMeters total (summed across the
+  // whole loadStartedAt-to-now position history) so this can't fire in the
+  // first few seconds after the load starts, before the truck has actually
+  // left; "close to its own outbound path" means within
+  // _privateLoadReturnRadiusMeters of any point from the first 30% of that
+  // history (the outbound leg, before the truck would plausibly have
+  // turned back).
+  //
+  // Disabled — see checkAllActiveLoads' now-commented-out call site.
+  // Private Loads use manual entry instead of GPS detection now, but this
+  // is kept (not deleted) in case that ever needs reverting.
+  // ignore: unused_element
+  static Future<void> _checkPrivateLoadReturn({
+    required QueryDocumentSnapshot<Map<String, dynamic>> loadDoc,
+    required Map<String, dynamic> loadData,
+    required LatLng currentPosition,
+    required int? deviceId,
+  }) async {
+    // Temporary — see PART of the fresh-verification request that asked
+    // for these to be re-added after a prior session removed the earlier
+    // AUTO_ARRIVAL_PRIVATE prints; remove again once confirmed working
+    // against a load actually created after the autoCompleteViaGps fix.
+    final truckNumber = (loadData['truckNumber'] ?? '').toString();
+    print(
+      '[PRIVATE_CHECK] Truck: $truckNumber, '
+      'autoCompleteViaGps: ${loadData['autoCompleteViaGps']}',
+    );
+    if (deviceId == null) return;
+    final loadStartedAt = loadData['loadStartedAt'] as Timestamp?;
+    if (loadStartedAt == null) return;
+
+    final points = await TraccarService.fetchPositionHistory(
+      username: _traccarUsername,
+      password: _traccarPassword,
+      deviceId: deviceId,
+      from: loadStartedAt.toDate(),
+      to: DateTime.now(),
+    );
+    if (points.length < 2) {
+      print(
+        '[PRIVATE_CHECK] History points: ${points.length}, Total distance: 0m',
+      );
+      return;
+    }
+
+    var totalDistanceMeters = 0.0;
+    for (var i = 1; i < points.length; i++) {
+      totalDistanceMeters += Geolocator.distanceBetween(
+        points[i - 1]['latitude']!,
+        points[i - 1]['longitude']!,
+        points[i]['latitude']!,
+        points[i]['longitude']!,
+      );
+    }
+    print(
+      '[PRIVATE_CHECK] History points: ${points.length}, '
+      'Total distance: ${totalDistanceMeters}m',
+    );
+    if (totalDistanceMeters < _privateLoadMinTravelMeters) return;
+
+    final earlyPointCount = max(1, (points.length * 0.3).ceil());
+    var minDistance = double.infinity;
+    for (final point in points.take(earlyPointCount)) {
+      final distance = Geolocator.distanceBetween(
+        currentPosition.latitude,
+        currentPosition.longitude,
+        point['latitude']!,
+        point['longitude']!,
+      );
+      if (distance < minDistance) minDistance = distance;
+    }
+    print(
+      '[PRIVATE_CHECK] Current pos vs early points - min distance found: '
+      '${minDistance}m (threshold: ${_privateLoadReturnRadiusMeters}m)',
+    );
+    if (minDistance > _privateLoadReturnRadiusMeters) return;
+
+    await loadDoc.reference.update({
+      // No registered site to record — see class doc comment on this
+      // method. unloadingSiteNote carries the human-readable explanation
+      // instead, for anything reading the record afterwards (e.g.
+      // LiveTrackingScreen's bill detail card).
+      'unloadingSiteName': '',
+      'unloadingSiteNote': 'Private Delivery (GPS Auto-Detected)',
+      'isCompleted': true,
+      'loadCompletedAt': FieldValue.serverTimestamp(),
+      // Auto-verified — GPS-confirmed return stands in for a human
+      // reviewing and ticking Verified manually, same as the company-load
+      // arrival case.
+      'isVerified': true,
+    });
+
+    await _syncCompletedLoadToSheets(loadDoc.id, {
+      ...loadData,
+      'unloadingSiteName': 'Private Delivery (GPS Auto-Detected)',
+    });
+
+    _completionController.add(
+      LoadCompletionEvent(
+        truckNumber: truckNumber,
+        billNumber: (loadData['billNumber'] ?? '').toString(),
+        siteName: 'Private Delivery (GPS Auto-Detected)',
+      ),
+    );
+  }
+
+  // Same 17-column Supervisor_Loads row shape
+  // WorkSessionScreen._completeLoadingRecord builds, and the same
+  // Plant_Loads/site-specific-sheet follow-up — but sourced entirely from
+  // the work_record's own already-denormalized fields (machineName/
+  // siteName/supervisorName, written once by _startNewWork) rather than a
+  // WorkSessionScreen widget instance, since this runs independently from
+  // LiveTrackingScreen, with no supervisor session screen open at all.
+  static Future<void> _syncCompletedLoadToSheets(
+    String recordId,
+    Map<String, dynamic> data,
+  ) async {
+    final totalDurationSeconds = (data['totalDurationSeconds'] ?? 0) as int;
+    final h = totalDurationSeconds ~/ 3600;
+    final m = (totalDurationSeconds % 3600) ~/ 60;
+    final s = totalDurationSeconds % 60;
+    final formattedDuration =
+        '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:'
+        '${s.toString().padLeft(2, '0')}';
+
+    final row = [
+      GoogleSheetsService.formatDate(DateTime.now()),
+      data['machineName'] ?? '',
+      data['siteName'] ?? '',
+      data['supervisorName'] ?? '',
+      data['category'] ?? '',
+      data['truckNumber'] ?? '',
+      data['billNumber'] ?? '',
+      data['unloadingSiteName'] ?? '',
+      data['distanceKm']?.toString() ?? '',
+      data['startMeter']?.toString() ?? '',
+      data['endMeter']?.toString() ?? '',
+      formattedDuration,
+      GoogleSheetsService.formatTime(data['loadStartedAt']),
+      GoogleSheetsService.formatTime(data['loadCompletedAt']),
+      data['truckDriverName'] ?? '',
+      data['cubeCount'] ?? '',
+      data['machineOperatorName'] ?? '',
+    ];
+
+    GoogleSheetsService.sendRow(
+      sheetName: 'Supervisor_Loads',
+      row: row,
+      recordId: recordId,
+    );
+
+    // The loading site (data['siteName']) — work_records only store the
+    // site name, not its id, so this is a live lookup by name, same as the
+    // "edit historical record" dialogs elsewhere in this codebase.
+    final loadingSiteName = (data['siteName'] ?? '').toString();
+    final siteQuery = await FirebaseFirestore.instance
+        .collection('sites')
+        .where('name', isEqualTo: loadingSiteName)
+        .limit(1)
+        .get();
+    final loadingSiteData = siteQuery.docs.isNotEmpty
+        ? siteQuery.docs.first.data()
+        : null;
+
+    if (loadingSiteData?['isPlantSite'] == true) {
+      GoogleSheetsService.sendRow(
+        sheetName: 'Plant_Loads',
+        row: row,
+        recordId: recordId,
+      );
+    }
+
+    final liveSiteName =
+        (loadingSiteData?['name'] as String?) ?? loadingSiteName;
+    final siteSpecificSheetName =
+        (loadingSiteData?['sheetName'] as String?) ??
+        kSiteSheetMap[normalizeSiteNameForSheetLookup(liveSiteName)];
+    if (siteSpecificSheetName != null) {
+      GoogleSheetsService.sendRow(
+        sheetName: siteSpecificSheetName,
+        row: row,
+        recordId: recordId,
+      );
+    }
+  }
+}
+
+// ---------------- GARAGE MODULE (Truck Maintenance) ----------------
+// Service tracking built on the same GPS-odometer approach as GPS Devices'
+// KM history (TraccarService.fetchDistanceSummary): a truck's "KM since
+// last service" is its live GPS total KM minus a baseline snapshotted at
+// the last logged service (trucks/{id}.gpsKmBaselineAtLastService) — not a
+// running counter that has to be reset/decremented anywhere, logging a
+// service just moves the baseline up to the current total.
+// Covers both collections the Garage tracks — trucks and (see
+// kBikesCollection) bikes. isBike is what tells them apart for display and
+// for resolving which collection a service write goes to; everything else
+// about the KM-since-service maths is identical for the two.
+class GarageVehicleStatus {
+  final String vehicleId;
+  final String vehicleNumber;
+  final bool isBike;
+  final double currentTotalKm;
+  final double kmSinceLastService;
+  final double serviceIntervalKm;
+
+  const GarageVehicleStatus({
+    required this.vehicleId,
+    required this.vehicleNumber,
+    required this.isBike,
+    required this.currentTotalKm,
+    required this.kmSinceLastService,
+    required this.serviceIntervalKm,
+  });
+
+  double get kmRemaining => serviceIntervalKm - kmSinceLastService;
+
+  String get collectionName => isBike ? kBikesCollection : 'trucks';
+}
+
+// Bikes are a deliberately separate collection from trucks, not a "type"
+// field on trucks — the truck documents feed the QR system, GPS live
+// tracking and every work_record flow, none of which apply to a bike.
+const String kBikesCollection = 'bikes';
+
+// Per-vehicle service log (trucks/{id}/serviceHistory,
+// bikes/{id}/serviceHistory) — appended to on every logged service, never
+// overwritten, so the Garage keeps a full history alongside the single
+// "current status" fields on the parent vehicle doc.
+const String kServiceHistorySubcollection = 'serviceHistory';
+
+// Per-vehicle, per-service-type tracking (trucks/{id}/serviceTypes,
+// bikes/{id}/serviceTypes) — additive to, and independent of, the single
+// generic serviceIntervalKm/gpsKmBaselineAtLastService fields on the
+// vehicle doc itself. A vehicle can have any number of these (Oil Change
+// every 5000km, Brake Service every 10000km, ...), each tracked against
+// its own gpsKmBaseline snapshot the same way the vehicle-level one is.
+// Existing vehicles simply start with none — nothing to migrate.
+const String kServiceTypesSubcollection = 'serviceTypes';
+
+// One service-type's due-soon/overdue status for the Notifications tab and
+// the daily push-notification check — same kmRemaining shape as
+// GarageVehicleStatus, but scoped to one type rather than the whole
+// vehicle, since a vehicle can now have several of these independently.
+class GarageServiceTypeAlert {
+  final String vehicleNumber;
+  final bool isBike;
+  final String typeName;
+  final double kmRemaining;
+
+  const GarageServiceTypeAlert({
+    required this.vehicleNumber,
+    required this.isBike,
+    required this.typeName,
+    required this.kmRemaining,
+  });
+
+  bool get isOverdue => kmRemaining < 0;
+}
+
+class GarageService {
+  static const String _traccarUsername = 'pabodamilan.rpm@gmail.com';
+  static const String _traccarPassword = 'Pa@20010707';
+  // Default interval for a truck that hasn't logged a service yet.
+  static const double defaultServiceIntervalKm = 5000;
+  // Notifications tab / GarageNotificationService warning threshold.
+  static const double lowKmWarningThreshold = 50;
+
+  // Company trucks (isCompanyTruck == true) with a GPS device assigned —
+  // the only trucks eligible for KM-based service tracking. gpsDeviceId is
+  // filtered client-side rather than as a second `where`, same
+  // composite-index-avoidance reasoning used throughout this codebase (see
+  // AutoArrivalDetectionService.checkAllActiveLoads' doc comment).
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  fetchCompanyTrucksWithGps() async {
+    final snap = await FirebaseFirestore.instance
+        .collection('trucks')
+        .where('isCompanyTruck', isEqualTo: true)
+        .get();
+    return snap.docs.where((doc) {
+      final gpsDeviceId = (doc.data()['gpsDeviceId'] as String?)?.trim();
+      return gpsDeviceId != null && gpsDeviceId.isNotEmpty;
+    }).toList();
+  }
+
+  // Bike equivalent of the above — same isCompanyBike + gpsDeviceId
+  // eligibility rule, against the separate bikes collection.
+  static Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>
+  fetchCompanyBikesWithGps() async {
+    final snap = await FirebaseFirestore.instance
+        .collection(kBikesCollection)
+        .where('isCompanyBike', isEqualTo: true)
+        .get();
+    return snap.docs.where((doc) {
+      final gpsDeviceId = (doc.data()['gpsDeviceId'] as String?)?.trim();
+      return gpsDeviceId != null && gpsDeviceId.isNotEmpty;
+    }).toList();
+  }
+
+  // One truck's live GPS total KM since 2020-01-01 — same convention as
+  // GpsDeviceManagementScreen's _KmHistoryPanel Total Distance figure.
+  static Future<double> _fetchCurrentTotalKm(int deviceId) async {
+    final meters = await TraccarService.fetchDistanceSummary(
+      username: _traccarUsername,
+      password: _traccarPassword,
+      deviceId: deviceId,
+      from: DateTime(2020, 1, 1),
+      to: DateTime.now(),
+    );
+    return meters / 1000;
+  }
+
+  // Resolves gpsDeviceId (trucks/{id}'s uniqueId string) to Traccar's
+  // numeric device id from an already-fetched devices list — passed in
+  // rather than re-fetched per truck when checking many at once (see
+  // fetchAllStatuses).
+  static int? _resolveDeviceId(
+    List<Map<String, dynamic>> devices,
+    String gpsDeviceId,
+  ) {
+    final matched = devices.cast<Map<String, dynamic>?>().firstWhere(
+      (d) => (d?['uniqueId'] ?? '').toString() == gpsDeviceId,
+      orElse: () => null,
+    );
+    return (matched?['id'] as num?)?.toInt();
+  }
+
+  static GarageVehicleStatus _statusFromVehicle(
+    QueryDocumentSnapshot<Map<String, dynamic>> vehicleDoc,
+    double currentTotalKm, {
+    required bool isBike,
+  }) {
+    final data = vehicleDoc.data();
+    final baseline =
+        (data['gpsKmBaselineAtLastService'] as num?)?.toDouble() ?? 0;
+    final serviceIntervalKm =
+        (data['serviceIntervalKm'] as num?)?.toDouble() ??
+        defaultServiceIntervalKm;
+    return GarageVehicleStatus(
+      vehicleId: vehicleDoc.id,
+      vehicleNumber: (data[isBike ? 'bikeNumber' : 'truckNumber'] ?? '')
+          .toString(),
+      isBike: isBike,
+      currentTotalKm: currentTotalKm,
+      kmSinceLastService: max(0.0, currentTotalKm - baseline),
+      serviceIntervalKm: serviceIntervalKm,
+    );
+  }
+
+  // One vehicle's current status — used by GarageScreen's Trucks and Bikes
+  // tabs once a truck/bike is selected.
+  static Future<GarageVehicleStatus?> fetchStatus(
+    QueryDocumentSnapshot<Map<String, dynamic>> vehicleDoc, {
+    bool isBike = false,
+  }) async {
+    final gpsDeviceId = (vehicleDoc.data()['gpsDeviceId'] as String?)?.trim();
+    if (gpsDeviceId == null || gpsDeviceId.isEmpty) return null;
+    final devices = await TraccarService.fetchDevices(
+      username: _traccarUsername,
+      password: _traccarPassword,
+    );
+    final deviceId = _resolveDeviceId(devices, gpsDeviceId);
+    if (deviceId == null) return null;
+    final currentTotalKm = await _fetchCurrentTotalKm(deviceId);
+    return _statusFromVehicle(vehicleDoc, currentTotalKm, isBike: isBike);
+  }
+
+  // Every company truck's AND bike's status in one batch, sharing a single
+  // fetchDevices() call across all of them — used by the Notifications tab
+  // and GarageNotificationService's daily check. Also collects each
+  // vehicle's own serviceTypes alerts (due-soon/overdue only) in the same
+  // pass, reusing the currentTotalKm this loop already fetched per vehicle
+  // rather than a second round of Traccar calls just for that.
+  static Future<
+    ({List<GarageVehicleStatus> vehicleStatuses, List<GarageServiceTypeAlert> typeAlerts})
+  >
+  fetchAllStatuses() async {
+    final trucks = await fetchCompanyTrucksWithGps();
+    final bikes = await fetchCompanyBikesWithGps();
+    if (trucks.isEmpty && bikes.isEmpty) {
+      return (vehicleStatuses: <GarageVehicleStatus>[], typeAlerts: <GarageServiceTypeAlert>[]);
+    }
+    final devices = await TraccarService.fetchDevices(
+      username: _traccarUsername,
+      password: _traccarPassword,
+    );
+    final statuses = <GarageVehicleStatus>[];
+    final typeAlerts = <GarageServiceTypeAlert>[];
+    for (final entry in [
+      ...trucks.map((doc) => (doc: doc, isBike: false)),
+      ...bikes.map((doc) => (doc: doc, isBike: true)),
+    ]) {
+      final gpsDeviceId = (entry.doc.data()['gpsDeviceId'] as String).trim();
+      final deviceId = _resolveDeviceId(devices, gpsDeviceId);
+      if (deviceId == null) continue;
+      try {
+        final currentTotalKm = await _fetchCurrentTotalKm(deviceId);
+        final status = _statusFromVehicle(
+          entry.doc,
+          currentTotalKm,
+          isBike: entry.isBike,
+        );
+        statuses.add(status);
+
+        final typesSnap = await entry.doc.reference
+            .collection(kServiceTypesSubcollection)
+            .get();
+        for (final typeDoc in typesSnap.docs) {
+          final typeData = typeDoc.data();
+          final intervalKm = (typeData['intervalKm'] as num?)?.toDouble();
+          final baseline =
+              (typeData['gpsKmBaseline'] as num?)?.toDouble() ?? 0;
+          if (intervalKm == null) continue;
+          final kmRemaining =
+              intervalKm - max(0.0, currentTotalKm - baseline);
+          if (kmRemaining > lowKmWarningThreshold) continue;
+          typeAlerts.add(
+            GarageServiceTypeAlert(
+              vehicleNumber: status.vehicleNumber,
+              isBike: entry.isBike,
+              typeName: (typeData['typeName'] ?? '').toString(),
+              kmRemaining: kmRemaining,
+            ),
+          );
+        }
+      } catch (e) {
+        // Skip this one vehicle (e.g. a transient Traccar error) rather than
+        // failing the whole batch.
+        debugPrint('GarageService.fetchAllStatuses: skipped vehicle: $e');
+      }
+    }
+    typeAlerts.sort((a, b) => a.kmRemaining.compareTo(b.kmRemaining));
+    return (vehicleStatuses: statuses, typeAlerts: typeAlerts);
+  }
+
+  // Logs a service for one truck or bike — see the Trucks/Bikes tabs' Log
+  // Service dialog. Moves the baseline up to the vehicle's current GPS
+  // total KM, which resets "KM Since Last Service" back to 0 from here, and
+  // appends an immutable serviceHistory entry alongside it.
+  static Future<void> logService({
+    required GarageVehicleStatus status,
+    required double meterReadingToday,
+    required double serviceIntervalKm,
+    required String serviceNote,
+    required String loggedBy,
+  }) async {
+    final vehicleRef = FirebaseFirestore.instance
+        .collection(status.collectionName)
+        .doc(status.vehicleId);
+    await vehicleRef.update({
+      'gpsKmBaselineAtLastService': status.currentTotalKm,
+      'lastServiceMeterKm': meterReadingToday,
+      'lastServiceDate': FieldValue.serverTimestamp(),
+      'serviceIntervalKm': serviceIntervalKm,
+    });
+    await vehicleRef.collection(kServiceHistorySubcollection).add({
+      'serviceDate': FieldValue.serverTimestamp(),
+      'meterReading': meterReadingToday,
+      'serviceIntervalKm': serviceIntervalKm,
+      'serviceNote': serviceNote,
+      'loggedBy': loggedBy,
+    });
+  }
+
+  // Registers a new independently-tracked service type for one vehicle.
+  // gpsKmBaseline starts at the vehicle's current GPS total KM (not 0), so
+  // a freshly-added type starts its countdown from today rather than
+  // showing overdue-by-however-many-thousand-km the vehicle already has on
+  // its odometer.
+  static Future<void> addServiceType({
+    required String collectionName,
+    required String vehicleId,
+    required String typeName,
+    required double intervalKm,
+    required double currentTotalKm,
+    String? note,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection(collectionName)
+        .doc(vehicleId)
+        .collection(kServiceTypesSubcollection)
+        .add({
+          'typeName': typeName,
+          'intervalKm': intervalKm,
+          'gpsKmBaseline': currentTotalKm,
+          'lastServiceDate': null,
+          'note': note,
+        });
+  }
+
+  // Edits a service type's own metadata (name/interval/note) — leaves
+  // gpsKmBaseline/lastServiceDate untouched; those only change via
+  // logServiceForType below.
+  static Future<void> updateServiceType({
+    required String collectionName,
+    required String vehicleId,
+    required String typeId,
+    required String typeName,
+    required double intervalKm,
+    String? note,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection(collectionName)
+        .doc(vehicleId)
+        .collection(kServiceTypesSubcollection)
+        .doc(typeId)
+        .update({'typeName': typeName, 'intervalKm': intervalKm, 'note': note});
+  }
+
+  static Future<void> deleteServiceType({
+    required String collectionName,
+    required String vehicleId,
+    required String typeId,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection(collectionName)
+        .doc(vehicleId)
+        .collection(kServiceTypesSubcollection)
+        .doc(typeId)
+        .delete();
+  }
+
+  // Logs a service for one specific service type — same GPS-total-KM
+  // fetch/baseline-reset idea as logService above, but scoped to this one
+  // serviceTypes document instead of the whole vehicle (see PART A's
+  // "Apply to the specific service type document, not whole vehicle").
+  static Future<void> logServiceForType({
+    required String collectionName,
+    required String vehicleId,
+    required String typeId,
+    required double currentTotalKm,
+    String? note,
+  }) async {
+    await FirebaseFirestore.instance
+        .collection(collectionName)
+        .doc(vehicleId)
+        .collection(kServiceTypesSubcollection)
+        .doc(typeId)
+        .update({
+          'gpsKmBaseline': currentTotalKm,
+          'lastServiceDate': FieldValue.serverTimestamp(),
+          'note': note,
+        });
+  }
+}
+
+// Shared by the Trucks and Bikes tabs — the two tabs keep their own list
+// layout, but the write itself lives here so a truck service and a bike
+// service can't drift apart (both go through GarageService.logService).
+void showGarageLogServiceDialog({
+  required BuildContext context,
+  required GarageVehicleStatus status,
+  required String loggedBy,
+  required VoidCallback onLogged,
+}) {
+  final meterController = TextEditingController();
+  final intervalController = TextEditingController(
+    text: status.serviceIntervalKm.toStringAsFixed(0),
+  );
+  final noteController = TextEditingController();
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: const Text('Log Service'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: meterController,
+              autofocus: true,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Meter Reading Today',
+                hintText: 'Physical odometer reading',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: intervalController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Service Interval (KM)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Service Note (optional)',
+                hintText: 'e.g. Oil Change, Brake Pads Replaced',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final meterReading = double.tryParse(meterController.text.trim());
+            final interval = double.tryParse(intervalController.text.trim());
+            if (meterReading == null || interval == null || interval <= 0) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(
+                  content: Text('Enter valid numbers for both fields.'),
+                ),
+              );
+              return;
+            }
+            await GarageService.logService(
+              status: status,
+              meterReadingToday: meterReading,
+              serviceIntervalKm: interval,
+              serviceNote: noteController.text.trim(),
+              loggedBy: loggedBy,
+            );
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+            onLogged();
+          },
+          child: const Text('Save'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Read-only view of a truck's/bike's serviceHistory subcollection, newest
+// first — see GarageService.logService, which appends to it.
+void showGarageServiceHistoryDialog({
+  required BuildContext context,
+  required String collectionName,
+  required String vehicleId,
+  required String vehicleNumber,
+}) {
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('Service History — $vehicleNumber'),
+      content: SizedBox(
+        width: 420,
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection(collectionName)
+              .doc(vehicleId)
+              .collection(kServiceHistorySubcollection)
+              .orderBy('serviceDate', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Failed to load history: ${snapshot.error}'),
+              );
+            }
+            final entries = snapshot.data?.docs ?? [];
+            if (entries.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'No services logged yet.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              );
+            }
+            return ListView.separated(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              separatorBuilder: (_, __) => const Divider(height: 16),
+              itemBuilder: (context, index) {
+                final data = entries[index].data();
+                final serviceDate = (data['serviceDate'] as Timestamp?)
+                    ?.toDate();
+                final meterReading = (data['meterReading'] as num?)?.toDouble();
+                final note = (data['serviceNote'] ?? '').toString();
+                final loggedBy = (data['loggedBy'] ?? '').toString();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      serviceDate == null
+                          ? 'Date pending'
+                          : GoogleSheetsService.formatDate(serviceDate),
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Meter Reading: '
+                      '${meterReading?.toStringAsFixed(1) ?? '-'} km',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    if (note.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(note, style: const TextStyle(fontSize: 13)),
+                    ],
+                    if (loggedBy.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Logged by: $loggedBy',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Add (existingType: null) / Edit (existingType: the doc being edited)
+// dialog for one service type — same two fields either way (Interval KM,
+// Note), Type Name only editable on Add since renaming an in-use type mid-
+// tracking would be confusing. Add needs the vehicle's currentTotalKm to
+// seed a fresh gpsKmBaseline (see GarageService.addServiceType); Edit
+// doesn't touch that field at all.
+void _showServiceTypeFormDialog({
+  required BuildContext context,
+  required GarageVehicleStatus status,
+  QueryDocumentSnapshot<Map<String, dynamic>>? existingType,
+}) {
+  final isEdit = existingType != null;
+  final existingData = existingType?.data();
+  final nameController = TextEditingController(
+    text: (existingData?['typeName'] ?? '').toString(),
+  );
+  final intervalController = TextEditingController(
+    text: existingData == null
+        ? ''
+        : ((existingData['intervalKm'] as num?)?.toStringAsFixed(0) ?? ''),
+  );
+  final noteController = TextEditingController(
+    text: (existingData?['note'] ?? '').toString(),
+  );
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(isEdit ? 'Edit Service Type' : 'Add Service Type'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: !isEdit,
+              enabled: !isEdit,
+              decoration: const InputDecoration(
+                labelText: 'Type Name',
+                hintText: 'e.g. Oil Change, Brake Service',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: intervalController,
+              autofocus: isEdit,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Interval (KM)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final typeName = nameController.text.trim();
+            final intervalKm = double.tryParse(
+              intervalController.text.trim(),
+            );
+            if (typeName.isEmpty || intervalKm == null || intervalKm <= 0) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(
+                  content: Text('Enter a Type Name and a valid Interval KM.'),
+                ),
+              );
+              return;
+            }
+            final note = noteController.text.trim();
+            if (isEdit) {
+              await GarageService.updateServiceType(
+                collectionName: status.collectionName,
+                vehicleId: status.vehicleId,
+                typeId: existingType.id,
+                typeName: typeName,
+                intervalKm: intervalKm,
+                note: note.isEmpty ? null : note,
+              );
+            } else {
+              await GarageService.addServiceType(
+                collectionName: status.collectionName,
+                vehicleId: status.vehicleId,
+                typeName: typeName,
+                intervalKm: intervalKm,
+                currentTotalKm: status.currentTotalKm,
+                note: note.isEmpty ? null : note,
+              );
+            }
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          },
+          child: Text(isEdit ? 'Save' : 'Add'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Confirms + logs a service for one specific type, reusing the vehicle's
+// already-fetched currentTotalKm (same "no extra Traccar call" approach the
+// vehicle-level Log Service dialog uses) rather than fetching it again.
+void _showLogServiceTypeDialog({
+  required BuildContext context,
+  required GarageVehicleStatus status,
+  required QueryDocumentSnapshot<Map<String, dynamic>> typeDoc,
+}) {
+  final data = typeDoc.data();
+  final typeName = (data['typeName'] ?? '').toString();
+  final noteController = TextEditingController(
+    text: (data['note'] ?? '').toString(),
+  );
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('Log Service — $typeName'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'This marks "$typeName" as serviced today at the current GPS '
+              'total of ${status.currentTotalKm.toStringAsFixed(1)} km, '
+              'resetting its countdown from here.',
+              style: const TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: noteController,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Note (optional)',
+                border: OutlineInputBorder(),
+                alignLabelWithHint: true,
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          style: ElevatedButton.styleFrom(backgroundColor: Colors.brown[800]),
+          onPressed: () async {
+            final note = noteController.text.trim();
+            await GarageService.logServiceForType(
+              collectionName: status.collectionName,
+              vehicleId: status.vehicleId,
+              typeId: typeDoc.id,
+              currentTotalKm: status.currentTotalKm,
+              note: note.isEmpty ? null : note,
+            );
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          },
+          child: const Text(
+            'Log Service',
+            style: TextStyle(color: Colors.white),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+// Additive "Service Types" section shown below the single-generic-service
+// Card in both the Trucks and Bikes tabs' detail panel — see PART A's
+// context: the old serviceIntervalKm/gpsKmBaselineAtLastService fields on
+// the vehicle doc stay exactly as they are, untouched and unmigrated; this
+// is a wholly separate, independent per-type tracking layer underneath it.
+class _ServiceTypesSection extends StatelessWidget {
+  final GarageVehicleStatus status;
+  const _ServiceTypesSection({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'Service Types',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                TextButton.icon(
+                  onPressed: () => _showServiceTypeFormDialog(
+                    context: context,
+                    status: status,
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('Add Service Type'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection(status.collectionName)
+                  .doc(status.vehicleId)
+                  .collection(kServiceTypesSubcollection)
+                  .orderBy('typeName')
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    child: Center(child: CircularProgressIndicator()),
+                  );
+                }
+                final types = snapshot.data?.docs ?? [];
+                if (types.isEmpty) {
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'No service types yet — add one to track it '
+                      'independently (e.g. Oil Change every 5000km).',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  );
+                }
+                return Column(
+                  children: types.map((typeDoc) {
+                    final data = typeDoc.data();
+                    final typeName = (data['typeName'] ?? '').toString();
+                    final intervalKm =
+                        (data['intervalKm'] as num?)?.toDouble() ?? 0;
+                    final baseline =
+                        (data['gpsKmBaseline'] as num?)?.toDouble() ?? 0;
+                    final note = (data['note'] as String?);
+                    final kmSinceLastService = max(
+                      0.0,
+                      status.currentTotalKm - baseline,
+                    );
+                    final kmRemaining = intervalKm - kmSinceLastService;
+                    final isOverdue = kmRemaining < 0;
+                    final progress = intervalKm <= 0
+                        ? 0.0
+                        : (kmSinceLastService / intervalKm).clamp(0.0, 1.0);
+                    return Container(
+                      margin: const EdgeInsets.only(top: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        // Subtle brown-family gradient, matching the
+                        // Garage module's own established theming
+                        // (Colors.brown[800] appbar/buttons) rather than
+                        // the global purple AppTheme.cardGradient, which
+                        // would clash here.
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            Colors.brown.shade50,
+                            Colors.orange.shade50,
+                          ],
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isOverdue
+                              ? Colors.red
+                              : Colors.brown.shade100,
+                          width: isOverdue ? 1.5 : 1,
+                        ),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  typeName,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.edit, size: 18),
+                                tooltip: 'Edit',
+                                onPressed: () => _showServiceTypeFormDialog(
+                                  context: context,
+                                  status: status,
+                                  existingType: typeDoc,
+                                ),
+                              ),
+                              IconButton(
+                                icon: const Icon(
+                                  Icons.delete,
+                                  size: 18,
+                                  color: Colors.red,
+                                ),
+                                tooltip: 'Delete',
+                                onPressed: () => confirmDelete(
+                                  context: context,
+                                  title: 'Delete Service Type?',
+                                  message:
+                                      'Are you sure you want to delete "$typeName"? This cannot be undone.',
+                                  onConfirm: () =>
+                                      GarageService.deleteServiceType(
+                                        collectionName: status.collectionName,
+                                        vehicleId: status.vehicleId,
+                                        typeId: typeDoc.id,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (note != null && note.isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.only(bottom: 6),
+                              child: Text(
+                                note,
+                                style: const TextStyle(fontSize: 12),
+                              ),
+                            ),
+                          Text(
+                            '${kmSinceLastService.toStringAsFixed(1)} km / '
+                            '${intervalKm.toStringAsFixed(0)} km',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: progress.toDouble(),
+                              minHeight: 8,
+                              backgroundColor: Colors.white,
+                              color: isOverdue
+                                  ? Colors.red
+                                  : AppTheme.accent,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            isOverdue
+                                ? 'Overdue by ${(-kmRemaining).toStringAsFixed(1)} km'
+                                : 'Remaining: ${kmRemaining.toStringAsFixed(1)} km',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isOverdue ? Colors.red : Colors.black54,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: OutlinedButton.icon(
+                              onPressed: () => _showLogServiceTypeDialog(
+                                context: context,
+                                status: status,
+                                typeDoc: typeDoc,
+                              ),
+                              icon: const Icon(Icons.build, size: 16),
+                              label: const Text('Log Service'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: Colors.brown[800],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }).toList(),
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// The single-generic-service Card + _ServiceTypesSection — shared between
+// _GarageTrucksTabState/_GarageBikesTabState's desktop side-by-side Row
+// (wide screens, unchanged) and _GarageVehicleDetailScreen below (narrow
+// screens, a separate pushed screen instead of a permanently-visible
+// detail pane), so the two layouts can never drift apart.
+class _GarageVehicleDetailBody extends StatelessWidget {
+  final GarageVehicleStatus status;
+  final VoidCallback onLogService;
+
+  const _GarageVehicleDetailBody({
+    required this.status,
+    required this.onLogService,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = status.serviceIntervalKm <= 0
+        ? 0.0
+        : (status.kmSinceLastService / status.serviceIntervalKm).clamp(
+            0.0,
+            1.0,
+          );
+    final kmRemaining = status.kmRemaining;
+    final isOverdue = kmRemaining < 0;
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    status.vehicleNumber,
+                    style: const TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'KM Since Last Service: '
+                    '${status.kmSinceLastService.toStringAsFixed(1)} km / '
+                    '${status.serviceIntervalKm.toStringAsFixed(0)} km',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(4),
+                    child: LinearProgressIndicator(
+                      value: progress.toDouble(),
+                      minHeight: 10,
+                      backgroundColor: Colors.grey[300],
+                      color: isOverdue ? Colors.red : AppTheme.primaryMid,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    isOverdue
+                        ? 'Service Overdue by ${(-kmRemaining).toStringAsFixed(1)} km'
+                        : 'KM Remaining to Next Service: ${kmRemaining.toStringAsFixed(1)} km',
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: isOverdue ? Colors.red : Colors.black87,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: onLogService,
+                      icon: const Icon(Icons.build, color: Colors.white),
+                      label: const Text(
+                        'Log Service',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.brown[800],
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 14),
+          _ServiceTypesSection(status: status),
+        ],
+      ),
+    );
+  }
+}
+
+// Full-screen detail route for narrow (< WebAppShell.desktopBreakpoint)
+// screens — same TruckProfileScreen pattern the rest of the app already
+// uses for mobile (a Scaffold pushed via Navigator, with its own back
+// button, instead of a permanent side-by-side split that would squeeze a
+// detail pane into ~150-200px on a phone). Fetches its own status the same
+// way _GarageTrucksTabState/_GarageBikesTabState do (GarageService.fetchStatus
+// keyed on the tapped vehicle doc), since this is a separate screen with no
+// state to share with the list it was pushed from.
+class _GarageVehicleDetailScreen extends StatefulWidget {
+  final QueryDocumentSnapshot<Map<String, dynamic>> vehicleDoc;
+  final bool isBike;
+  final String userName;
+
+  const _GarageVehicleDetailScreen({
+    required this.vehicleDoc,
+    required this.isBike,
+    required this.userName,
+  });
+
+  @override
+  State<_GarageVehicleDetailScreen> createState() =>
+      _GarageVehicleDetailScreenState();
+}
+
+class _GarageVehicleDetailScreenState
+    extends State<_GarageVehicleDetailScreen> {
+  late Future<GarageVehicleStatus?> _statusFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusFuture = GarageService.fetchStatus(
+      widget.vehicleDoc,
+      isBike: widget.isBike,
+    );
+  }
+
+  void _refreshStatus() {
+    setState(
+      () => _statusFuture = GarageService.fetchStatus(
+        widget.vehicleDoc,
+        isBike: widget.isBike,
+      ),
+    );
+  }
+
+  void _showLogServiceDialog(GarageVehicleStatus status) {
+    showGarageLogServiceDialog(
+      context: context,
+      status: status,
+      loggedBy: widget.userName,
+      onLogged: () {
+        if (!mounted) return;
+        _refreshStatus();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Service logged.')));
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final vehicleNumber =
+        (widget.vehicleDoc.data()[widget.isBike ? 'bikeNumber' : 'truckNumber'] ??
+                '')
+            .toString();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(vehicleNumber),
+        backgroundColor: Colors.brown[800],
+        foregroundColor: Colors.white,
+      ),
+      body: FutureBuilder<GarageVehicleStatus?>(
+        future: _statusFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return Center(
+              child: Text('Failed to load status: ${snapshot.error}'),
+            );
+          }
+          final status = snapshot.data;
+          if (status == null) {
+            return Center(
+              child: Text(
+                'No GPS data available for this ${widget.isBike ? 'bike' : 'truck'}.',
+              ),
+            );
+          }
+          return _GarageVehicleDetailBody(
+            status: status,
+            onLogService: () => _showLogServiceDialog(status),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class GarageScreen extends StatefulWidget {
+  final String name;
+  const GarageScreen({super.key, required this.name});
+
+  @override
+  State<GarageScreen> createState() => _GarageScreenState();
+}
+
+class _GarageScreenState extends State<GarageScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Garage'),
+        backgroundColor: Colors.brown[800],
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Trucks', icon: Icon(Icons.local_shipping)),
+            Tab(text: 'Bikes', icon: Icon(Icons.two_wheeler)),
+            Tab(text: 'Notifications', icon: Icon(Icons.notifications)),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _GarageTrucksTab(userName: widget.name),
+          _GarageBikesTab(userName: widget.name),
+          const _GarageNotificationsTab(),
+        ],
+      ),
+    );
+  }
+}
+
+class _GarageTrucksTab extends StatefulWidget {
+  final String userName;
+  const _GarageTrucksTab({required this.userName});
+
+  @override
+  State<_GarageTrucksTab> createState() => _GarageTrucksTabState();
+}
+
+class _GarageTrucksTabState extends State<_GarageTrucksTab> {
+  QueryDocumentSnapshot<Map<String, dynamic>>? _selectedTruck;
+  Future<GarageVehicleStatus?>? _statusFuture;
+
+  void _selectTruck(QueryDocumentSnapshot<Map<String, dynamic>> truck) {
+    setState(() {
+      _selectedTruck = truck;
+      _statusFuture = GarageService.fetchStatus(truck);
+    });
+  }
+
+  void _refreshStatus() {
+    if (_selectedTruck == null) return;
+    setState(() => _statusFuture = GarageService.fetchStatus(_selectedTruck!));
+  }
+
+  void _showLogServiceDialog(GarageVehicleStatus status) {
+    showGarageLogServiceDialog(
+      context: context,
+      status: status,
+      loggedBy: widget.userName,
+      onLogged: () {
+        if (!mounted) return;
+        _refreshStatus();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Service logged.')));
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Same breakpoint WebAppShell already uses for its own desktop-sidebar-
+    // vs-mobile-body split — above it, today's side-by-side Row (list +
+    // permanent detail pane) has room to breathe; below it (a phone, or a
+    // narrow browser window), that same Row would squeeze the detail pane
+    // into ~150-200px, so tapping a truck instead pushes a full-screen
+    // _GarageVehicleDetailScreen.
+    final isWide =
+        MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
+
+    final truckList = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection('trucks')
+          .where('isCompanyTruck', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        final trucks = docs.where((doc) {
+          final gpsDeviceId = (doc.data()['gpsDeviceId'] as String?)?.trim();
+          return gpsDeviceId != null && gpsDeviceId.isNotEmpty;
+        }).toList();
+        if (trucks.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'No company trucks with a GPS device set yet.',
+              style: TextStyle(fontSize: 12),
+            ),
+          );
+        }
+        return ListView.builder(
+          itemCount: trucks.length,
+          itemBuilder: (context, index) {
+            final truck = trucks[index];
+            final truckNumber = (truck.data()['truckNumber'] ?? '')
+                .toString();
+            final isSelected = isWide && truck.id == _selectedTruck?.id;
+            return ListTile(
+              selected: isSelected,
+              selectedTileColor: AppTheme.primaryMid.withOpacity(0.08),
+              leading: CircleAvatar(
+                radius: 20,
+                backgroundColor: AppTheme.accent.withOpacity(0.15),
+                child: const Icon(
+                  Icons.local_shipping,
+                  color: AppTheme.accent,
+                  size: 22,
+                ),
+              ),
+              title: Text(truckNumber),
+              trailing: IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: 'View History',
+                onPressed: () => showGarageServiceHistoryDialog(
+                  context: context,
+                  collectionName: 'trucks',
+                  vehicleId: truck.id,
+                  vehicleNumber: truckNumber,
+                ),
+              ),
+              onTap: () {
+                if (isWide) {
+                  _selectTruck(truck);
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _GarageVehicleDetailScreen(
+                        vehicleDoc: truck,
+                        isBike: false,
+                        userName: widget.userName,
+                      ),
+                    ),
+                  );
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+
+    if (!isWide) {
+      return truckList;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(width: 210, child: truckList),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _selectedTruck == null
+              ? const Center(
+                  child: Text('Select a truck to view service status.'),
+                )
+              : FutureBuilder<GarageVehicleStatus?>(
+                  future: _statusFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text('Failed to load status: ${snapshot.error}'),
+                      );
+                    }
+                    final status = snapshot.data;
+                    if (status == null) {
+                      return const Center(
+                        child: Text('No GPS data available for this truck.'),
+                      );
+                    }
+                    return _GarageVehicleDetailBody(
+                      status: status,
+                      onLogService: () => _showLogServiceDialog(status),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// Mirror of _GarageTrucksTab against the separate bikes collection — same
+// select-then-status layout, same KM-since-service maths (GarageService
+// treats both the same way), same Log Service / View History dialogs.
+class _GarageBikesTab extends StatefulWidget {
+  final String userName;
+  const _GarageBikesTab({required this.userName});
+
+  @override
+  State<_GarageBikesTab> createState() => _GarageBikesTabState();
+}
+
+class _GarageBikesTabState extends State<_GarageBikesTab> {
+  QueryDocumentSnapshot<Map<String, dynamic>>? _selectedBike;
+  Future<GarageVehicleStatus?>? _statusFuture;
+
+  void _selectBike(QueryDocumentSnapshot<Map<String, dynamic>> bike) {
+    setState(() {
+      _selectedBike = bike;
+      _statusFuture = GarageService.fetchStatus(bike, isBike: true);
+    });
+  }
+
+  void _refreshStatus() {
+    if (_selectedBike == null) return;
+    setState(
+      () => _statusFuture = GarageService.fetchStatus(
+        _selectedBike!,
+        isBike: true,
+      ),
+    );
+  }
+
+  void _showLogServiceDialog(GarageVehicleStatus status) {
+    showGarageLogServiceDialog(
+      context: context,
+      status: status,
+      loggedBy: widget.userName,
+      onLogged: () {
+        if (!mounted) return;
+        _refreshStatus();
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Service logged.')));
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Same breakpoint WebAppShell already uses (see _GarageTrucksTabState's
+    // matching doc comment for the full reasoning) — wide keeps the
+    // existing side-by-side Row, narrow pushes a full-screen detail route.
+    final isWide =
+        MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
+
+    final bikeList = StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection(kBikesCollection)
+          .where('isCompanyBike', isEqualTo: true)
+          .snapshots(),
+      builder: (context, snapshot) {
+        final docs = snapshot.data?.docs ?? [];
+        final bikes = docs.where((doc) {
+          final gpsDeviceId = (doc.data()['gpsDeviceId'] as String?)?.trim();
+          return gpsDeviceId != null && gpsDeviceId.isNotEmpty;
+        }).toList();
+        if (bikes.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'No company bikes with a GPS device set yet.',
+              style: TextStyle(fontSize: 12),
+            ),
+          );
+        }
+        return ListView.builder(
+          itemCount: bikes.length,
+          itemBuilder: (context, index) {
+            final bike = bikes[index];
+            final bikeNumber = (bike.data()['bikeNumber'] ?? '').toString();
+            final isSelected = isWide && bike.id == _selectedBike?.id;
+            return ListTile(
+              selected: isSelected,
+              selectedTileColor: AppTheme.primaryMid.withOpacity(0.08),
+              leading: CircleAvatar(
+                radius: 20,
+                backgroundColor: AppTheme.accent.withOpacity(0.15),
+                child: const Icon(
+                  Icons.two_wheeler,
+                  color: AppTheme.accent,
+                  size: 22,
+                ),
+              ),
+              title: Text(bikeNumber),
+              trailing: IconButton(
+                icon: const Icon(Icons.history),
+                tooltip: 'View History',
+                onPressed: () => showGarageServiceHistoryDialog(
+                  context: context,
+                  collectionName: kBikesCollection,
+                  vehicleId: bike.id,
+                  vehicleNumber: bikeNumber,
+                ),
+              ),
+              onTap: () {
+                if (isWide) {
+                  _selectBike(bike);
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => _GarageVehicleDetailScreen(
+                        vehicleDoc: bike,
+                        isBike: true,
+                        userName: widget.userName,
+                      ),
+                    ),
+                  );
+                }
+              },
+            );
+          },
+        );
+      },
+    );
+
+    if (!isWide) {
+      return bikeList;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SizedBox(width: 210, child: bikeList),
+        const VerticalDivider(width: 1),
+        Expanded(
+          child: _selectedBike == null
+              ? const Center(child: Text('Select a bike to view service status.'))
+              : FutureBuilder<GarageVehicleStatus?>(
+                  future: _statusFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Center(
+                        child: Text('Failed to load status: ${snapshot.error}'),
+                      );
+                    }
+                    final status = snapshot.data;
+                    if (status == null) {
+                      return const Center(
+                        child: Text('No GPS data available for this bike.'),
+                      );
+                    }
+                    return _GarageVehicleDetailBody(
+                      status: status,
+                      onLogService: () => _showLogServiceDialog(status),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _GarageNotificationsTab extends StatefulWidget {
+  const _GarageNotificationsTab();
+
+  @override
+  State<_GarageNotificationsTab> createState() =>
+      _GarageNotificationsTabState();
+}
+
+class _GarageNotificationsTabState extends State<_GarageNotificationsTab> {
+  late Future<
+    ({List<GarageVehicleStatus> vehicleStatuses, List<GarageServiceTypeAlert> typeAlerts})
+  >
+  _statusesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _statusesFuture = GarageService.fetchAllStatuses();
+  }
+
+  Future<void> _refresh() async {
+    final future = GarageService.fetchAllStatuses();
+    setState(() => _statusesFuture = future);
+    await future;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return RefreshIndicator(
+      onRefresh: _refresh,
+      child: FutureBuilder<
+        ({List<GarageVehicleStatus> vehicleStatuses, List<GarageServiceTypeAlert> typeAlerts})
+      >(
+        future: _statusesFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.hasError) {
+            return ListView(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text('Failed to load: ${snapshot.error}'),
+                ),
+              ],
+            );
+          }
+          final dueSoon =
+              (snapshot.data?.vehicleStatuses ?? [])
+                  .where(
+                    (s) => s.kmRemaining <= GarageService.lowKmWarningThreshold,
+                  )
+                  .toList()
+                ..sort((a, b) => a.kmRemaining.compareTo(b.kmRemaining));
+          // Independent per-service-type alerts (see PART A) — a vehicle
+          // can appear here multiple times, once per type nearing/overdue,
+          // separately from (and in addition to) its single generic
+          // dueSoon entry above.
+          final typeDueSoon = snapshot.data?.typeAlerts ?? [];
+          if (dueSoon.isEmpty && typeDueSoon.isEmpty) {
+            return ListView(
+              children: const [
+                Padding(
+                  padding: EdgeInsets.all(32),
+                  child: Center(
+                    child: Text(
+                      'No upcoming services.',
+                      style: TextStyle(color: Colors.grey),
+                    ),
+                  ),
+                ),
+              ],
+            );
+          }
+          return ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              ...dueSoon.map((status) {
+                final isOverdue = status.kmRemaining < 0;
+                return Card(
+                  color: isOverdue ? Colors.red[50] : Colors.orange[50],
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.warning_amber_rounded,
+                      color: isOverdue ? Colors.red : Colors.orange[800],
+                    ),
+                    title: Row(
+                      children: [
+                        Icon(
+                          status.isBike
+                              ? Icons.two_wheeler
+                              : Icons.local_shipping,
+                          size: 16,
+                          color: Colors.grey[700],
+                        ),
+                        const SizedBox(width: 6),
+                        Text(
+                          status.vehicleNumber,
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      isOverdue
+                          ? 'Service overdue by ${(-status.kmRemaining).toStringAsFixed(1)} km'
+                          : 'Service due in ${status.kmRemaining.toStringAsFixed(1)} km',
+                      style: TextStyle(
+                        color: isOverdue
+                            ? Colors.red[900]
+                            : Colors.orange[900],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+              ...typeDueSoon.map((alert) {
+                final isOverdue = alert.isOverdue;
+                return Card(
+                  color: isOverdue ? Colors.red[50] : Colors.orange[50],
+                  margin: const EdgeInsets.only(bottom: 10),
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.build_circle_outlined,
+                      color: isOverdue ? Colors.red : Colors.orange[800],
+                    ),
+                    title: Row(
+                      children: [
+                        Icon(
+                          alert.isBike
+                              ? Icons.two_wheeler
+                              : Icons.local_shipping,
+                          size: 16,
+                          color: Colors.grey[700],
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            '${alert.vehicleNumber} — ${alert.typeName}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    subtitle: Text(
+                      isOverdue
+                          ? '${alert.typeName} overdue by ${(-alert.kmRemaining).toStringAsFixed(1)} km'
+                          : '${alert.typeName} due in ${alert.kmRemaining.toStringAsFixed(1)} km',
+                      style: TextStyle(
+                        color: isOverdue
+                            ? Colors.red[900]
+                            : Colors.orange[900],
+                      ),
+                    ),
+                  ),
+                );
+              }),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+// ---------------- GARAGE NOTIFICATION SERVICE (mobile-only) ----------------
+// "Phase 1" daily service-due check — this is NOT a true background daily
+// notification (nothing fires while the app is fully closed). Instead it
+// runs once on each day's first app open (see AuthGate, which calls this
+// right after resolving the signed-in user's Firestore doc), using a
+// SharedPreferences-stored date string so it doesn't repeat later the same
+// day even across multiple app opens/rebuilds.
+class GarageNotificationService {
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
+  static bool _initialized = false;
+  static const String _lastCheckDateKey = 'garage_last_notification_check_date';
+
+  static Future<void> _ensureInitialized() async {
+    if (_initialized) return;
+    const androidSettings = AndroidInitializationSettings(
+      '@mipmap/ic_launcher',
+    );
+    const settings = InitializationSettings(android: androidSettings);
+    await _plugin.initialize(settings: settings);
+    // Android 13+ requires this explicit runtime request — see
+    // AndroidManifest.xml's POST_NOTIFICATIONS permission.
+    await _plugin
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.requestNotificationsPermission();
+    _initialized = true;
+  }
+
+  static String _todayString() {
+    final now = DateTime.now();
+    return '${now.year}-${now.month.toString().padLeft(2, '0')}-'
+        '${now.day.toString().padLeft(2, '0')}';
+  }
+
+  // Called once per app session from AuthGate, after a user is signed in
+  // (the Firestore/Traccar reads below need that). Mobile-only, per this
+  // feature's own design (see class doc comment) — it exists to reach a
+  // "mechanic" on their phone, not the web dashboard.
+  static Future<void> checkAndNotifyIfNeeded() async {
+    if (kIsWeb) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final today = _todayString();
+      if (prefs.getString(_lastCheckDateKey) == today) return;
+
+      await _ensureInitialized();
+
+      final result = await GarageService.fetchAllStatuses();
+      final dueSoon = result.vehicleStatuses
+          .where((s) => s.kmRemaining <= GarageService.lowKmWarningThreshold)
+          .toList();
+      final typeDueSoon = result.typeAlerts;
+
+      var notificationId = 1000;
+      for (final status in dueSoon) {
+        final isOverdue = status.kmRemaining < 0;
+        await _plugin.show(
+          id: notificationId++,
+          title: 'Garage: Service Due',
+          body: isOverdue
+              ? '${status.isBike ? 'Bike' : 'Truck'} ${status.vehicleNumber} '
+                    'is overdue for service by '
+                    '${(-status.kmRemaining).toStringAsFixed(0)} km.'
+              : '${status.isBike ? 'Bike' : 'Truck'} ${status.vehicleNumber} '
+                    'needs service in '
+                    '${status.kmRemaining.toStringAsFixed(0)} km.',
+          notificationDetails: const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'garage_service_due',
+              'Garage Service Due',
+              channelDescription:
+                  'Alerts when a company truck or bike is nearing its next '
+                  'service.',
+              importance: Importance.high,
+              priority: Priority.high,
+            ),
+          ),
+        );
+      }
+      // Independent per-service-type alerts (see PART A) — same
+      // "Truck X - Oil Change due in Y km" wording the Notifications tab
+      // shows, since a vehicle can have several of these due at once.
+      for (final alert in typeDueSoon) {
+        await _plugin.show(
+          id: notificationId++,
+          title: 'Garage: Service Due',
+          body: alert.isOverdue
+              ? '${alert.isBike ? 'Bike' : 'Truck'} ${alert.vehicleNumber} - '
+                    '${alert.typeName} is overdue by '
+                    '${(-alert.kmRemaining).toStringAsFixed(0)} km.'
+              : '${alert.isBike ? 'Bike' : 'Truck'} ${alert.vehicleNumber} - '
+                    '${alert.typeName} due in '
+                    '${alert.kmRemaining.toStringAsFixed(0)} km.',
+          notificationDetails: const NotificationDetails(
+            android: AndroidNotificationDetails(
+              'garage_service_due',
+              'Garage Service Due',
+              channelDescription:
+                  'Alerts when a company truck or bike is nearing its next '
+                  'service.',
+              importance: Importance.high,
+              priority: Priority.high,
+            ),
+          ),
+        );
+      }
+
+      await prefs.setString(_lastCheckDateKey, today);
+    } catch (e) {
+      debugPrint('GarageNotificationService.checkAndNotifyIfNeeded failed: $e');
+    }
+  }
+}
+
+// ---------------- WAREHOUSE INVENTORY MANAGEMENT ----------------
+// Isolated new module, same shape as the Garage module above: its own
+// top-level collection (warehouse_items), its own per-item subcollection
+// (stockMovements, mirroring trucks/bikes' serviceHistory), and its own
+// screen reachable from AdminDashboard next to Garage — nothing here
+// touches trucks/bikes/work_records or any of their logic.
+const String kWarehouseItemsCollection = 'warehouse_items';
+const String kStockMovementsSubcollection = 'stockMovements';
+const List<String> kWarehouseCategories = ['oil', 'tools', 'spare_parts'];
+
+String warehouseCategoryLabel(String category) {
+  switch (category) {
+    case 'oil':
+      return 'Oil';
+    case 'tools':
+      return 'Tools';
+    case 'spare_parts':
+      return 'Spare Parts';
+    default:
+      return category;
+  }
+}
+
+class WarehouseService {
+  // Records one stock movement and adjusts the parent item's
+  // currentQuantity in the same direction — Stock In increments, Stock Out
+  // decrements. FieldValue.increment() rather than a read-then-write so
+  // concurrent Stock In/Out submissions for the same item can't race and
+  // silently drop one of them.
+  static Future<void> logStockMovement({
+    required String itemId,
+    required String type,
+    required DateTime date,
+    required String purpose,
+    String? vehicleNumber,
+    required String personName,
+    required double quantity,
+    String? brand,
+    String? purchasedFrom,
+    String? billNumber,
+    String? shopPhoneNumber,
+    required String loggedBy,
+  }) async {
+    final itemRef = FirebaseFirestore.instance
+        .collection(kWarehouseItemsCollection)
+        .doc(itemId);
+    await itemRef.collection(kStockMovementsSubcollection).add({
+      'type': type,
+      'date': Timestamp.fromDate(date),
+      'purpose': purpose,
+      'vehicleNumber': vehicleNumber,
+      'personName': personName,
+      'quantity': quantity,
+      'brand': brand,
+      'purchasedFrom': purchasedFrom,
+      'billNumber': billNumber,
+      'shopPhoneNumber': shopPhoneNumber,
+      'loggedBy': loggedBy,
+    });
+    await itemRef.update({
+      'currentQuantity': FieldValue.increment(
+        type == 'in' ? quantity : -quantity,
+      ),
+    });
+  }
+}
+
+// Canvas-drawn liquid tank gauge for an Oil item — same Canvas/RRect/
+// ui.Gradient.linear primitives _generateTruckIcon uses for its truck
+// marker, but wired into a CustomPainter (repaints live off currentQuantity
+// via the item's own StreamBuilder) rather than rasterized once to a
+// BitmapDescriptor PNG, since that one-shot-bitmap approach is specific to
+// Google Maps markers and wouldn't update when stock changes.
+class _TankPainter extends CustomPainter {
+  final double fillPercent; // 0.0 - 1.0
+  final bool isLow;
+
+  const _TankPainter({required this.fillPercent, required this.isLow});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final tankRRect = RRect.fromRectAndRadius(
+      Rect.fromLTWH(0, 0, size.width, size.height),
+      const Radius.circular(10),
+    );
+
+    // Empty tank body.
+    final bodyPaint = Paint()..color = Colors.grey[200]!;
+    canvas.drawRRect(tankRRect, bodyPaint);
+
+    // Fill grows from the bottom up, clipped to the tank's rounded shape so
+    // the fill's own corners never poke outside it.
+    final clampedFill = fillPercent.clamp(0.0, 1.0);
+    if (clampedFill > 0) {
+      final fillHeight = size.height * clampedFill;
+      final fillRect = Rect.fromLTWH(
+        0,
+        size.height - fillHeight,
+        size.width,
+        fillHeight,
+      );
+      final fillPaint = Paint()
+        ..shader = ui.Gradient.linear(Offset(0, fillRect.top), Offset(0, size.height), [
+          Colors.lightBlue.shade200,
+          Colors.amber.shade700,
+        ]);
+      canvas.save();
+      canvas.clipRRect(tankRRect);
+      canvas.drawRect(fillRect, fillPaint);
+      canvas.restore();
+    }
+
+    // Outline — red and thicker when at/below the low-stock threshold, same
+    // "stands out against the background" purpose as the truck marker's
+    // white outline.
+    final borderPaint = Paint()
+      ..color = isLow ? Colors.red : Colors.grey[500]!
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = isLow ? 3 : 1.5;
+    canvas.drawRRect(tankRRect, borderPaint);
+  }
+
+  @override
+  bool shouldRepaint(covariant _TankPainter oldDelegate) =>
+      oldDelegate.fillPercent != fillPercent || oldDelegate.isLow != isLow;
+}
+
+class _TankVisual extends StatelessWidget {
+  final double currentQuantity;
+  final double tankCapacity;
+  final bool isLow;
+
+  const _TankVisual({
+    required this.currentQuantity,
+    required this.tankCapacity,
+    required this.isLow,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final fillPercent = tankCapacity <= 0
+        ? 0.0
+        : currentQuantity / tankCapacity;
+    return Column(
+      children: [
+        SizedBox(
+          width: 70,
+          height: 90,
+          child: Stack(
+            alignment: Alignment.topCenter,
+            children: [
+              CustomPaint(
+                size: const Size(70, 90),
+                painter: _TankPainter(fillPercent: fillPercent, isLow: isLow),
+              ),
+              if (isLow)
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    color: Colors.red,
+                    size: 18,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '${currentQuantity.toStringAsFixed(1)} L / '
+          '${tankCapacity.toStringAsFixed(0)} L '
+          '(${(fillPercent.clamp(0.0, 1.0) * 100).toStringAsFixed(0)}%)',
+          style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+          textAlign: TextAlign.center,
+        ),
+      ],
+    );
+  }
+}
+
+// Shared Register Item dialog for all three category tabs — Tank Capacity
+// only appears (and is required) when category == 'oil'.
+void _showRegisterWarehouseItemDialog(BuildContext context, String category) {
+  final nameController = TextEditingController();
+  final unitController = TextEditingController(
+    text: category == 'oil' ? 'Liters' : 'Units',
+  );
+  final thresholdController = TextEditingController();
+  final brandController = TextEditingController();
+  final tankCapacityController = TextEditingController();
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('Register ${warehouseCategoryLabel(category)} Item'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: nameController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'Item Name',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: unitController,
+              decoration: const InputDecoration(
+                labelText: 'Unit',
+                hintText: 'e.g. Liters, Units',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: thresholdController,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Low Stock Threshold',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: brandController,
+              decoration: const InputDecoration(
+                labelText: 'Brand (optional)',
+                border: OutlineInputBorder(),
+              ),
+            ),
+            if (category == 'oil') ...[
+              const SizedBox(height: 12),
+              TextField(
+                controller: tankCapacityController,
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                decoration: const InputDecoration(
+                  labelText: 'Tank Capacity (Liters)',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () async {
+            final name = nameController.text.trim();
+            final unit = unitController.text.trim();
+            final threshold = double.tryParse(thresholdController.text.trim());
+            final tankCapacity = category == 'oil'
+                ? double.tryParse(tankCapacityController.text.trim())
+                : null;
+            if (name.isEmpty || unit.isEmpty || threshold == null) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(
+                  content: Text('Item Name, Unit and Low Stock Threshold are required.'),
+                ),
+              );
+              return;
+            }
+            if (category == 'oil' && tankCapacity == null) {
+              ScaffoldMessenger.of(dialogContext).showSnackBar(
+                const SnackBar(
+                  content: Text('Enter a valid Tank Capacity for an Oil item.'),
+                ),
+              );
+              return;
+            }
+            final brand = brandController.text.trim();
+            await FirebaseFirestore.instance
+                .collection(kWarehouseItemsCollection)
+                .add({
+                  'itemName': name,
+                  'category': category,
+                  'unit': unit,
+                  'currentQuantity': 0.0,
+                  'lowStockThreshold': threshold,
+                  'tankCapacity': tankCapacity,
+                  'brand': brand.isEmpty ? null : brand,
+                  'createdAt': FieldValue.serverTimestamp(),
+                });
+            if (dialogContext.mounted) Navigator.pop(dialogContext);
+          },
+          child: const Text('Register'),
+        ),
+      ],
+    ),
+  );
+}
+
+// Shared Stock In / Stock Out dialog — the two differ only in which fields
+// are relevant (Stock In has purchase details, Stock Out has an optional
+// Vehicle Number) and in the sign of the currentQuantity adjustment (see
+// WarehouseService.logStockMovement).
+void _showStockMovementDialog({
+  required BuildContext context,
+  required String itemId,
+  required String itemUnit,
+  required String type,
+  required String loggedBy,
+}) {
+  final isIn = type == 'in';
+  var selectedDate = DateTime.now();
+  final purposeController = TextEditingController();
+  final vehicleNumberController = TextEditingController();
+  final quantityController = TextEditingController();
+  final personNameController = TextEditingController();
+  final brandController = TextEditingController();
+  final purchasedFromController = TextEditingController();
+  final billNumberController = TextEditingController();
+  final shopPhoneController = TextEditingController();
+
+  showDialog(
+    context: context,
+    builder: (dialogContext) => StatefulBuilder(
+      builder: (dialogContext, setDialogState) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(isIn ? 'Stock In' : 'Stock Out'),
+        content: SizedBox(
+          width: 400,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    'Date: ${GoogleSheetsService.formatDate(selectedDate)}',
+                  ),
+                  trailing: const Icon(Icons.calendar_today),
+                  onTap: () async {
+                    final picked = await showDatePicker(
+                      context: dialogContext,
+                      initialDate: selectedDate,
+                      firstDate: DateTime(2020),
+                      lastDate: DateTime(2100),
+                    );
+                    if (picked != null) {
+                      setDialogState(() => selectedDate = picked);
+                    }
+                  },
+                ),
+                TextField(
+                  controller: purposeController,
+                  decoration: const InputDecoration(
+                    labelText: 'Purpose',
+                    border: OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (!isIn) ...[
+                  TextField(
+                    controller: vehicleNumberController,
+                    textCapitalization: TextCapitalization.characters,
+                    decoration: const InputDecoration(
+                      labelText: 'Vehicle Number (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                ],
+                TextField(
+                  controller: quantityController,
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  decoration: InputDecoration(
+                    labelText: isIn
+                        ? 'Quantity Received ($itemUnit)'
+                        : 'Quantity Taken ($itemUnit)',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: personNameController,
+                  decoration: InputDecoration(
+                    labelText: isIn ? 'Who Brought It' : 'Who Took It',
+                    border: const OutlineInputBorder(),
+                  ),
+                ),
+                if (isIn) ...[
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: brandController,
+                    decoration: const InputDecoration(
+                      labelText: 'Brand',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: purchasedFromController,
+                    decoration: const InputDecoration(
+                      labelText: 'Purchased From',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: billNumberController,
+                    decoration: const InputDecoration(
+                      labelText: 'Bill Number (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: shopPhoneController,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Shop Phone Number (optional)',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: isIn ? Colors.green[700] : Colors.orange[800],
+            ),
+            onPressed: () async {
+              final quantity = double.tryParse(quantityController.text.trim());
+              final personName = personNameController.text.trim();
+              if (quantity == null || quantity <= 0 || personName.isEmpty) {
+                ScaffoldMessenger.of(dialogContext).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Enter a valid quantity and ${isIn ? 'who brought it' : 'who took it'}.',
+                    ),
+                  ),
+                );
+                return;
+              }
+              await WarehouseService.logStockMovement(
+                itemId: itemId,
+                type: type,
+                date: selectedDate,
+                purpose: purposeController.text.trim(),
+                vehicleNumber: isIn
+                    ? null
+                    : (vehicleNumberController.text.trim().isEmpty
+                          ? null
+                          : vehicleNumberController.text.trim()),
+                personName: personName,
+                quantity: quantity,
+                brand: isIn && brandController.text.trim().isNotEmpty
+                    ? brandController.text.trim()
+                    : null,
+                purchasedFrom:
+                    isIn && purchasedFromController.text.trim().isNotEmpty
+                    ? purchasedFromController.text.trim()
+                    : null,
+                billNumber: isIn && billNumberController.text.trim().isNotEmpty
+                    ? billNumberController.text.trim()
+                    : null,
+                shopPhoneNumber:
+                    isIn && shopPhoneController.text.trim().isNotEmpty
+                    ? shopPhoneController.text.trim()
+                    : null,
+                loggedBy: loggedBy,
+              );
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: Text(
+              isIn ? 'Stock In' : 'Stock Out',
+              style: const TextStyle(color: Colors.white),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
+// Read-only view of an item's stockMovements subcollection, newest first —
+// same shape as showGarageServiceHistoryDialog, different fields.
+void _showWarehouseItemHistoryDialog({
+  required BuildContext context,
+  required String itemId,
+  required String itemName,
+}) {
+  showDialog(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text('History — $itemName'),
+      content: SizedBox(
+        width: 420,
+        child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+          stream: FirebaseFirestore.instance
+              .collection(kWarehouseItemsCollection)
+              .doc(itemId)
+              .collection(kStockMovementsSubcollection)
+              .orderBy('date', descending: true)
+              .snapshots(),
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              );
+            }
+            if (snapshot.hasError) {
+              return Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Failed to load history: ${snapshot.error}'),
+              );
+            }
+            final entries = snapshot.data?.docs ?? [];
+            if (entries.isEmpty) {
+              return const Padding(
+                padding: EdgeInsets.all(24),
+                child: Text(
+                  'No stock movements logged yet.',
+                  style: TextStyle(color: Colors.grey),
+                ),
+              );
+            }
+            return ListView.separated(
+              shrinkWrap: true,
+              itemCount: entries.length,
+              separatorBuilder: (_, __) => const Divider(height: 16),
+              itemBuilder: (context, index) {
+                final data = entries[index].data();
+                final isIn = data['type'] == 'in';
+                final date = (data['date'] as Timestamp?)?.toDate();
+                final quantity = (data['quantity'] as num?)?.toDouble();
+                final purpose = (data['purpose'] ?? '').toString();
+                final vehicleNumber = (data['vehicleNumber'] ?? '').toString();
+                final personName = (data['personName'] ?? '').toString();
+                final brand = (data['brand'] ?? '').toString();
+                final purchasedFrom = (data['purchasedFrom'] ?? '').toString();
+                final billNumber = (data['billNumber'] ?? '').toString();
+                final shopPhone = (data['shopPhoneNumber'] ?? '').toString();
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: isIn ? Colors.green : Colors.orange[800],
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            isIn ? 'IN' : 'OUT',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          date == null
+                              ? 'Date pending'
+                              : GoogleSheetsService.formatDate(date),
+                          style: const TextStyle(fontWeight: FontWeight.bold),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Quantity: ${quantity?.toStringAsFixed(1) ?? '-'}',
+                      style: const TextStyle(fontSize: 13),
+                    ),
+                    if (purpose.isNotEmpty)
+                      Text('Purpose: $purpose', style: const TextStyle(fontSize: 13)),
+                    if (vehicleNumber.isNotEmpty)
+                      Text(
+                        'Vehicle: $vehicleNumber',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    if (personName.isNotEmpty)
+                      Text(
+                        isIn ? 'Brought By: $personName' : 'Taken By: $personName',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    if (brand.isNotEmpty)
+                      Text('Brand: $brand', style: const TextStyle(fontSize: 13)),
+                    if (purchasedFrom.isNotEmpty)
+                      Text(
+                        'Purchased From: $purchasedFrom',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    if (billNumber.isNotEmpty)
+                      Text(
+                        'Bill Number: $billNumber',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    if (shopPhone.isNotEmpty)
+                      Text(
+                        'Shop Phone: $shopPhone',
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Logged by: ${(data['loggedBy'] ?? '').toString()}',
+                      style: const TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                  ],
+                );
+              },
+            );
+          },
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext),
+          child: const Text('Close'),
+        ),
+      ],
+    ),
+  );
+}
+
+class WarehouseScreen extends StatefulWidget {
+  final String name;
+  const WarehouseScreen({super.key, required this.name});
+
+  @override
+  State<WarehouseScreen> createState() => _WarehouseScreenState();
+}
+
+class _WarehouseScreenState extends State<WarehouseScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 4, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _logout() async {
+    await FirebaseAuth.instance.signOut();
+    if (mounted) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Warehouse'),
+        backgroundColor: Colors.brown[800],
+        foregroundColor: Colors.white,
+        actions: [
+          IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          isScrollable: true,
+          tabs: const [
+            Tab(text: 'Oil', icon: Icon(Icons.opacity)),
+            Tab(text: 'Tools', icon: Icon(Icons.build)),
+            Tab(text: 'Spare Parts', icon: Icon(Icons.settings)),
+            Tab(text: 'Notifications', icon: Icon(Icons.notifications)),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _WarehouseCategoryTab(category: 'oil', userName: widget.name),
+          _WarehouseCategoryTab(category: 'tools', userName: widget.name),
+          _WarehouseCategoryTab(category: 'spare_parts', userName: widget.name),
+          const _WarehouseNotificationsTab(),
+        ],
+      ),
+    );
+  }
+}
+
+class _WarehouseCategoryTab extends StatefulWidget {
+  final String category;
+  final String userName;
+  const _WarehouseCategoryTab({
+    required this.category,
+    required this.userName,
+  });
+
+  @override
+  State<_WarehouseCategoryTab> createState() => _WarehouseCategoryTabState();
+}
+
+class _WarehouseCategoryTabState extends State<_WarehouseCategoryTab> {
+  @override
+  Widget build(BuildContext context) {
+    final isOil = widget.category == 'oil';
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(12),
+          child: SizedBox(
+            width: double.infinity,
+            child: ElevatedButton.icon(
+              onPressed: () =>
+                  _showRegisterWarehouseItemDialog(context, widget.category),
+              icon: const Icon(Icons.add, color: Colors.white),
+              label: Text(
+                '+ Register ${warehouseCategoryLabel(widget.category)} Item',
+                style: const TextStyle(color: Colors.white),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.brown[800],
+                padding: const EdgeInsets.symmetric(vertical: 14),
+              ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance
+                .collection(kWarehouseItemsCollection)
+                .where('category', isEqualTo: widget.category)
+                .snapshots(),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              final items = snapshot.data?.docs ?? [];
+              if (items.isEmpty) {
+                return Center(
+                  child: Text(
+                    'No ${warehouseCategoryLabel(widget.category).toLowerCase()} items registered yet.',
+                  ),
+                );
+              }
+              return ListView.builder(
+                padding: const EdgeInsets.all(12),
+                itemCount: items.length,
+                itemBuilder: (context, index) {
+                  final doc = items[index];
+                  final data = doc.data();
+                  final currentQuantity =
+                      (data['currentQuantity'] as num?)?.toDouble() ?? 0;
+                  final lowStockThreshold =
+                      (data['lowStockThreshold'] as num?)?.toDouble() ?? 0;
+                  final tankCapacity = (data['tankCapacity'] as num?)
+                      ?.toDouble();
+                  final unit = (data['unit'] ?? '').toString();
+                  final itemName = (data['itemName'] ?? '').toString();
+                  final brand = (data['brand'] as String?);
+                  final isLow = currentQuantity <= lowStockThreshold;
+
+                  return Card(
+                    margin: const EdgeInsets.only(bottom: 10),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (isOil && tankCapacity != null && tankCapacity > 0) ...[
+                            _TankVisual(
+                              currentQuantity: currentQuantity,
+                              tankCapacity: tankCapacity,
+                              isLow: isLow,
+                            ),
+                            const SizedBox(width: 16),
+                          ],
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        itemName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 16,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      icon: const Icon(Icons.history),
+                                      tooltip: 'View History',
+                                      onPressed: () =>
+                                          _showWarehouseItemHistoryDialog(
+                                            context: context,
+                                            itemId: doc.id,
+                                            itemName: itemName,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                                if (!isOil)
+                                  Text(
+                                    'Current Quantity: '
+                                    '${currentQuantity.toStringAsFixed(1)} $unit',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      color: isLow
+                                          ? Colors.red
+                                          : Colors.black87,
+                                    ),
+                                  ),
+                                if (brand != null && brand.isNotEmpty)
+                                  Text(
+                                    'Brand: $brand',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                if (isLow)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 4),
+                                    child: Text(
+                                      'Low Stock',
+                                      style: TextStyle(
+                                        color: Colors.red,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                    ),
+                                  ),
+                                const SizedBox(height: 10),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: ElevatedButton.icon(
+                                        onPressed: () =>
+                                            _showStockMovementDialog(
+                                              context: context,
+                                              itemId: doc.id,
+                                              itemUnit: unit,
+                                              type: 'in',
+                                              loggedBy: widget.userName,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.arrow_downward,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Stock In',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.green[700],
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Expanded(
+                                      child: ElevatedButton.icon(
+                                        onPressed: () =>
+                                            _showStockMovementDialog(
+                                              context: context,
+                                              itemId: doc.id,
+                                              itemUnit: unit,
+                                              type: 'out',
+                                              loggedBy: widget.userName,
+                                            ),
+                                        icon: const Icon(
+                                          Icons.arrow_upward,
+                                          color: Colors.white,
+                                          size: 16,
+                                        ),
+                                        label: const Text(
+                                          'Stock Out',
+                                          style: TextStyle(color: Colors.white),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: Colors.orange[800],
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// Same purpose/shape as _GarageNotificationsTab — every item (any category)
+// at or below its own lowStockThreshold, worst-first. A collectionGroup
+// isn't needed since warehouse_items is already a flat top-level
+// collection; unlike Garage's per-truck GPS fetch this is a single
+// Firestore query with no external API calls.
+class _WarehouseNotificationsTab extends StatelessWidget {
+  const _WarehouseNotificationsTab();
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+      stream: FirebaseFirestore.instance
+          .collection(kWarehouseItemsCollection)
+          .snapshots(),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        if (snapshot.hasError) {
+          return Center(child: Text('Failed to load: ${snapshot.error}'));
+        }
+        final lowItems =
+            (snapshot.data?.docs ?? []).where((doc) {
+                final data = doc.data();
+                final currentQuantity =
+                    (data['currentQuantity'] as num?)?.toDouble() ?? 0;
+                final lowStockThreshold =
+                    (data['lowStockThreshold'] as num?)?.toDouble() ?? 0;
+                return currentQuantity <= lowStockThreshold;
+              }).toList()
+              ..sort((a, b) {
+                final aRemaining =
+                    (a.data()['currentQuantity'] as num?)?.toDouble() ?? 0;
+                final bRemaining =
+                    (b.data()['currentQuantity'] as num?)?.toDouble() ?? 0;
+                return aRemaining.compareTo(bRemaining);
+              });
+        if (lowItems.isEmpty) {
+          return const Center(
+            child: Text(
+              'No low-stock items.',
+              style: TextStyle(color: Colors.grey),
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(12),
+          itemCount: lowItems.length,
+          itemBuilder: (context, index) {
+            final data = lowItems[index].data();
+            final currentQuantity =
+                (data['currentQuantity'] as num?)?.toDouble() ?? 0;
+            final unit = (data['unit'] ?? '').toString();
+            return Card(
+              color: Colors.red[50],
+              margin: const EdgeInsets.only(bottom: 10),
+              child: ListTile(
+                leading: const Icon(
+                  Icons.warning_amber_rounded,
+                  color: Colors.red,
+                ),
+                title: Text(
+                  (data['itemName'] ?? '').toString(),
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+                subtitle: Text(
+                  '${warehouseCategoryLabel((data['category'] ?? '').toString())} — '
+                  'Low Stock: ${currentQuantity.toStringAsFixed(1)} $unit remaining',
+                  style: const TextStyle(color: Colors.red),
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 }
 
@@ -22787,105 +27587,199 @@ class _GpsDeviceManagementScreenState extends State<GpsDeviceManagementScreen> {
                 ),
               ),
               Expanded(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      width: 260,
-                      child: trucksWithGps.isEmpty
-                          ? const Padding(
-                              padding: EdgeInsets.all(16),
-                              child: Text(
-                                'No trucks have a GPS Device ID set yet — '
-                                'set one in Truck Profile.',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            )
-                          : ListView.builder(
-                              itemCount: trucksWithGps.length,
-                              itemBuilder: (context, index) {
-                                final doc = trucksWithGps[index];
-                                final data = doc.data() as Map<String, dynamic>;
-                                final truckNumber = (data['truckNumber'] ?? '')
-                                    .toString();
-                                final gpsDeviceId =
-                                    (data['gpsDeviceId'] as String?)?.trim() ??
-                                    '';
-                                final isSelected = doc.id == _selectedTruckId;
-                                return ListTile(
-                                  selected: isSelected,
-                                  selectedTileColor: AppTheme.primaryMid
-                                      .withOpacity(0.08),
-                                  leading: const Icon(Icons.local_shipping),
-                                  title: Text(truckNumber),
-                                  subtitle: Text(gpsDeviceId),
-                                  onTap: () => setState(() {
-                                    _selectedTruckId = doc.id;
-                                    _selectedTruckNumber = truckNumber;
-                                    _selectedGpsDeviceId = gpsDeviceId;
-                                  }),
-                                );
-                              },
+                child: Builder(
+                  builder: (context) {
+                    // Same breakpoint WebAppShell/Garage already use — see
+                    // _GarageTrucksTabState's doc comment for the full
+                    // reasoning. Wide keeps this screen's existing
+                    // side-by-side Row; narrow pushes a full-screen detail
+                    // route instead of squeezing the KM history panel into
+                    // whatever's left after a fixed-width sidebar.
+                    final isWide =
+                        MediaQuery.of(context).size.width >
+                        WebAppShell.desktopBreakpoint;
+
+                    final truckList = trucksWithGps.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.all(16),
+                            child: Text(
+                              'No trucks have a GPS Device ID set yet — '
+                              'set one in Truck Profile.',
+                              style: TextStyle(fontSize: 12),
                             ),
-                    ),
-                    const VerticalDivider(width: 1),
-                    Expanded(
-                      child: _selectedGpsDeviceId == null
-                          ? const Center(
-                              child: Text('Select a truck to view KM history.'),
-                            )
-                          : FutureBuilder<List<Map<String, dynamic>>>(
-                              // Same in-flight Future as the devices list
-                              // above — no second /api/devices call just to
-                              // resolve the numeric Traccar deviceId.
-                              future: _devicesFuture,
-                              builder: (context, deviceSnap) {
-                                if (deviceSnap.connectionState ==
-                                    ConnectionState.waiting) {
-                                  return const Center(
-                                    child: CircularProgressIndicator(),
-                                  );
-                                }
-                                final devices = deviceSnap.data ?? [];
-                                final matchedDevice = devices
-                                    .cast<Map<String, dynamic>?>()
-                                    .firstWhere(
-                                      (d) =>
-                                          (d?['uniqueId'] ?? '').toString() ==
-                                          _selectedGpsDeviceId,
-                                      orElse: () => null,
-                                    );
-                                final numericDeviceId =
-                                    (matchedDevice?['id'] as num?)?.toInt();
-                                if (numericDeviceId == null) {
-                                  return Center(
-                                    child: Padding(
-                                      padding: const EdgeInsets.all(16),
-                                      child: Text(
-                                        'No matching Traccar device found '
-                                        'for GPS Device ID '
-                                        '"$_selectedGpsDeviceId".',
-                                        textAlign: TextAlign.center,
+                          )
+                        : ListView.builder(
+                            itemCount: trucksWithGps.length,
+                            itemBuilder: (context, index) {
+                              final doc = trucksWithGps[index];
+                              final data =
+                                  doc.data() as Map<String, dynamic>;
+                              final truckNumber =
+                                  (data['truckNumber'] ?? '').toString();
+                              final gpsDeviceId =
+                                  (data['gpsDeviceId'] as String?)?.trim() ??
+                                  '';
+                              final isSelected =
+                                  isWide && doc.id == _selectedTruckId;
+                              return ListTile(
+                                selected: isSelected,
+                                selectedTileColor: AppTheme.primaryMid
+                                    .withOpacity(0.08),
+                                leading: const Icon(Icons.local_shipping),
+                                title: Text(truckNumber),
+                                subtitle: Text(gpsDeviceId),
+                                onTap: () {
+                                  if (isWide) {
+                                    setState(() {
+                                      _selectedTruckId = doc.id;
+                                      _selectedTruckNumber = truckNumber;
+                                      _selectedGpsDeviceId = gpsDeviceId;
+                                    });
+                                  } else {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (_) => _GpsKmHistoryScreen(
+                                          truckNumber: truckNumber,
+                                          gpsDeviceId: gpsDeviceId,
+                                          devicesFuture: _devicesFuture,
+                                          username: _traccarUsername,
+                                          password: _traccarPassword,
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                }
-                                return _KmHistoryPanel(
-                                  key: ValueKey(numericDeviceId),
+                                    );
+                                  }
+                                },
+                              );
+                            },
+                          );
+
+                    if (!isWide) return truckList;
+
+                    return Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        SizedBox(width: 260, child: truckList),
+                        const VerticalDivider(width: 1),
+                        Expanded(
+                          child: _selectedGpsDeviceId == null
+                              ? const Center(
+                                  child: Text(
+                                    'Select a truck to view KM history.',
+                                  ),
+                                )
+                              : _ResolvedKmHistoryPanel(
                                   truckNumber: _selectedTruckNumber!,
-                                  deviceId: numericDeviceId,
+                                  gpsDeviceId: _selectedGpsDeviceId!,
+                                  devicesFuture: _devicesFuture,
                                   username: _traccarUsername,
                                   password: _traccarPassword,
-                                );
-                              },
-                            ),
-                    ),
-                  ],
+                                ),
+                        ),
+                      ],
+                    );
+                  },
                 ),
               ),
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+// Resolves a truck's gpsDeviceId (trucks/{id}.gpsDeviceId, a Traccar
+// uniqueId string) to Traccar's numeric device id and renders _KmHistoryPanel
+// — shared between GpsDeviceManagementScreen's desktop Expanded panel and
+// _GpsKmHistoryScreen's mobile full-screen route below, so the two layouts
+// can't drift apart. Takes devicesFuture rather than fetching its own, so
+// both call sites share the one /api/devices call already in flight.
+class _ResolvedKmHistoryPanel extends StatelessWidget {
+  final String truckNumber;
+  final String gpsDeviceId;
+  final Future<List<Map<String, dynamic>>> devicesFuture;
+  final String username;
+  final String password;
+
+  const _ResolvedKmHistoryPanel({
+    required this.truckNumber,
+    required this.gpsDeviceId,
+    required this.devicesFuture,
+    required this.username,
+    required this.password,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Map<String, dynamic>>>(
+      future: devicesFuture,
+      builder: (context, deviceSnap) {
+        if (deviceSnap.connectionState == ConnectionState.waiting) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final devices = deviceSnap.data ?? [];
+        final matchedDevice = devices.cast<Map<String, dynamic>?>().firstWhere(
+          (d) => (d?['uniqueId'] ?? '').toString() == gpsDeviceId,
+          orElse: () => null,
+        );
+        final numericDeviceId = (matchedDevice?['id'] as num?)?.toInt();
+        if (numericDeviceId == null) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Text(
+                'No matching Traccar device found for GPS Device ID '
+                '"$gpsDeviceId".',
+                textAlign: TextAlign.center,
+              ),
+            ),
+          );
+        }
+        return _KmHistoryPanel(
+          key: ValueKey(numericDeviceId),
+          truckNumber: truckNumber,
+          deviceId: numericDeviceId,
+          username: username,
+          password: password,
+        );
+      },
+    );
+  }
+}
+
+// Full-screen KM history route for narrow (< WebAppShell.desktopBreakpoint)
+// screens — same TruckProfileScreen/GarageVehicleDetailScreen pattern the
+// rest of the app uses on mobile instead of a permanent side-by-side split.
+class _GpsKmHistoryScreen extends StatelessWidget {
+  final String truckNumber;
+  final String gpsDeviceId;
+  final Future<List<Map<String, dynamic>>> devicesFuture;
+  final String username;
+  final String password;
+
+  const _GpsKmHistoryScreen({
+    required this.truckNumber,
+    required this.gpsDeviceId,
+    required this.devicesFuture,
+    required this.username,
+    required this.password,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(truckNumber),
+        backgroundColor: AppTheme.primaryDark,
+        foregroundColor: Colors.white,
+      ),
+      body: _ResolvedKmHistoryPanel(
+        truckNumber: truckNumber,
+        gpsDeviceId: gpsDeviceId,
+        devicesFuture: devicesFuture,
+        username: username,
+        password: password,
       ),
     );
   }
@@ -23058,7 +27952,8 @@ class LiveTrackingScreen extends StatefulWidget {
   State<LiveTrackingScreen> createState() => _LiveTrackingScreenState();
 }
 
-class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
+class _LiveTrackingScreenState extends State<LiveTrackingScreen>
+    with TickerProviderStateMixin {
   static const String _traccarUsername = 'pabodamilan.rpm@gmail.com';
   static const String _traccarPassword = 'Pa@20010707';
 
@@ -23070,28 +27965,114 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
   BitmapDescriptor? _truckIcon;
   Timer? _refreshTimer;
   Set<Marker> _markers = {};
+  // Set by tapping a truck marker (see _onTruckTapped) and deliberately
+  // never touched by _refreshPositions' periodic marker rebuild — it only
+  // changes when a different truck is tapped, so it stays on screen across
+  // the 15s refresh, per this feature's requirement.
+  Set<Polyline> _polylines = {};
+  // Loaded once in initState (see _loadSiteMarkers), not on the 15s
+  // truck-position timer — site locations don't change nearly as often as
+  // truck positions do, so there's no need to refetch them periodically.
+  Set<Marker> _siteMarkers = {};
   String? _errorText;
   bool _iconReady = false;
+
+  // Smooth truck marker gliding (see _animateMarkerTo/_refreshPositions):
+  // last position a marker actually finished gliding to, the latest target
+  // from Traccar, and what's currently on screen mid-glide, all keyed by
+  // the truck's gpsDeviceId uniqueId — plus one AnimationController per
+  // truck currently animating, and the marker metadata (truckNumber/
+  // deviceId/speed) needed to rebuild the Marker objects from just the
+  // positions above.
+  final Map<String, LatLng> _previousPositions = {};
+  final Map<String, LatLng> _targetPositions = {};
+  final Map<String, LatLng> _displayedPositions = {};
+  final Map<String, AnimationController> _markerAnimationControllers = {};
+  Map<String, _TruckMarkerInfo> _truckMarkerInfo = {};
+  // Bill number of each truck's current active load, by truckNumber — see
+  // _refreshPositions' activeLoadsSnap query. Absent entry means that truck
+  // has no active load right now.
+  Map<String, String> _activeBillByTruckNumber = {};
+
+  // Progressive route-drawing animation (see _animateRoute/_onTruckTapped).
+  List<LatLng> _fullRoutePoints = [];
+  List<LatLng> _animatedRoutePoints = [];
+  Timer? _routeAnimationTimer;
+  String? _activeRouteTruckNumber;
+  // Which exact work_record's route should keep being re-fetched/extended
+  // on every 15s _refreshPositions cycle while it's still active — set on
+  // Truck Tap / sidebar Bill Select, cleared once that specific record
+  // completes (see _refreshPositions and
+  // _onTruckTapped/_onSidebarBillSelected). Deliberately the document
+  // reference, not just a truck number: a truck can pick up a second
+  // active load while an older one for that same truck is still the one
+  // displayed, and keying only on truck number would silently start
+  // showing the newer load's route/KM under the older bill's still-open
+  // card. Distinct from _activeRouteTruckNumber above, which _animateRoute
+  // sets on every draw regardless of whether live extension continues.
+  DocumentReference<Map<String, dynamic>>? _selectedRouteRecordRef;
+  String? _selectedRouteTruckNumber;
+  // Live Total KM for whichever bill the sidebar has selected, computed
+  // from the same position-history fetch _drawRouteForTruck already does
+  // for the route polyline — no separate Traccar call. Passed down into
+  // _LiveTrackingSidebar as liveKmUpdate; null while nothing's selected yet
+  // or briefly right after a new selection, before the first fetch lands.
+  double? _liveTotalKmForSelectedRoute;
+  // Real-time completion notification (see
+  // AutoArrivalDetectionService.onLoadCompleted / _onLoadCompleted below).
+  StreamSubscription<LoadCompletionEvent>? _loadCompletionSubscription;
 
   @override
   void initState() {
     super.initState();
-    if (kIsWeb) {
-      // No frame-timing dependency here — unlike the earlier
-      // RepaintBoundary/toImage() approach (which needed the widget tree
-      // fully painted first, via addPostFrameCallback, and still hit
-      // "Assertion failed: !debugNeedsPaint is not true" because
-      // RenderRepaintBoundary.toImage() can run before paint is actually
-      // complete), drawing straight onto a ui.PictureRecorder/Canvas has no
-      // widget tree to wait on, so this can run immediately.
-      _generateTruckIcon();
-    }
+    _loadCompletionSubscription = AutoArrivalDetectionService.onLoadCompleted
+        .listen(_onLoadCompleted);
+    // No frame-timing dependency here — unlike the earlier
+    // RepaintBoundary/toImage() approach (which needed the widget tree
+    // fully painted first, via addPostFrameCallback, and still hit
+    // "Assertion failed: !debugNeedsPaint is not true" because
+    // RenderRepaintBoundary.toImage() can run before paint is actually
+    // complete), drawing straight onto a ui.PictureRecorder/Canvas has no
+    // widget tree to wait on, so this can run immediately. dart:ui's Canvas
+    // API is cross-platform (not web-only), so this runs the same way on
+    // Android — see build()'s doc comment for the same reasoning applied to
+    // the map itself.
+    _generateTruckIcon();
+    _loadSiteMarkers();
   }
 
   @override
   void dispose() {
     _refreshTimer?.cancel();
+    _routeAnimationTimer?.cancel();
+    _loadCompletionSubscription?.cancel();
+    for (final controller in _markerAnimationControllers.values) {
+      controller.dispose();
+    }
     super.dispose();
+  }
+
+  void _onLoadCompleted(LoadCompletionEvent event) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green[700],
+        duration: const Duration(seconds: 5),
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle, color: Colors.white),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                '✅ Load Completed! Truck ${event.truckNumber} - '
+                'Bill ${event.billNumber} - Unloaded at ${event.siteName}',
+                style: const TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   // Builds the custom truck marker icon by drawing directly on a
@@ -23105,34 +28086,103 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
       final recorder = ui.PictureRecorder();
       final canvas = Canvas(recorder);
       const size = 100.0;
+      const center = Offset(size / 2, size / 2);
 
-      final bgPaint = Paint()..color = AppTheme.primaryMid;
-      canvas.drawCircle(const Offset(size / 2, size / 2), size / 2, bgPaint);
-      final borderPaint = Paint()
+      // Truck silhouette geometry (side profile) — cargo box (taller, rear)
+      // overlapping a cab (shorter, front), which is what actually produces
+      // the "L-shaped" truck outline: two rounded rects sharing an edge
+      // rather than a real Path boolean union, since both are filled with
+      // no visible seam between them.
+      final cargoRRect = RRect.fromRectAndRadius(
+        const Rect.fromLTRB(40, 28, 86, 62),
+        const Radius.circular(6),
+      );
+      final cabRRect = RRect.fromRectAndRadius(
+        const Rect.fromLTRB(16, 40, 44, 62),
+        const Radius.circular(6),
+      );
+      const windshieldRect = Rect.fromLTRB(19, 43, 37, 51);
+      const leftWheelCenter = Offset(28, 66);
+      const rightWheelCenter = Offset(74, 66);
+      const wheelRadius = 8.0;
+
+      // Slight Canvas.skew() applied to the whole truck (body + wheels),
+      // for a Google-Maps-style angled/leaning illusion rather than a true
+      // isometric 3D model.
+      canvas.save();
+      canvas.translate(center.dx, center.dy);
+      canvas.skew(-0.12, 0);
+      canvas.translate(-center.dx, -center.dy);
+
+      // Drop shadow — one combined silhouette path (cargo + cab + both
+      // wheels) so it reads as a single "floating above the map" shadow
+      // rather than three separate ones.
+      final silhouettePath = Path()
+        ..addRRect(cargoRRect)
+        ..addRRect(cabRRect)
+        ..addOval(Rect.fromCircle(center: leftWheelCenter, radius: wheelRadius))
+        ..addOval(
+          Rect.fromCircle(center: rightWheelCenter, radius: wheelRadius),
+        );
+      canvas.drawShadow(silhouettePath, Colors.black, 6, false);
+
+      // Cargo body — primary brand truck color (matches Manage Trucks/
+      // Vehicle Registration's existing deepOrange theming; AppTheme has no
+      // literal orange/amber constant to reuse). Lighter top / darker
+      // bottom gradient for the "light hits the top" 3D depth illusion.
+      final cargoPaint = Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(cargoRRect.center.dx, cargoRRect.top),
+          Offset(cargoRRect.center.dx, cargoRRect.bottom),
+          [Colors.deepOrange.shade300, Colors.deepOrange.shade800],
+        );
+      canvas.drawRRect(cargoRRect, cargoPaint);
+
+      // Cab — darker navy shade, same top-light/bottom-dark gradient
+      // treatment as the cargo body.
+      final cabPaint = Paint()
+        ..shader = ui.Gradient.linear(
+          Offset(cabRRect.center.dx, cabRRect.top),
+          Offset(cabRRect.center.dx, cabRRect.bottom),
+          [
+            Color.lerp(AppTheme.primaryMid, Colors.white, 0.15)!,
+            AppTheme.primaryDark,
+          ],
+        );
+      canvas.drawRRect(cabRRect, cabPaint);
+
+      // Windshield — a lighter accent-color stroke standing in for the
+      // window frame/glass line called for in the design.
+      final windshieldPaint = Paint()
         ..color = AppTheme.accent
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4;
-      canvas.drawCircle(
-        const Offset(size / 2, size / 2),
-        size / 2 - 2,
-        borderPaint,
+        ..strokeWidth = 2;
+      canvas.drawRRect(
+        RRect.fromRectAndRadius(windshieldRect, const Radius.circular(2)),
+        windshieldPaint,
       );
 
-      final textPainter = TextPainter(textDirection: TextDirection.ltr);
-      textPainter.text = TextSpan(
-        text: String.fromCharCode(Icons.local_shipping.codePoint),
-        style: TextStyle(
-          fontSize: size * 0.6,
-          fontFamily: Icons.local_shipping.fontFamily,
-          package: Icons.local_shipping.fontPackage,
-          color: Colors.white,
-        ),
-      );
-      textPainter.layout();
-      textPainter.paint(
-        canvas,
-        Offset((size - textPainter.width) / 2, (size - textPainter.height) / 2),
-      );
+      // Wheels — dark tires with a lighter hub circle for a touch of detail
+      // without overcomplicating the silhouette.
+      final tirePaint = Paint()..color = const Color(0xFF212121);
+      final hubPaint = Paint()..color = const Color(0xFF616161);
+      for (final wheelCenter in [leftWheelCenter, rightWheelCenter]) {
+        canvas.drawCircle(wheelCenter, wheelRadius, tirePaint);
+        canvas.drawCircle(wheelCenter, wheelRadius * 0.45, hubPaint);
+      }
+
+      // White outline around the whole silhouette so it stands out against
+      // the map background.
+      final borderPaint = Paint()
+        ..color = Colors.white
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2;
+      canvas.drawRRect(cargoRRect, borderPaint);
+      canvas.drawRRect(cabRRect, borderPaint);
+      for (final wheelCenter in [leftWheelCenter, rightWheelCenter]) {
+        canvas.drawCircle(wheelCenter, wheelRadius, borderPaint);
+      }
+      canvas.restore();
 
       final picture = recorder.endRecording();
       final image = await picture.toImage(size.toInt(), size.toInt());
@@ -23187,7 +28237,38 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
                 (doc.data()['truckNumber'] ?? '').toString(),
       };
 
-      final markers = <Marker>{};
+      // Active-load bill numbers, by truck — same isCompleted == false
+      // lookup _onTruckTapped uses for a single truck, but fetched once for
+      // every truck here rather than per-marker, since marker Sets get
+      // rebuilt on every glide animation frame (see
+      // _buildMarkersFromDisplayedPositions) and re-querying Firestore that
+      // often would be wasteful. Cached in _activeBillByTruckNumber for the
+      // whole 15s refresh cycle.
+      final activeLoadsSnap = await FirebaseFirestore.instance
+          .collectionGroup('work_records')
+          .where('isCompleted', isEqualTo: false)
+          .get();
+      final newActiveBillByTruckNumber = <String, String>{};
+      final latestLoadStartByTruckNumber = <String, Timestamp>{};
+      for (final doc in activeLoadsSnap.docs) {
+        final data = doc.data();
+        final truckNumber = (data['truckNumber'] ?? '').toString();
+        final billNumber = (data['billNumber'] ?? '').toString();
+        final loadStartedAt = data['loadStartedAt'] as Timestamp?;
+        if (truckNumber.isEmpty ||
+            billNumber.isEmpty ||
+            loadStartedAt == null) {
+          continue;
+        }
+        final latestStart = latestLoadStartByTruckNumber[truckNumber];
+        if (latestStart == null || loadStartedAt.compareTo(latestStart) > 0) {
+          latestLoadStartByTruckNumber[truckNumber] = loadStartedAt;
+          newActiveBillByTruckNumber[truckNumber] = billNumber;
+        }
+      }
+
+      final newTargets = <String, LatLng>{};
+      final newInfo = <String, _TruckMarkerInfo>{};
       for (final position in positions) {
         final deviceId = position['deviceId'];
         final lat = (position['latitude'] as num?)?.toDouble();
@@ -23200,40 +28281,749 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         // Traccar reports speed in knots.
         final speedKnots = (position['speed'] as num?)?.toDouble() ?? 0;
         final speedKmh = (speedKnots * 1.852).toStringAsFixed(1);
-        markers.add(
-          Marker(
-            markerId: MarkerId(uniqueId),
-            position: LatLng(lat, lng),
-            icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
-            infoWindow: InfoWindow(
-              title: truckNumber,
-              snippet: 'Speed: $speedKmh km/h',
-            ),
-          ),
+        newTargets[uniqueId] = LatLng(lat, lng);
+        newInfo[uniqueId] = _TruckMarkerInfo(
+          truckNumber: truckNumber,
+          deviceId: deviceId,
+          speedKmh: speedKmh,
         );
       }
 
       if (!mounted) return;
+      _truckMarkerInfo = newInfo;
+      _activeBillByTruckNumber = newActiveBillByTruckNumber;
+
+      // Trucks no longer reporting a position — drop their tracked state
+      // and cancel any in-flight glide for them.
+      final staleIds = _targetPositions.keys
+          .where((id) => !newTargets.containsKey(id))
+          .toList();
+      for (final id in staleIds) {
+        _targetPositions.remove(id);
+        _previousPositions.remove(id);
+        _displayedPositions.remove(id);
+        _markerAnimationControllers.remove(id)?.dispose();
+      }
+
+      // Glide each truck marker from its last displayed position to the
+      // new one instead of jumping there instantly — see _animateMarkerTo.
+      // A truck seen for the first time is placed directly, since there's
+      // no previous position to glide from.
+      for (final entry in newTargets.entries) {
+        final uniqueId = entry.key;
+        final newPos = entry.value;
+        final oldTarget = _targetPositions[uniqueId];
+        _targetPositions[uniqueId] = newPos;
+        if (oldTarget == null) {
+          _previousPositions[uniqueId] = newPos;
+          _displayedPositions[uniqueId] = newPos;
+          continue;
+        }
+        if (oldTarget.latitude == newPos.latitude &&
+            oldTarget.longitude == newPos.longitude) {
+          continue;
+        }
+        _animateMarkerTo(uniqueId, newPos);
+      }
+
       setState(() {
-        _markers = markers;
+        _markers = _buildMarkersFromDisplayedPositions();
         _errorText = null;
       });
+
+      // Awaited HERE, before the live route extension block below, rather
+      // than fired-and-forgotten at the end of this cycle (where it used to
+      // sit) — markers above are already on-screen by this point, so
+      // awaiting it doesn't delay anything the user perceives, but it
+      // closes a real lag window: with the old ordering, this cycle's own
+      // arrival detection couldn't possibly land before this cycle's own
+      // "is this record still active" re-check ran, so an arrival was
+      // always at least one 15s cycle late to freeze the route/KM. Now the
+      // freeze can happen on the very same cycle the truck arrives.
+      await AutoArrivalDetectionService.checkAllActiveLoads();
+
+      // Live route extension for whichever specific work_record is
+      // currently selected (Truck Tap / sidebar Bill Select — see
+      // _selectedRouteRecordRef's doc comment) — re-fetches and redraws its
+      // route on every cycle so the line keeps up with the truck instead
+      // of going stale. Re-reads this one record directly (a single cheap
+      // Firestore document get, not a Traccar call) rather than reusing
+      // latestLoadStartByTruckNumber above, since that map reflects
+      // "whichever load is newest for this truck right now" and would
+      // silently swap to a different, newer load if the truck picks one up
+      // while this older record is still the one displayed — which is
+      // exactly what caused route/KM to mix between a truck's older and
+      // newer loads.
+      final selectedRouteRecordRef = _selectedRouteRecordRef;
+      if (selectedRouteRecordRef != null) {
+        final freshSnap = await selectedRouteRecordRef.get();
+        final freshData = freshSnap.data();
+        final isStillActive =
+            freshData != null && freshData['isCompleted'] == false;
+        // Temporary — confirms, per cycle, exactly which record the route
+        // guard is watching and what it just read for isCompleted, so a
+        // report of "route doesn't stop" can be told apart from "route IS
+        // stopping, but for a different/stale record than the one the user
+        // is watching complete." Remove once confirmed.
+        print(
+          '[ROUTE_STOP_DEBUG] Tracking ${selectedRouteRecordRef.path}, '
+          'isCompleted=${freshData?['isCompleted']}, '
+          'isStillActive=$isStillActive',
+        );
+        if (!isStillActive) {
+          // Completed (or the record is gone) since the last cycle — stop
+          // extending it. The sidebar's last-pushed route/KM values simply
+          // stop updating, freezing at whatever they were.
+          _selectedRouteRecordRef = null;
+          _selectedRouteTruckNumber = null;
+        } else {
+          final loadStartedAt = freshData['loadStartedAt'] as Timestamp?;
+          final truckNumber = _selectedRouteTruckNumber;
+          if (loadStartedAt != null && truckNumber != null) {
+            _TruckMarkerInfo? info;
+            for (final candidate in newInfo.values) {
+              if (candidate.truckNumber == truckNumber) {
+                info = candidate;
+                break;
+              }
+            }
+            if (info != null) {
+              unawaited(
+                _drawRouteForTruck(
+                  recordRef: selectedRouteRecordRef,
+                  truckNumber: truckNumber,
+                  deviceId: info.deviceId,
+                  from: loadStartedAt.toDate(),
+                  to: DateTime.now(),
+                ),
+              );
+            }
+          }
+        }
+      }
     } catch (e) {
       if (!mounted) return;
       setState(() => _errorText = 'Failed to load live positions: $e');
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    if (!kIsWeb) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Live Tracking')),
-        body: const Center(
-          child: Text('Live Tracking is only available on the web dashboard.'),
+  // Glides a single truck marker from wherever it's currently displayed to
+  // [target] over ~1 second, instead of jumping there instantly. Each truck
+  // gets its own AnimationController (tracked in
+  // _markerAnimationControllers) so multiple trucks can glide at the same
+  // time without interfering with each other. If this truck is already
+  // mid-glide when a newer position arrives, the old controller is disposed
+  // and the new glide starts from the current on-screen position rather
+  // than stacking animations.
+  void _animateMarkerTo(String uniqueId, LatLng target) {
+    _markerAnimationControllers.remove(uniqueId)?.dispose();
+    final from = _displayedPositions[uniqueId] ?? target;
+    final controller = AnimationController(
+      duration: const Duration(seconds: 1),
+      vsync: this,
+    );
+    _markerAnimationControllers[uniqueId] = controller;
+    final animation = Tween<double>(
+      begin: 0.0,
+      end: 1.0,
+    ).animate(CurvedAnimation(parent: controller, curve: Curves.easeInOut));
+    animation.addListener(() {
+      if (!mounted) return;
+      final t = animation.value;
+      setState(() {
+        _displayedPositions[uniqueId] = LatLng(
+          from.latitude + (target.latitude - from.latitude) * t,
+          from.longitude + (target.longitude - from.longitude) * t,
+        );
+        _markers = _buildMarkersFromDisplayedPositions();
+      });
+    });
+    controller.forward().whenCompleteOrCancel(() {
+      // Only finalize/dispose if this is still the tracked controller for
+      // this truck — a newer glide may have already replaced (and
+      // disposed) it before this fires.
+      if (_markerAnimationControllers[uniqueId] == controller) {
+        _previousPositions[uniqueId] = target;
+        _markerAnimationControllers.remove(uniqueId)?.dispose();
+      }
+    });
+  }
+
+  // Rebuilds the truck marker Set from the current displayed positions
+  // (which may be mid-glide) plus the last-fetched marker metadata — called
+  // both right after a position refresh and on every animation frame while
+  // a marker is gliding.
+  Set<Marker> _buildMarkersFromDisplayedPositions() {
+    final markers = <Marker>{};
+    for (final entry in _truckMarkerInfo.entries) {
+      final uniqueId = entry.key;
+      final position = _displayedPositions[uniqueId];
+      if (position == null) continue;
+      final info = entry.value;
+      final activeBillNumber = _activeBillByTruckNumber[info.truckNumber];
+      final snippet = (activeBillNumber == null || activeBillNumber.isEmpty)
+          ? 'Speed: ${info.speedKmh} km/h'
+          : 'Speed: ${info.speedKmh} km/h | Bill: $activeBillNumber';
+      markers.add(
+        Marker(
+          markerId: MarkerId(uniqueId),
+          position: position,
+          icon: _truckIcon ?? BitmapDescriptor.defaultMarker,
+          infoWindow: InfoWindow(title: info.truckNumber, snippet: snippet),
+          onTap: () => _onTruckTapped(info.truckNumber, info.deviceId),
         ),
       );
     }
+    return markers;
+  }
+
+  // Draws the route for a truck's current active load, from when it
+  // started loading up to now. Looks up the most recent incomplete
+  // work_record for this truck client-side (rather than combining a
+  // truckNumber equality filter with an orderBy on loadStartedAt in the
+  // query itself) — a composite Firestore index for that exact shape isn't
+  // guaranteed to exist on this project, the same constraint
+  // _showEndDayDialog already works around the same way.
+  Future<void> _onTruckTapped(String truckNumber, int deviceId) async {
+    try {
+      final snap = await FirebaseFirestore.instance
+          .collectionGroup('work_records')
+          .where('truckNumber', isEqualTo: truckNumber)
+          .get();
+
+      print(
+        '[ROUTE_DEBUG] work_records found for truckNumber=$truckNumber: '
+        '${snap.docs.length}',
+      );
+
+      QueryDocumentSnapshot<Map<String, dynamic>>? activeLoadDoc;
+      Timestamp? activeLoadStart;
+      var activeLoadIsRunning = false;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        if (data['isCompleted'] != false) continue;
+        print(
+          '[ROUTE_DEBUG] candidate incomplete record ${doc.id}: '
+          'isLoadingCategory=${data['isLoadingCategory']}, '
+          'status=${data['status']}, '
+          'loadStartedAt=${data['loadStartedAt']}',
+        );
+        final loadStartedAt = data['loadStartedAt'] as Timestamp?;
+        if (loadStartedAt == null) continue;
+        // A truck can genuinely have several isCompleted: false records at
+        // once — starting any new task only pauses the previous one (see
+        // _pauseRunningRecord), it doesn't complete it. Picking purely by
+        // "most recently started" could jump to a brand-new task the
+        // moment it's created, even while an older one is still the
+        // actively-running record the user means to track. A running
+        // record always wins over a merely-paused one; "most recently
+        // started" only breaks ties within the same tier.
+        final isRunning = data['status'] == 'running';
+        final isBetterCandidate =
+            activeLoadDoc == null ||
+            (isRunning && !activeLoadIsRunning) ||
+            (isRunning == activeLoadIsRunning &&
+                loadStartedAt.compareTo(activeLoadStart!) > 0);
+        if (isBetterCandidate) {
+          activeLoadDoc = doc;
+          activeLoadStart = loadStartedAt;
+          activeLoadIsRunning = isRunning;
+        }
+      }
+
+      if (activeLoadDoc == null || activeLoadStart == null) {
+        print(
+          '[ROUTE_DEBUG] no candidate had a non-null loadStartedAt — '
+          'treating as idle, no route drawn.',
+        );
+        // Idle truck — no active load to draw a route for, and nothing to
+        // keep live-extending on future refresh cycles.
+        _selectedRouteRecordRef = null;
+        _selectedRouteTruckNumber = null;
+        _routeAnimationTimer?.cancel();
+        if (mounted) {
+          setState(() {
+            _polylines = {};
+            _liveTotalKmForSelectedRoute = null;
+          });
+        }
+        return;
+      }
+
+      // Tracked so _refreshPositions' 15s cycle keeps this exact record's
+      // route extended while it's still active, and clears it once this
+      // record (not just "whatever's active for this truck") completes.
+      // Live KM reset to null here (rather than left showing the
+      // previously-selected bill's figure) until this record's first fetch
+      // lands inside _drawRouteForTruck below.
+      // Temporary — proves whether _selectedRouteRecordRef changes between
+      // cycles because of a re-tap (this print firing again with a
+      // different record id) versus something else entirely. Remove once
+      // confirmed.
+      print(
+        '[ROUTE_SELECT_DEBUG] _onTruckTapped: truck=$truckNumber, '
+        'previous=${_selectedRouteRecordRef?.path}, '
+        'new=${activeLoadDoc.reference.path}',
+      );
+      _selectedRouteRecordRef = activeLoadDoc.reference;
+      _selectedRouteTruckNumber = truckNumber;
+      if (mounted) setState(() => _liveTotalKmForSelectedRoute = null);
+      await _drawRouteForTruck(
+        recordRef: activeLoadDoc.reference,
+        truckNumber: truckNumber,
+        deviceId: deviceId,
+        from: activeLoadStart.toDate(),
+        to: DateTime.now(),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load route: $e')));
+      }
+    }
+  }
+
+  // Shared by _onTruckTapped's active-load auto-lookup above and the
+  // sidebar's Bill Select flow (_onSidebarBillSelected) — fetches this
+  // truck's Traccar position history for [from, to] and progressively
+  // animates it onto the map via _animateRoute. Has its own try/catch since
+  // the sidebar caller doesn't have _onTruckTapped's surrounding one.
+  Future<void> _drawRouteForTruck({
+    required DocumentReference<Map<String, dynamic>> recordRef,
+    required String truckNumber,
+    required int deviceId,
+    required DateTime from,
+    required DateTime to,
+  }) async {
+    try {
+      // Temporary — confirms whether [from] (this record's loadStartedAt)
+      // stays constant for the same record across repeated 15s-cycle
+      // calls, or whether it's a different record/value each time. Remove
+      // once confirmed.
+      print(
+        '[TIME_WINDOW_DEBUG] Record ID: ${recordRef.id}, '
+        'loadStartedAt Value: $from',
+      );
+      print('[ROUTE_DEBUG] loadStartedAt: $from');
+      print('[ROUTE_DEBUG] Fetching position history from $from to $to');
+      final points = await TraccarService.fetchPositionHistory(
+        username: _traccarUsername,
+        password: _traccarPassword,
+        deviceId: deviceId,
+        from: from,
+        to: to,
+      );
+      print('[ROUTE_DEBUG] Points returned: ${points.length}');
+
+      if (!mounted) return;
+      // Single staleness guard for BOTH the KM figure and the route
+      // polyline below — a fetch for a record the user has since moved
+      // away from (different bill tapped/selected, or this cycle's own
+      // fresh selectedRef check in _refreshPositions already moved on)
+      // must not overwrite what's currently displayed with stale data.
+      // Compares the exact record reference, not just a truck number —
+      // see _selectedRouteRecordRef's doc comment for why that matters.
+      if (recordRef.path != _selectedRouteRecordRef?.path) return;
+
+      // Reuses this same position-history fetch for the sidebar's live
+      // Total KM figure (see _LiveTrackingSidebar.liveKmUpdate) instead of
+      // a second, separate Traccar call.
+      var totalMeters = 0.0;
+      for (var i = 1; i < points.length; i++) {
+        totalMeters += Geolocator.distanceBetween(
+          points[i - 1]['latitude']!,
+          points[i - 1]['longitude']!,
+          points[i]['latitude']!,
+          points[i]['longitude']!,
+        );
+      }
+      setState(() => _liveTotalKmForSelectedRoute = totalMeters / 1000);
+
+      _animateRoute(
+        truckNumber,
+        points.map((p) => LatLng(p['latitude']!, p['longitude']!)).toList(),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Failed to load route: $e')));
+      }
+    }
+  }
+
+  // Sidebar's Bill Select callback (see _LiveTrackingSidebar.onBillSelected)
+  // — resolves the truck's numeric Traccar device id from the same
+  // _truckMarkerInfo the map markers already use (populated by
+  // _refreshPositions' 15s cycle), rather than a fresh fetchDevices() call.
+  void _onSidebarBillSelected(
+    String truckNumber,
+    DateTime from,
+    DateTime to,
+    DocumentReference<Map<String, dynamic>> recordRef,
+  ) {
+    _TruckMarkerInfo? info;
+    for (final candidate in _truckMarkerInfo.values) {
+      if (candidate.truckNumber == truckNumber) {
+        info = candidate;
+        break;
+      }
+    }
+    if (info == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('No live GPS data available for this truck.'),
+        ),
+      );
+      return;
+    }
+    // Tracked so _refreshPositions' 15s cycle keeps this exact record's
+    // route extended while it's still active. If the selected bill was
+    // already completed (a historical to, not "now"), the very next
+    // refresh cycle's own isCompleted check on this record clears this
+    // again — see _refreshPositions.
+    // Temporary — see _onTruckTapped's matching print. Remove once
+    // confirmed.
+    print(
+      '[ROUTE_SELECT_DEBUG] _onSidebarBillSelected: truck=$truckNumber, '
+      'previous=${_selectedRouteRecordRef?.path}, new=${recordRef.path}',
+    );
+    _selectedRouteRecordRef = recordRef;
+    _selectedRouteTruckNumber = truckNumber;
+    // Reset rather than leaving the previously-selected bill's figure
+    // showing until this bill's own fetch lands inside _drawRouteForTruck.
+    setState(() => _liveTotalKmForSelectedRoute = null);
+    _drawRouteForTruck(
+      recordRef: recordRef,
+      truckNumber: truckNumber,
+      deviceId: info.deviceId,
+      from: from,
+      to: to,
+    );
+  }
+
+  // Tick interval for _animateRoute — fixed and small enough (within the
+  // 30-50ms range) to look smooth. How many points get added per tick is
+  // derived from the route length (see _animateRoute) so the whole route
+  // finishes drawing in roughly this duration regardless of how many points
+  // it has.
+  static const _routeAnimationTick = Duration(milliseconds: 40);
+  static const _routeAnimationDuration = Duration(milliseconds: 1500);
+
+  // Progressively draws the route polyline point-by-point instead of
+  // setting the whole thing at once, so it reads as the route being drawn
+  // live rather than appearing instantly. When this is called again for the
+  // same truck with a longer point list that still starts where the
+  // current one does (see _refreshPositions' live route extension), it
+  // continues animating from wherever the line currently ends instead of
+  // restarting from scratch — otherwise every 15s refresh would flash the
+  // whole route back to a single point before redrawing it.
+  void _animateRoute(String truckNumber, List<LatLng> fullPoints) {
+    final isExtendingSameRoute =
+        truckNumber == _activeRouteTruckNumber &&
+        _fullRoutePoints.isNotEmpty &&
+        fullPoints.length >= _fullRoutePoints.length &&
+        fullPoints.first.latitude == _fullRoutePoints.first.latitude &&
+        fullPoints.first.longitude == _fullRoutePoints.first.longitude;
+    final previousAnimatedCount = _animatedRoutePoints.length;
+
+    _routeAnimationTimer?.cancel();
+    _activeRouteTruckNumber = truckNumber;
+    _fullRoutePoints = fullPoints;
+
+    if (_fullRoutePoints.length <= 1) {
+      _animatedRoutePoints = _fullRoutePoints;
+      setState(() => _polylines = _buildRoutePolylines());
+      return;
+    }
+
+    final totalTicks =
+        (_routeAnimationDuration.inMilliseconds /
+                _routeAnimationTick.inMilliseconds)
+            .ceil();
+    final pointsPerTick = max(1, (_fullRoutePoints.length / totalTicks).ceil());
+
+    final startCount = isExtendingSameRoute
+        ? min(previousAnimatedCount, _fullRoutePoints.length)
+        : 1;
+    _animatedRoutePoints = _fullRoutePoints.sublist(0, max(1, startCount));
+    setState(() => _polylines = _buildRoutePolylines());
+
+    if (_animatedRoutePoints.length >= _fullRoutePoints.length) return;
+
+    _routeAnimationTimer = Timer.periodic(_routeAnimationTick, (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      final nextCount = min(
+        _animatedRoutePoints.length + pointsPerTick,
+        _fullRoutePoints.length,
+      );
+      setState(() {
+        _animatedRoutePoints = _fullRoutePoints.sublist(0, nextCount);
+        _polylines = _buildRoutePolylines();
+      });
+      if (nextCount >= _fullRoutePoints.length) {
+        timer.cancel();
+      }
+    });
+  }
+
+  Set<Polyline> _buildRoutePolylines() {
+    if (_animatedRoutePoints.isEmpty || _activeRouteTruckNumber == null) {
+      return {};
+    }
+    return {
+      Polyline(
+        polylineId: PolylineId(_activeRouteTruckNumber!),
+        points: _animatedRoutePoints,
+        color: Colors.blue,
+        width: 4,
+      ),
+    };
+  }
+
+  // One-time fetch (not a stream, not on the truck-position timer) — a
+  // plain full-collection get() + client-side latitude/longitude filter
+  // rather than a Firestore query, since Firestore only allows one
+  // inequality/not-null filter per query and this needs both fields set.
+  // "sites" is a small reference collection, so fetching it whole is cheap.
+  Future<void> _loadSiteMarkers() async {
+    try {
+      final snap = await FirebaseFirestore.instance.collection('sites').get();
+      print('[SITE_MARKER_DEBUG] Total sites fetched: ${snap.docs.length}');
+      final markers = <Marker>{};
+      var validCount = 0;
+      for (final doc in snap.docs) {
+        final data = doc.data();
+        final siteName = (data['name'] ?? '').toString();
+        // siteGpsLocations() handles both the newer multi-entrance
+        // gpsLocations list and the older single latitude/longitude
+        // fields — one marker per entry, so a multi-gate site shows every
+        // gate on the map, not just one point.
+        final locations = siteGpsLocations(data);
+        print(
+          '[SITE_MARKER_DEBUG] Site: $siteName, '
+          'gpsLocations: ${locations.length}, '
+          'canBeLoadingSite: ${data['canBeLoadingSite']}',
+        );
+        if (locations.isEmpty) continue;
+        // Defaults to true when absent (see _addSite), matching every other
+        // loading-capability check already in this codebase.
+        final canBeLoadingSite = data['canBeLoadingSite'] != false;
+        for (var i = 0; i < locations.length; i++) {
+          final lat = (locations[i]['latitude'] as num?)?.toDouble();
+          final lng = (locations[i]['longitude'] as num?)?.toDouble();
+          if (lat == null || lng == null) continue;
+          validCount++;
+          final label = (locations[i]['label'] ?? 'Location ${i + 1}')
+              .toString();
+          markers.add(
+            Marker(
+              markerId: MarkerId('site_${doc.id}_$i'),
+              position: LatLng(lat, lng),
+              // Loading takes priority when a site is both — green if it
+              // can be loaded at all, blue otherwise (covers both the
+              // unloading-only and neither case the same way).
+              icon: BitmapDescriptor.defaultMarkerWithHue(
+                canBeLoadingSite
+                    ? BitmapDescriptor.hueGreen
+                    : BitmapDescriptor.hueBlue,
+              ),
+              infoWindow: InfoWindow(title: '$siteName ($label)'),
+              onTap: () => _showSiteLoadCountDialog(siteName),
+            ),
+          );
+        }
+      }
+      print('[SITE_MARKER_DEBUG] Sites with valid coordinates: $validCount');
+      if (!mounted) return;
+      setState(() => _siteMarkers = markers);
+      print('[SITE_MARKER_DEBUG] Final marker count: ${_siteMarkers.length}');
+    } catch (e) {
+      debugPrint('Failed to load site markers: $e');
+    }
+  }
+
+  Future<_SiteLoadCounts> _fetchSiteLoadCounts(String siteName) async {
+    // Single equality filter, same as _onTruckTapped's active-load lookup —
+    // no orderBy paired with it, so no composite Firestore index risk.
+    final snap = await FirebaseFirestore.instance
+        .collectionGroup('work_records')
+        .where('siteName', isEqualTo: siteName)
+        .get();
+    final today = DateTime.now();
+    final todayString =
+        "${today.year}-${today.month.toString().padLeft(2, '0')}-${today.day.toString().padLeft(2, '0')}";
+    var todayCount = 0;
+    for (final doc in snap.docs) {
+      if (doc.data()['date'] == todayString) todayCount++;
+    }
+    return _SiteLoadCounts(total: snap.docs.length, today: todayCount);
+  }
+
+  void _showSiteLoadCountDialog(String siteName) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(siteName),
+        content: SizedBox(
+          width: 260,
+          child: FutureBuilder<_SiteLoadCounts>(
+            future: _fetchSiteLoadCounts(siteName),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 24),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(height: 12),
+                        Text('Loading counts...'),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              if (snapshot.hasError) {
+                return Text('Failed to load counts: ${snapshot.error}');
+              }
+              final counts = snapshot.data!;
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Total Loads: ${counts.total}',
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 16,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    "Today's Loads: ${counts.today}",
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Opens the Trucks -> Bill -> KM sidebar as a draggable bottom sheet on
+  // narrow screens (see build()) — the map itself is the primary content
+  // there, so the sidebar becomes an on-demand overlay instead of a
+  // permanent side panel. Closes itself as soon as a bill is selected (same
+  // "Live Total KM" flow build()'s onBillSelected wiring already drives),
+  // so picking a bill drops straight back into the map with the route just
+  // drawn — no separate step to dismiss the sheet.
+  void _showSidebarBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.55,
+        minChildSize: 0.3,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (context, scrollController) => DecoratedBox(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: Column(
+            children: [
+              const SizedBox(height: 8),
+              Container(
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: Colors.grey[400],
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              Expanded(
+                child: _LiveTrackingSidebar(
+                  onBillSelected: (truckNumber, from, to, recordRef) {
+                    Navigator.pop(sheetContext);
+                    _onSidebarBillSelected(truckNumber, from, to, recordRef);
+                  },
+                  liveKmUpdate: _liveTotalKmForSelectedRoute,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // google_maps_flutter renders via the platform's native Maps SDK on
+    // both web and Android (see AndroidManifest.xml's Maps API key), so
+    // this same widget tree works unchanged on mobile — no
+    // platform-specific branch needed here.
+    //
+    // Same WebAppShell.desktopBreakpoint (900px) the Garage/GPS Devices
+    // screens use — above it, today's side-by-side Row (unchanged); below
+    // it, the map becomes the full-screen primary content (this is a live
+    // GPS map, not a form or list — squeezing it next to a fixed sidebar
+    // the way a list/detail screen could tolerate would make it far less
+    // usable) and the Trucks->Bill->KM sidebar moves into an on-demand
+    // bottom sheet instead, opened via the FAB below.
+    final isWide =
+        MediaQuery.of(context).size.width > WebAppShell.desktopBreakpoint;
+
+    final mapStack = Stack(
+      children: [
+        GoogleMap(
+          initialCameraPosition: _initialCameraPosition,
+          markers: {..._markers, ..._siteMarkers},
+          polylines: _polylines,
+          myLocationButtonEnabled: false,
+        ),
+        if (!_iconReady)
+          const Positioned.fill(
+            child: IgnorePointer(
+              child: Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        if (_errorText != null)
+          Positioned(
+            top: 12,
+            left: 12,
+            right: 12,
+            child: Material(
+              color: Colors.red[700],
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text(
+                  _errorText!,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
 
     return Scaffold(
       appBar: AppBar(
@@ -23241,40 +29031,331 @@ class _LiveTrackingScreenState extends State<LiveTrackingScreen> {
         backgroundColor: AppTheme.primaryDark,
         foregroundColor: Colors.white,
       ),
-      body: Stack(
-        children: [
-          GoogleMap(
-            initialCameraPosition: _initialCameraPosition,
-            markers: _markers,
-            myLocationButtonEnabled: false,
-          ),
-          if (!_iconReady)
-            const Positioned.fill(
-              child: IgnorePointer(
-                child: Center(child: CircularProgressIndicator()),
+      body: isWide
+          ? Row(
+              children: [
+                SizedBox(
+                  width: 300,
+                  child: _LiveTrackingSidebar(
+                    onBillSelected: _onSidebarBillSelected,
+                    liveKmUpdate: _liveTotalKmForSelectedRoute,
+                  ),
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(child: mapStack),
+              ],
+            )
+          : mapStack,
+      floatingActionButton: isWide
+          ? null
+          : FloatingActionButton.extended(
+              onPressed: _showSidebarBottomSheet,
+              backgroundColor: AppTheme.primaryDark,
+              icon: const Icon(Icons.local_shipping, color: Colors.white),
+              label: const Text(
+                'Trucks',
+                style: TextStyle(color: Colors.white),
               ),
             ),
-          if (_errorText != null)
-            Positioned(
-              top: 12,
-              left: 12,
-              right: 12,
-              child: Material(
-                color: Colors.red[700],
-                borderRadius: BorderRadius.circular(8),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
+    );
+  }
+}
+
+// Live Tracking's left sidebar — Truck -> Bill Number -> KM detail drill
+// down. Self-contained (does its own Firestore/Traccar fetching) so it
+// doesn't need to touch _LiveTrackingScreenState's existing marker state at
+// all; see LiveTrackingScreen's build() for where this plugs in. The one
+// exception is onBillSelected, which reports a selected bill's
+// loadStartedAt/loadCompletedAt (or now) up to the parent so it can draw
+// that load's route on the map via its existing route-drawing logic (see
+// _LiveTrackingScreenState._onSidebarBillSelected/_drawRouteForTruck).
+class _LiveTrackingSidebar extends StatefulWidget {
+  final void Function(
+    String truckNumber,
+    DateTime from,
+    DateTime to,
+    DocumentReference<Map<String, dynamic>> recordRef,
+  )
+  onBillSelected;
+  // Live Total KM for the currently-selected bill, lifted up from
+  // _LiveTrackingScreenState (see its _liveTotalKmForSelectedRoute) —
+  // computed there from the same position-history fetch that draws the
+  // route polyline, so this sidebar makes no Traccar calls of its own for
+  // this figure. Null until the first fetch for the current selection
+  // lands.
+  final double? liveKmUpdate;
+
+  const _LiveTrackingSidebar({
+    required this.onBillSelected,
+    required this.liveKmUpdate,
+  });
+
+  @override
+  State<_LiveTrackingSidebar> createState() => _LiveTrackingSidebarState();
+}
+
+class _LiveTrackingSidebarState extends State<_LiveTrackingSidebar> {
+  String? _selectedTruckNumber;
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>>? _billsFuture;
+  QueryDocumentSnapshot<Map<String, dynamic>>? _selectedBillDoc;
+
+  // gpsDeviceId is no longer tracked here — now that _fetchTotalKm is gone
+  // (see liveKmUpdate), this sidebar no longer needs it for anything of
+  // its own; the parent resolves a truck's numeric Traccar device id from
+  // its own _truckMarkerInfo instead (see _onSidebarBillSelected).
+  void _selectTruck(String truckNumber) {
+    setState(() {
+      _selectedTruckNumber = truckNumber;
+      _selectedBillDoc = null;
+      _billsFuture = _fetchBillsForTruck(truckNumber);
+    });
+  }
+
+  void _selectBill(QueryDocumentSnapshot<Map<String, dynamic>> doc) {
+    setState(() => _selectedBillDoc = doc);
+    final data = doc.data();
+    final loadStartedAt = data['loadStartedAt'] as Timestamp?;
+    // No loadStartedAt means no route to draw — same guard
+    // _onTruckTapped's own lookup uses.
+    if (loadStartedAt == null || _selectedTruckNumber == null) return;
+    final loadCompletedAt = data['loadCompletedAt'] as Timestamp?;
+    widget.onBillSelected(
+      _selectedTruckNumber!,
+      loadStartedAt.toDate(),
+      loadCompletedAt?.toDate() ?? DateTime.now(),
+      doc.reference,
+    );
+  }
+
+  // Recent 20 work_records for the selected truck, sorted client-side by
+  // loadStartedAt descending — a single truckNumber equality filter with no
+  // orderBy, same composite-index-avoidance reasoning as every other
+  // collectionGroup('work_records') query in this codebase (see
+  // AutoArrivalDetectionService.checkAllActiveLoads' doc comment).
+  Future<List<QueryDocumentSnapshot<Map<String, dynamic>>>> _fetchBillsForTruck(
+    String truckNumber,
+  ) async {
+    final snap = await FirebaseFirestore.instance
+        .collectionGroup('work_records')
+        .where('truckNumber', isEqualTo: truckNumber)
+        .get();
+    final docs = snap.docs.toList()
+      ..sort((a, b) {
+        final aTime = a.data()['loadStartedAt'] as Timestamp?;
+        final bTime = b.data()['loadStartedAt'] as Timestamp?;
+        if (aTime == null && bTime == null) return 0;
+        if (aTime == null) return 1;
+        if (bTime == null) return -1;
+        return bTime.compareTo(aTime);
+      });
+    return docs.take(20).toList();
+  }
+
+  // A private load's auto-completed unloadingSiteName is left empty (see
+  // AutoArrivalDetectionService._checkPrivateLoadReturn) — this fills in
+  // the same human-readable label for display here.
+  String _displayEndLocation(Map<String, dynamic> data) {
+    final raw = (data['unloadingSiteName'] ?? '').toString();
+    if (raw.isEmpty || raw.contains('Private Delivery')) {
+      return 'Private Delivery (GPS Auto-Detected)';
+    }
+    return raw;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Text(
+            'Trucks',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+        ),
+        Expanded(
+          child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+            stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
+            builder: (context, snapshot) {
+              final docs = snapshot.data?.docs ?? [];
+              final trucksWithGps = docs.where((doc) {
+                final gpsDeviceId = (doc.data()['gpsDeviceId'] as String?)
+                    ?.trim();
+                return gpsDeviceId != null && gpsDeviceId.isNotEmpty;
+              }).toList();
+              if (trucksWithGps.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.all(12),
                   child: Text(
-                    _errorText!,
-                    style: const TextStyle(color: Colors.white),
+                    'No trucks have a GPS Device ID set yet.',
+                    style: TextStyle(fontSize: 12),
                   ),
+                );
+              }
+              return ListView.builder(
+                itemCount: trucksWithGps.length,
+                itemBuilder: (context, index) {
+                  final doc = trucksWithGps[index];
+                  final truckNumber = (doc.data()['truckNumber'] ?? '')
+                      .toString();
+                  final isSelected = truckNumber == _selectedTruckNumber;
+                  return ListTile(
+                    dense: true,
+                    selected: isSelected,
+                    selectedTileColor: AppTheme.primaryMid.withOpacity(0.08),
+                    leading: const Icon(Icons.local_shipping),
+                    title: Text(truckNumber),
+                    onTap: () => _selectTruck(truckNumber),
+                  );
+                },
+              );
+            },
+          ),
+        ),
+        const Divider(height: 1),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(12, 12, 12, 4),
+          child: Text(
+            'Bill Numbers',
+            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+          ),
+        ),
+        Expanded(
+          child: _selectedTruckNumber == null
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'Select a truck to view its bill numbers.',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                )
+              : FutureBuilder<
+                  List<QueryDocumentSnapshot<Map<String, dynamic>>>
+                >(
+                  future: _billsFuture,
+                  builder: (context, snapshot) {
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: CircularProgressIndicator());
+                    }
+                    if (snapshot.hasError) {
+                      return Padding(
+                        padding: const EdgeInsets.all(12),
+                        child: Text(
+                          'Failed to load bills: ${snapshot.error}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      );
+                    }
+                    final bills = snapshot.data ?? [];
+                    if (bills.isEmpty) {
+                      return const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: Text(
+                          'No bill records for this truck.',
+                          style: TextStyle(fontSize: 12),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      itemCount: bills.length,
+                      itemBuilder: (context, index) {
+                        final doc = bills[index];
+                        final data = doc.data();
+                        final billNumber = (data['billNumber'] ?? '')
+                            .toString();
+                        final isSelected = doc.id == _selectedBillDoc?.id;
+                        return ListTile(
+                          dense: true,
+                          selected: isSelected,
+                          selectedTileColor: AppTheme.primaryMid.withOpacity(
+                            0.08,
+                          ),
+                          leading: const Icon(Icons.receipt_long),
+                          title: Text(
+                            billNumber.isEmpty
+                                ? '(No Bill Number)'
+                                : billNumber,
+                          ),
+                          onTap: () => _selectBill(doc),
+                        );
+                      },
+                    );
+                  },
+                ),
+        ),
+        if (_selectedBillDoc != null) ...[
+          const Divider(height: 1),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Card(
+              color: AppTheme.primaryMid.withOpacity(0.08),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Live-updated by the parent on every 15s refresh
+                    // cycle while this bill's load is still active — see
+                    // _LiveTrackingScreenState._liveTotalKmForSelectedRoute.
+                    // Freezes at its last value once the load completes
+                    // (that state simply stops being updated), and shows a
+                    // loading indicator until the first fetch for this
+                    // selection lands.
+                    widget.liveKmUpdate == null
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: LinearProgressIndicator(),
+                          )
+                        : Text(
+                            'Total KM: ${widget.liveKmUpdate!.toStringAsFixed(1)} km',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                          ),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Start: '
+                      '${(_selectedBillDoc!.data()['siteName'] ?? '').toString()}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'End: '
+                      '${_displayEndLocation(_selectedBillDoc!.data())}',
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ],
                 ),
               ),
             ),
+          ),
         ],
-      ),
+      ],
     );
   }
+}
+
+// Result of _LiveTrackingScreenState._fetchSiteLoadCounts.
+class _SiteLoadCounts {
+  final int total;
+  final int today;
+  const _SiteLoadCounts({required this.total, required this.today});
+}
+
+// Per-truck marker metadata (everything a Marker needs besides its current
+// position) tracked by _LiveTrackingScreenState, keyed by gpsDeviceId
+// uniqueId — see _buildMarkersFromDisplayedPositions.
+class _TruckMarkerInfo {
+  final String truckNumber;
+  final int deviceId;
+  final String speedKmh;
+  const _TruckMarkerInfo({
+    required this.truckNumber,
+    required this.deviceId,
+    required this.speedKmh,
+  });
 }
 
 // ---------------- USER PROFILE SCREEN ----------------
@@ -25141,8 +31222,60 @@ class _VehicleRegistrationScreenState extends State<VehicleRegistrationScreen>
       ),
       body: TabBarView(
         controller: _tabController,
-        children: const [TruckManagementScreen(), _QrGenerateTab()],
+        children: const [_VehicleRegistrationTab(), _QrGenerateTab()],
       ),
+    );
+  }
+}
+
+// Tab 1's Truck/Bike switch. Trucks and bikes are separate collections with
+// separate forms (see the Isolated Design note on kBikesCollection), so this
+// just picks which of the two existing screens to show — neither form knows
+// about the other. The QR Generate tab (Tab 2) stays truck-only: bikes have
+// no QR workflow.
+class _VehicleRegistrationTab extends StatefulWidget {
+  const _VehicleRegistrationTab();
+
+  @override
+  State<_VehicleRegistrationTab> createState() => _VehicleRegistrationTabState();
+}
+
+class _VehicleRegistrationTabState extends State<_VehicleRegistrationTab> {
+  bool _isBike = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<bool>(
+              segments: const [
+                ButtonSegment<bool>(
+                  value: false,
+                  label: Text('Truck'),
+                  icon: Icon(Icons.local_shipping),
+                ),
+                ButtonSegment<bool>(
+                  value: true,
+                  label: Text('Bike'),
+                  icon: Icon(Icons.two_wheeler),
+                ),
+              ],
+              selected: {_isBike},
+              onSelectionChanged: (selection) =>
+                  setState(() => _isBike = selection.first),
+            ),
+          ),
+        ),
+        Expanded(
+          child: _isBike
+              ? const BikeManagementScreen()
+              : const TruckManagementScreen(),
+        ),
+      ],
     );
   }
 }
@@ -25160,6 +31293,7 @@ class _QrGenerateTabState extends State<_QrGenerateTab> {
   String? _selectedDriverName;
   double? _selectedCubeCapacity;
   String? _qrData;
+  final _qrCaptureKey = GlobalKey();
 
   void _onTruckSelected(String truckId, Map<String, dynamic> data) {
     setState(() {
@@ -25173,15 +31307,165 @@ class _QrGenerateTabState extends State<_QrGenerateTab> {
     });
   }
 
+  // Deterministic on purpose: the QR only ever encodes the truck number, so
+  // regenerating it later (a lost sticker, say) always produces the exact
+  // same code — driver assignment and cube capacity are mutable fields that
+  // would otherwise silently stale a printed sticker every time either one
+  // changes. QR Scan (WorkSessionScreen._openQrScanner) looks those up live
+  // from Firestore at scan time instead of trusting embedded values.
   void _generateQrCode() {
     if (_selectedTruckNumber == null) return;
     setState(() {
-      _qrData = jsonEncode({
-        'truckNumber': _selectedTruckNumber,
-        'driverName': _selectedDriverName ?? '',
-        'cube': _selectedCubeCapacity,
-      });
+      _qrData = jsonEncode({'truckNumber': _selectedTruckNumber});
     });
+  }
+
+  // Captures the RepaintBoundary wrapping the QR + Truck Number card (see
+  // build()) as a PNG and triggers a browser download — safe to call here
+  // since it's a delayed, user-triggered action well after the widget has
+  // already been laid out and painted (unlike LiveTrackingScreen's earlier
+  // truck-marker icon, which hit an "Assertion failed: !debugNeedsPaint"
+  // error from calling toImage() too early, right after the first frame).
+  Future<void> _downloadQrCode() async {
+    try {
+      final boundary =
+          _qrCaptureKey.currentContext?.findRenderObject()
+              as RenderRepaintBoundary?;
+      if (boundary == null) return;
+      final image = await boundary.toImage(pixelRatio: 3);
+      final byteData = await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData == null) return;
+      final bytes = byteData.buffer.asUint8List();
+      qr_download.downloadPngBytes(bytes, '${_selectedTruckNumber}_QR.png');
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Failed to download QR code: $e')),
+        );
+      }
+    }
+  }
+
+  // Search-bottom-sheet pattern, same as NewWorkDialog's
+  // _showUnloadingSitePicker: a search TextField over a scrollable filtered
+  // list, tap to select. No "add new" option here, unlike that one — a
+  // truck not yet registered belongs in Truck Registration (Tab 1), not
+  // invented inline from the QR Generate tab.
+  Future<void> _showTruckSearchPicker() async {
+    final selected = await showModalBottomSheet<Map<String, dynamic>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) {
+        String searchText = '';
+        return StatefulBuilder(
+          builder: (sheetContext, setSheetState) {
+            return Padding(
+              padding: EdgeInsets.only(
+                bottom: MediaQuery.of(sheetContext).viewInsets.bottom,
+              ),
+              child: SizedBox(
+                height: MediaQuery.of(sheetContext).size.height * 0.75,
+                child: Column(
+                  children: [
+                    const SizedBox(height: 12),
+                    Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: TextField(
+                        autofocus: true,
+                        decoration: InputDecoration(
+                          hintText: 'Search truck number',
+                          prefixIcon: const Icon(Icons.search),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onChanged: (val) =>
+                            setSheetState(() => searchText = val),
+                      ),
+                    ),
+                    Expanded(
+                      child: StreamBuilder<QuerySnapshot>(
+                        stream: FirebaseFirestore.instance
+                            .collection('trucks')
+                            .snapshots(),
+                        builder: (context, snapshot) {
+                          if (!snapshot.hasData) {
+                            return const Center(
+                              child: CircularProgressIndicator(),
+                            );
+                          }
+                          final trimmedSearch = searchText.trim().toLowerCase();
+                          final filtered = snapshot.data!.docs.where((doc) {
+                            final data = doc.data() as Map<String, dynamic>;
+                            final truckNumber = (data['truckNumber'] ?? '')
+                                .toString();
+                            return truckNumber.toLowerCase().contains(
+                              trimmedSearch,
+                            );
+                          }).toList();
+                          if (filtered.isEmpty) {
+                            return const Center(
+                              child: Text('No trucks found.'),
+                            );
+                          }
+                          return ListView(
+                            children: [
+                              for (final doc in filtered)
+                                Builder(
+                                  builder: (context) {
+                                    final data =
+                                        doc.data() as Map<String, dynamic>;
+                                    return ListTile(
+                                      leading: const Icon(
+                                        Icons.local_shipping,
+                                        color: Colors.deepOrange,
+                                      ),
+                                      title: Text(
+                                        (data['truckNumber'] ?? '').toString(),
+                                      ),
+                                      subtitle: Text(
+                                        (data['assignedDriverName']
+                                                as String?) ??
+                                            'Not assigned',
+                                      ),
+                                      onTap: () => Navigator.pop(sheetContext, {
+                                        'id': doc.id,
+                                        'data': data,
+                                      }),
+                                    );
+                                  },
+                                ),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+
+    if (selected != null) {
+      _onTruckSelected(
+        selected['id'] as String,
+        selected['data'] as Map<String, dynamic>,
+      );
+    }
   }
 
   Widget _readOnlyField(String label, String value) {
@@ -25218,39 +31502,27 @@ class _QrGenerateTabState extends State<_QrGenerateTab> {
             style: TextStyle(fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          StreamBuilder<QuerySnapshot>(
-            stream: FirebaseFirestore.instance.collection('trucks').snapshots(),
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator());
-              }
-              final trucks = snapshot.data!.docs;
-              return DropdownButtonFormField<String>(
-                initialValue: _selectedTruckId,
-                decoration: InputDecoration(
-                  labelText: 'Truck Number',
-                  prefixIcon: const Icon(Icons.local_shipping),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
+          InkWell(
+            borderRadius: BorderRadius.circular(12),
+            onTap: _showTruckSearchPicker,
+            child: InputDecorator(
+              decoration: InputDecoration(
+                labelText: 'Truck Number',
+                prefixIcon: const Icon(Icons.local_shipping),
+                suffixIcon: const Icon(Icons.search, size: 18),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
                 ),
-                items: trucks.map((doc) {
-                  final data = doc.data() as Map<String, dynamic>;
-                  return DropdownMenuItem<String>(
-                    value: doc.id,
-                    child: Text((data['truckNumber'] ?? '').toString()),
-                  );
-                }).toList(),
-                onChanged: (val) {
-                  if (val == null) return;
-                  final selected = trucks.firstWhere((d) => d.id == val);
-                  _onTruckSelected(
-                    val,
-                    selected.data() as Map<String, dynamic>,
-                  );
-                },
-              );
-            },
+              ),
+              child: Text(
+                _selectedTruckNumber ?? 'Search or select a truck',
+                style: TextStyle(
+                  color: _selectedTruckNumber == null
+                      ? Colors.grey[600]
+                      : Colors.black87,
+                ),
+              ),
+            ),
           ),
           if (_selectedTruckId != null) ...[
             const SizedBox(height: 16),
@@ -25286,19 +31558,49 @@ class _QrGenerateTabState extends State<_QrGenerateTab> {
           if (_qrData != null) ...[
             const SizedBox(height: 24),
             Center(
-              child: Card(
-                color: Colors.white,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: QrImageView(
-                    data: _qrData!,
-                    version: QrVersions.auto,
-                    size: 200,
-                    backgroundColor: Colors.white,
+              child: RepaintBoundary(
+                key: _qrCaptureKey,
+                child: Card(
+                  color: Colors.white,
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        QrImageView(
+                          data: _qrData!,
+                          version: QrVersions.auto,
+                          size: 200,
+                          backgroundColor: Colors.white,
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          _selectedTruckNumber ?? '',
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
+            if (kIsWeb) ...[
+              const SizedBox(height: 16),
+              Center(
+                child: SizedBox(
+                  width: 220,
+                  height: 44,
+                  child: OutlinedButton.icon(
+                    onPressed: _downloadQrCode,
+                    icon: const Icon(Icons.download),
+                    label: const Text('Download QR Code'),
+                  ),
+                ),
+              ),
+            ],
           ],
         ],
       ),
@@ -25318,8 +31620,11 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
   final _truckNumberController = TextEditingController();
   final _gpsDeviceIdController = TextEditingController();
   final _cubeCapacityController = TextEditingController();
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
   String? _selectedDriverUid;
   String? _selectedDriverName;
+  bool _isCompanyTruck = false;
 
   Future<void> _addTruck() async {
     final enteredTruckNumber = _truckNumberController.text.trim();
@@ -25364,6 +31669,7 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
       'assignedDriverName': _selectedDriverName,
       'gpsDeviceId': enteredGpsDeviceId.isEmpty ? null : enteredGpsDeviceId,
       'cubeCapacity': enteredCubeCapacity,
+      'isCompanyTruck': _isCompanyTruck,
       'createdAt': FieldValue.serverTimestamp(),
     });
 
@@ -25373,6 +31679,7 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
     setState(() {
       _selectedDriverUid = null;
       _selectedDriverName = null;
+      _isCompanyTruck = false;
     });
 
     if (mounted) {
@@ -25473,6 +31780,17 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                     ),
                   ),
                 ),
+                // Garage module (see GarageScreen) — only company trucks
+                // with a GPS device are eligible for KM-based service
+                // tracking there.
+                CheckboxListTile(
+                  title: const Text('Is Company Truck?'),
+                  value: _isCompanyTruck,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (val) =>
+                      setState(() => _isCompanyTruck = val ?? false),
+                ),
                 const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
@@ -25496,6 +31814,29 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
             ),
           ),
           const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                labelText: 'Search by Truck Number',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
           Expanded(
             child: StreamBuilder<QuerySnapshot>(
               stream: FirebaseFirestore.instance
@@ -25510,7 +31851,25 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                   return const Center(child: Text('No trucks added yet.'));
                 }
 
-                final trucks = snapshot.data!.docs;
+                // Client-side filter over the same stream's data — no
+                // separate Firestore query, matches as the typed text
+                // appears anywhere in the truck number, case-insensitive.
+                final query = _searchQuery.trim().toLowerCase();
+                final trucks = query.isEmpty
+                    ? snapshot.data!.docs
+                    : snapshot.data!.docs.where((doc) {
+                        final data = doc.data() as Map<String, dynamic>;
+                        final truckNumber = (data['truckNumber'] ?? '')
+                            .toString()
+                            .toLowerCase();
+                        return truckNumber.contains(query);
+                      }).toList();
+
+                if (trucks.isEmpty) {
+                  return Center(
+                    child: Text("No trucks found matching '$_searchQuery'"),
+                  );
+                }
 
                 return ListView.builder(
                   padding: const EdgeInsets.all(12),
@@ -25559,6 +31918,369 @@ class _TruckManagementScreenState extends State<TruckManagementScreen> {
                                 ),
                               );
                             },
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                );
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------- BIKE MANAGEMENT SCREEN ----------------
+// Bike equivalent of TruckManagementScreen above, writing to the separate
+// bikes collection. Deliberately NOT folded into that screen: truck
+// documents drive the QR system, GPS live tracking and every work_record
+// flow, none of which apply to a bike — the only thing the two share is the
+// Garage's KM-since-service tracking (see GarageService).
+class BikeManagementScreen extends StatefulWidget {
+  const BikeManagementScreen({super.key});
+
+  @override
+  State<BikeManagementScreen> createState() => _BikeManagementScreenState();
+}
+
+class _BikeManagementScreenState extends State<BikeManagementScreen> {
+  final _bikeNumberController = TextEditingController();
+  final _driverNameController = TextEditingController();
+  final _gpsDeviceIdController = TextEditingController();
+  final _searchController = TextEditingController();
+  String _searchQuery = '';
+  bool _isCompanyBike = true;
+
+  @override
+  void dispose() {
+    _bikeNumberController.dispose();
+    _driverNameController.dispose();
+    _gpsDeviceIdController.dispose();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _addBike() async {
+    final enteredBikeNumber = _bikeNumberController.text.trim();
+    if (enteredBikeNumber.isEmpty) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Please enter a bike number.')));
+      return;
+    }
+
+    final existingBikes = await FirebaseFirestore.instance
+        .collection(kBikesCollection)
+        .get();
+    final normalizedEntry = enteredBikeNumber.toUpperCase();
+    final isDuplicate = existingBikes.docs.any((doc) {
+      final existingNumber =
+          (doc.data()['bikeNumber'] as String?)?.trim().toUpperCase() ?? '';
+      return existingNumber == normalizedEntry;
+    });
+
+    if (isDuplicate) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('This bike number is already registered.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    final enteredDriverName = _driverNameController.text.trim();
+    final enteredGpsDeviceId = _gpsDeviceIdController.text.trim();
+
+    await FirebaseFirestore.instance.collection(kBikesCollection).add({
+      'bikeNumber': enteredBikeNumber,
+      'driverName': enteredDriverName.isEmpty ? null : enteredDriverName,
+      'gpsDeviceId': enteredGpsDeviceId.isEmpty ? null : enteredGpsDeviceId,
+      'isCompanyBike': _isCompanyBike,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+
+    _bikeNumberController.clear();
+    _driverNameController.clear();
+    _gpsDeviceIdController.clear();
+    setState(() => _isCompanyBike = true);
+
+    if (mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Bike added successfully!')));
+    }
+  }
+
+  Future<void> _deleteBike(String docId) async {
+    await FirebaseFirestore.instance
+        .collection(kBikesCollection)
+        .doc(docId)
+        .delete();
+  }
+
+  // Same pattern as TruckProfileScreen._showSetGpsDeviceDialog — a bike can
+  // be registered with GPS Device ID left empty (see _addBike) and this is
+  // how it gets set or changed afterwards.
+  void _showSetGpsDeviceDialog(String bikeId, String? currentDeviceId) {
+    final deviceIdController = TextEditingController(
+      text: currentDeviceId ?? '',
+    );
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Assigned GPS Device'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Enter this bike\'s Traccar Device Identifier (copy it from '
+              'the Traccar Devices list).',
+              style: TextStyle(fontSize: 13, color: Colors.black54),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: deviceIdController,
+              autofocus: true,
+              decoration: const InputDecoration(
+                labelText: 'GPS Device Identifier',
+                hintText: 'e.g. 9210188280',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              final typedId = deviceIdController.text.trim();
+              await FirebaseFirestore.instance
+                  .collection(kBikesCollection)
+                  .doc(bikeId)
+                  .update({'gpsDeviceId': typedId.isEmpty ? null : typedId});
+              if (dialogContext.mounted) Navigator.pop(dialogContext);
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              children: [
+                TextField(
+                  controller: _bikeNumberController,
+                  textCapitalization: TextCapitalization.characters,
+                  decoration: InputDecoration(
+                    labelText: 'Bike Number / Plate',
+                    prefixIcon: const Icon(Icons.two_wheeler),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _driverNameController,
+                  decoration: InputDecoration(
+                    labelText: 'Driver Name (optional)',
+                    prefixIcon: const Icon(Icons.person),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _gpsDeviceIdController,
+                  decoration: InputDecoration(
+                    labelText: 'GPS Device ID (optional)',
+                    hintText: 'Traccar Device Identifier, e.g. 9210188280',
+                    prefixIcon: const Icon(Icons.gps_fixed),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                  ),
+                ),
+                // Garage module (see GarageScreen's Bikes tab) — only
+                // company bikes with a GPS device are eligible for KM-based
+                // service tracking there.
+                CheckboxListTile(
+                  title: const Text('Is Company Bike?'),
+                  value: _isCompanyBike,
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  onChanged: (val) =>
+                      setState(() => _isCompanyBike = val ?? false),
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton.icon(
+                    onPressed: _addBike,
+                    icon: const Icon(Icons.add, color: Colors.white),
+                    label: const Text(
+                      'ADD BIKE',
+                      style: TextStyle(color: Colors.white),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.deepOrange[800],
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: TextField(
+              controller: _searchController,
+              onChanged: (val) => setState(() => _searchQuery = val),
+              decoration: InputDecoration(
+                labelText: 'Search by Bike Number',
+                prefixIcon: const Icon(Icons.search),
+                suffixIcon: _searchQuery.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: () {
+                          _searchController.clear();
+                          setState(() => _searchQuery = '');
+                        },
+                      ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+              stream: FirebaseFirestore.instance
+                  .collection(kBikesCollection)
+                  .orderBy('createdAt', descending: true)
+                  .snapshots(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                if (!snapshot.hasData || snapshot.data!.docs.isEmpty) {
+                  return const Center(child: Text('No bikes added yet.'));
+                }
+
+                final query = _searchQuery.trim().toLowerCase();
+                final bikes = query.isEmpty
+                    ? snapshot.data!.docs
+                    : snapshot.data!.docs.where((doc) {
+                        final bikeNumber = (doc.data()['bikeNumber'] ?? '')
+                            .toString()
+                            .toLowerCase();
+                        return bikeNumber.contains(query);
+                      }).toList();
+
+                if (bikes.isEmpty) {
+                  return Center(
+                    child: Text("No bikes found matching '$_searchQuery'"),
+                  );
+                }
+
+                return ListView.builder(
+                  padding: const EdgeInsets.all(12),
+                  itemCount: bikes.length,
+                  itemBuilder: (context, index) {
+                    final data = bikes[index].data();
+                    final docId = bikes[index].id;
+                    final bikeNumber = (data['bikeNumber'] ?? '').toString();
+                    final gpsDeviceId = data['gpsDeviceId'] as String?;
+
+                    return _WebStaggeredFadeIn(
+                      index: index,
+                      child: _WebHoverCard(
+                        child: Card(
+                          margin: const EdgeInsets.only(bottom: 10),
+                          child: ListTile(
+                            isThreeLine: true,
+                            leading: CircleAvatar(
+                              backgroundColor: Colors.deepOrange.withOpacity(
+                                0.15,
+                              ),
+                              child: const Icon(
+                                Icons.two_wheeler,
+                                color: Colors.deepOrange,
+                              ),
+                            ),
+                            title: Text(bikeNumber),
+                            subtitle: Text(
+                              '${data['driverName'] != null ? 'Driver: ${data['driverName']}' : 'No driver assigned'}\n'
+                              'GPS Device: ${gpsDeviceId ?? 'Not assigned'}',
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                    gpsDeviceId == null
+                                        ? Icons.add_location_alt
+                                        : Icons.gps_fixed,
+                                  ),
+                                  tooltip: gpsDeviceId == null
+                                      ? 'Set GPS Device'
+                                      : 'Change GPS Device',
+                                  onPressed: () => _showSetGpsDeviceDialog(
+                                    docId,
+                                    gpsDeviceId,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.history),
+                                  tooltip: 'View History',
+                                  onPressed: () =>
+                                      showGarageServiceHistoryDialog(
+                                        context: context,
+                                        collectionName: kBikesCollection,
+                                        vehicleId: docId,
+                                        vehicleNumber: bikeNumber,
+                                      ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(
+                                    Icons.delete,
+                                    color: Colors.red,
+                                  ),
+                                  onPressed: () => confirmDelete(
+                                    context: context,
+                                    title: 'Delete Bike?',
+                                    message:
+                                        'Are you sure you want to delete this bike? This cannot be undone.',
+                                    onConfirm: () => _deleteBike(docId),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ),
@@ -26786,6 +33508,8 @@ class TruckProfileScreen extends StatelessWidget {
                               final cubeCapacity =
                                   (truckData?['cubeCapacity'] as num?)
                                       ?.toDouble();
+                              final isCompanyTruck =
+                                  truckData?['isCompanyTruck'] == true;
 
                               return Column(
                                 children: [
@@ -26982,6 +33706,50 @@ class TruckProfileScreen extends StatelessWidget {
                                               color: AppTheme.accent,
                                             ),
                                           ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(height: 16),
+                                  // Garage module (see GarageScreen) — only
+                                  // company trucks are offered there for
+                                  // KM-based service tracking.
+                                  GlassCard(
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.spaceBetween,
+                                      children: [
+                                        Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              'Is Company Truck?',
+                                              style: TextStyle(
+                                                color: Colors.white.withOpacity(
+                                                  0.6,
+                                                ),
+                                                fontSize: 11,
+                                              ),
+                                            ),
+                                            Text(
+                                              isCompanyTruck ? 'Yes' : 'No',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontWeight: FontWeight.bold,
+                                                fontSize: 14,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                        Switch(
+                                          value: isCompanyTruck,
+                                          activeColor: AppTheme.accent,
+                                          onChanged: (val) => FirebaseFirestore
+                                              .instance
+                                              .collection('trucks')
+                                              .doc(truckId)
+                                              .update({'isCompanyTruck': val}),
                                         ),
                                       ],
                                     ),

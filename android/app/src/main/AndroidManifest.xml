@@ -10,6 +10,13 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+    <!-- Garage module daily service-due check (GarageNotificationService) —
+         Android 13+ requires this explicit permission to show any
+         notification at all; SCHEDULE_EXACT_ALARM is unused today (no
+         scheduled/background trigger, see that class's doc comment) but
+         declared for when a true background daily check is added later. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>
     <application
         android:label="NODA Civimech Engineering"
         android:name="${applicationName}"
@@ -41,6 +48,13 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- LiveTrackingScreen (google_maps_flutter) — Android's native
+             Maps SDK needs this key at the <application> level to render
+             the map at all; the web build uses a separate key configured
+             in web/index.html. -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="AIzaSyD6dRgQUliCCS6tl61HLhwZv7TdIhkOq1I" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

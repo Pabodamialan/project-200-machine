@@ -46,6 +46,15 @@ service cloud.firestore {
         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canAccessTransportRecords == true;
     }
 
+    // Garage module access (GarageScreen / AuthGate's routing override),
+    // set per-account via AddUserScreen/ManageUsersScreen's Garage Access
+    // checkbox/toggle — unlike the two above, not role-gated to
+    // management, since Garage Access can be granted to any role.
+    function canAccessGarage() {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.canAccessGarage == true;
+    }
+
     // ---- users ----
     // Read is broad (not owner/admin-restricted): supervisors query other
     // users' profiles for pickers/dropdowns in several places (Machine
@@ -72,6 +81,54 @@ service cloud.firestore {
       allow write: if isAdminOrOwner();
     }
     match /trucks/{truckId} {
+      allow read: if isSignedIn();
+      // canAccessGarage() additionally allowed so a Garage-access account
+      // (any role, see GarageScreen) can toggle isCompanyTruck and log
+      // services (gpsKmBaselineAtLastService/lastServiceMeterKm/
+      // lastServiceDate/serviceIntervalKm) without needing admin/owner.
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    // Bikes — a separate collection from trucks on purpose (bikes have no
+    // QR/GPS-tracking/work_record involvement), registered via
+    // BikeManagementScreen and serviced via GarageScreen's Bikes tab. Same
+    // access shape as trucks above.
+    match /bikes/{bikeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    // Per-vehicle service log appended by GarageService.logService. Rules
+    // do NOT cascade from the parent document match above, so these need
+    // their own rules or every history write/read would be denied.
+    match /trucks/{truckId}/serviceHistory/{entryId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    match /bikes/{bikeId}/serviceHistory/{entryId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    // Per-vehicle, per-service-type tracking (Oil Change every 5000km,
+    // Brake Service every 10000km, ...) appended/updated by
+    // GarageService.addServiceType/updateServiceType/deleteServiceType/
+    // logServiceForType. Same access shape as serviceHistory above, and
+    // same reason it needs its own explicit match block.
+    match /trucks/{truckId}/serviceTypes/{typeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    match /bikes/{bikeId}/serviceTypes/{typeId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner() || canAccessGarage();
+    }
+    // Warehouse Inventory (WarehouseScreen, reachable from AdminDashboard
+    // only) — isolated from trucks/bikes/work_records, same as the Garage
+    // module. No separate access-flag toggle like canAccessGarage exists
+    // for this yet, so it's admin/owner-only for now.
+    match /warehouse_items/{itemId} {
+      allow read: if isSignedIn();
+      allow write: if isAdminOrOwner();
+    }
+    match /warehouse_items/{itemId}/stockMovements/{entryId} {
       allow read: if isSignedIn();
       allow write: if isAdminOrOwner();
     }
